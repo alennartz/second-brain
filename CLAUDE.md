@@ -36,6 +36,10 @@ uv run basedpyright src/
 uv run pre-commit run --all-files
 ```
 
+### Pre-commit hooks
+
+Linting (`ruff check --fix`), formatting (`ruff format`), and type checking (`basedpyright`) run automatically as pre-commit hooks on every `git commit`. Do not run these manually before committing — the hooks will run them and block the commit if there are errors. If a hook fails, fix the reported issues and retry the commit.
+
 ## Environment
 
 Requires a `.env` file (copy from `.env.example`). Key variables use the `BRAIN_` prefix:

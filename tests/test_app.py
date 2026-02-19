@@ -76,3 +76,42 @@ async def test_recall_response_with_context(client):
     assert len(body["context"]["nodes"]) == 1
     assert body["context"]["nodes"][0]["id"] == "note:1"
     assert len(body["context"]["edges"]) == 1
+
+
+async def test_graph_endpoint(client):
+    with (
+        patch("second_brain.app.get_node", new_callable=AsyncMock) as mock_node,
+        patch("second_brain.app.get_connections", new_callable=AsyncMock) as mock_conn,
+    ):
+        mock_node.side_effect = [
+            {"id": "note:1", "content": "test note", "source": "api"},  # main node
+            {"id": "entity:sr", "name": "spaced rep", "type": "concept"},  # other node
+        ]
+        mock_conn.return_value = [
+            {"id": "references:abc", "in": "entity:sr", "out": "note:1"},
+        ]
+        resp = await client.get("/graph/note:1")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["node"]["id"] == "note:1"
+    assert len(data["connections"]) == 1
+    assert data["connections"][0]["node"]["id"] == "entity:sr"
+
+
+async def test_graph_endpoint_404(client):
+    with patch("second_brain.app.get_node", new_callable=AsyncMock) as mock_node:
+        mock_node.return_value = {}
+        resp = await client.get("/graph/note:nonexistent")
+    assert resp.status_code == 404
+
+
+async def test_graph_endpoint_no_connections(client):
+    with (
+        patch("second_brain.app.get_node", new_callable=AsyncMock) as mock_node,
+        patch("second_brain.app.get_connections", new_callable=AsyncMock) as mock_conn,
+    ):
+        mock_node.return_value = {"id": "note:1", "content": "lonely node"}
+        mock_conn.return_value = []
+        resp = await client.get("/graph/note:1")
+    assert resp.status_code == 200
+    assert resp.json()["connections"] == []

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from surrealdb import AsyncSurreal
 
@@ -13,6 +13,7 @@ from second_brain.config import settings
 from second_brain.db import init_schema
 from second_brain.embedding import embed_text, init_vector_indexes
 from second_brain.models import Context, make_serializable
+from second_brain.tools.recall_tools import get_connections, get_node
 
 _db: Any = None
 _ingest_agent = create_ingest_agent()
@@ -52,6 +53,16 @@ class RecallRequest(BaseModel):
 class RecallResponse(BaseModel):
     answer: str
     context: Context | None = None
+
+
+class ConnectionItem(BaseModel):
+    edge: dict
+    node: dict
+
+
+class GraphResponse(BaseModel):
+    node: dict
+    connections: list[ConnectionItem] = []
 
 
 async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
@@ -112,3 +123,31 @@ async def ingest(req: IngestRequest):
 @app.post("/recall", response_model=RecallResponse)
 async def recall(req: RecallRequest):
     return await run_recall_agent(req.question, req.hints if req.hints else None)
+
+
+@app.get("/graph/{record_id:path}", response_model=GraphResponse)
+async def get_graph(record_id: str):
+    node = await get_node(_db, record_id)
+    if not node:
+        raise HTTPException(status_code=404, detail=f"Node {record_id} not found")
+
+    raw_edges = await get_connections(_db, record_id)
+    connections = []
+    for edge in raw_edges:
+        edge_s = make_serializable(edge)
+        # Determine "other" node: if out matches record_id, other is in; else out
+        other_id = (
+            str(edge_s.get("in"))
+            if str(edge_s.get("out")) == record_id
+            else str(edge_s.get("out"))
+        )
+        if other_id:
+            other_node = await get_node(_db, str(other_id))
+            if other_node:
+                connections.append(
+                    ConnectionItem(
+                        edge=edge_s,
+                        node=make_serializable(other_node),
+                    )
+                )
+    return GraphResponse(node=make_serializable(node), connections=connections)

@@ -38,7 +38,10 @@ uv run pre-commit run --all-files
 
 ### Pre-commit hooks
 
-Linting (`ruff check --fix`), formatting (`ruff format`), and type checking (`basedpyright`) run automatically as pre-commit hooks on every `git commit`. Do not run these manually before committing — the hooks will run them and block the commit if there are errors. If a hook fails, fix the reported issues and retry the commit.
+The following checks run automatically on every `git commit`. Do not run these manually before committing — the hooks handle it and will block the commit if there are errors. If a hook fails, fix the reported issues and retry the commit.
+
+**Python:** `ruff check --fix`, `ruff format`, `basedpyright`
+**Go (client/):** `golangci-lint fmt` (goimports), `golangci-lint run --fix`
 
 ## Environment
 

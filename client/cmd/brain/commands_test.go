@@ -12,7 +12,7 @@ import (
 
 func TestIngestCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(types.IngestResponse{Summary: "Stored 1 note."})
+		_ = json.NewEncoder(w).Encode(types.IngestResponse{Summary: "Stored 1 note."})
 	}))
 	defer srv.Close()
 
@@ -30,7 +30,7 @@ func TestIngestCommand(t *testing.T) {
 
 func TestRecallCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(types.RecallResponse{
+		_ = json.NewEncoder(w).Encode(types.RecallResponse{
 			Answer:  "You know about GTD.",
 			Context: &types.Context{Nodes: []types.Node{{ID: "note:1", Table: "note", Content: "GTD"}}, Edges: []types.Edge{}},
 		})
@@ -51,7 +51,7 @@ func TestRecallCommand(t *testing.T) {
 
 func TestGraphCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(types.GraphResponse{
+		_ = json.NewEncoder(w).Encode(types.GraphResponse{
 			Node:        types.Node{ID: "note:abc", Table: "note", Content: "test content"},
 			Connections: []types.Connection{},
 		})

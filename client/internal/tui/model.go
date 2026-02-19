@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
+
 	"second-brain-client/internal/api"
 	"second-brain-client/internal/types"
 )

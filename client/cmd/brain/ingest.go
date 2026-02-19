@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	"second-brain-client/internal/api"
 )
 
@@ -20,7 +21,7 @@ func newIngestCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("ingest failed: %w", err)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), resp.Summary)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), resp.Summary)
 			return nil
 		},
 	}

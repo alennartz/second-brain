@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
+
 	"second-brain-client/internal/types"
 )
 
@@ -11,7 +12,6 @@ type inputBar struct {
 	textInput   textinput.Model
 	suggestions []suggestion
 	showSuggest bool
-	suggestIdx  int
 }
 
 type suggestion struct {

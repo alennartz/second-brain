@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
 	"second-brain-client/internal/types"
 )
 
@@ -19,11 +20,11 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 	m.input.textInput.SetValue("")
 	m.input.showSuggest = false
 
-	switch {
-	case value == "/quit":
+	switch value {
+	case "/quit":
 		return m, tea.Quit
 
-	case value == "/clear":
+	case "/clear":
 		m.history = []types.Exchange{}
 		m.graph = types.Context{}
 		m.context = nil
@@ -32,7 +33,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		m.err = nil
 		return m, nil
 
-	case value == "/graph":
+	case "/graph":
 		m.focus = focusGraph
 		return m, nil
 

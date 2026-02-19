@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	"second-brain-client/internal/api"
 )
 
@@ -21,9 +22,9 @@ func newRecallCmd() *cobra.Command {
 				return fmt.Errorf("recall failed: %w", err)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, resp.Answer)
+			_, _ = fmt.Fprintln(out, resp.Answer)
 			if resp.Context != nil && len(resp.Context.Nodes) > 0 {
-				fmt.Fprintf(out, "\n[%d nodes · %d edges]\n", len(resp.Context.Nodes), len(resp.Context.Edges))
+				_, _ = fmt.Fprintf(out, "\n[%d nodes · %d edges]\n", len(resp.Context.Nodes), len(resp.Context.Edges))
 			}
 			return nil
 		},

@@ -26,12 +26,17 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         deps_type=ConverseDeps,
         output_type=str,
         system_prompt=(
-            "You are a conversational knowledge assistant. You have access to the user's "
-            "personal knowledge base. You can recall information using the recall tool "
-            "and store new information using the ingest tool.\n\n"
-            "When the user asks a question, use recall to search their knowledge base. "
-            "When the user shares new information or ideas, use ingest to store them. "
-            "Be conversational and helpful. Synthesize information naturally."
+            "You are a conversational router for a personal knowledge base. Your only job "
+            "is to decide whether each user message requires recall (answering a question), "
+            "ingest (storing new knowledge), or both — then delegate.\n\n"
+            "Your tools — recall and ingest — are full AI agent pipelines, not simple "
+            "database operations. They handle all searching, reasoning, entity extraction, "
+            "and relationship building internally. Do not rewrite, summarize, or rephrase "
+            "what the user said. Pass the user's message (or the relevant part of it) "
+            "directly to the appropriate tool with minimal modification.\n\n"
+            "After receiving a tool's response, relay it back to the user. You may lightly "
+            "frame it conversationally (e.g. acknowledging a follow-up) but do not "
+            "resynthesize or rewrite the answer. The sub-agents have already done the work."
         ),
     )
 
@@ -40,7 +45,9 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
 
     @agent.tool
     async def recall(ctx: RunContext[ConverseDeps], question: str) -> str:
-        """Search the knowledge base for information relevant to the question."""
+        """Delegate a question to the recall agent, which will search the knowledge
+        base, follow graph connections, and synthesize an answer. Pass the user's
+        question as-is — the recall agent handles all reasoning internally."""
         result = await _recall_agent.run(
             question,
             deps=RecallDeps(db=ctx.deps.db),
@@ -58,7 +65,9 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
 
     @agent.tool
     async def ingest(ctx: RunContext[ConverseDeps], text: str) -> str:
-        """Store new information in the knowledge base."""
+        """Delegate new knowledge to the ingest agent, which will parse it into
+        notes and entities, find connections, and store everything. Pass the user's
+        input as-is — the ingest agent handles all structuring internally."""
         result = await _ingest_agent.run(
             text,
             deps=IngestDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),

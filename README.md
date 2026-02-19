@@ -2,12 +2,19 @@
 
 API-first personal knowledge engine with embedded SurrealDB and agentic LLM loops.
 
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/) — Python package manager
+- [Go](https://go.dev/dl/) — for the client
+- [golangci-lint](https://golangci-lint.run/docs/install/) — Go linter (used by pre-commit hooks)
+
 ## Setup
 
 ```bash
 uv sync --all-extras
 cp .env.example .env
 # Edit .env with your API keys
+uv run pre-commit install
 ```
 
 ## Run

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
 	"second-brain-client/internal/types"
 )
 

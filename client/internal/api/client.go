@@ -65,7 +65,7 @@ func (c *Client) Graph(id string) (*types.GraphResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
 		return nil, fmt.Errorf("server returned %d: %s", httpResp.StatusCode, body)
@@ -89,7 +89,7 @@ func (c *Client) post(path string, reqBody any, respBody any) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
 		return fmt.Errorf("server returned %d: %s", httpResp.StatusCode, body)

@@ -57,10 +57,10 @@ func (c chatPanel) renderMessages() string {
 		} else {
 			label = brainStyle.Render("Brain: ")
 		}
-		b.WriteString(fmt.Sprintf("\n%s%s\n", label, msg.text))
+		fmt.Fprintf(&b, "\n%s%s\n", label, msg.text)
 	}
 	if c.loading {
-		b.WriteString(fmt.Sprintf("\n%s\n", brainStyle.Render("Thinking...")))
+		fmt.Fprintf(&b, "\n%s\n", brainStyle.Render("Thinking..."))
 	}
 	return b.String()
 }

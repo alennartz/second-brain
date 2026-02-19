@@ -1,4 +1,5 @@
 repos:
+  # Python
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.1
     hooks:
@@ -8,9 +9,25 @@ repos:
 
   - repo: local
     hooks:
+      # Python
       - id: basedpyright
         name: basedpyright
         entry: uv run basedpyright src/
         language: system
         types: [python]
+        pass_filenames: false
+
+      # Go
+      - id: golangci-lint-fmt
+        name: golangci-lint fmt
+        entry: bash -c 'cd client && golangci-lint fmt'
+        language: system
+        types: [go]
+        pass_filenames: false
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: bash -c 'cd client && golangci-lint run --fix'
+        language: system
+        types: [go]
         pass_filenames: false

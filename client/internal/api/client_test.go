@@ -18,11 +18,11 @@ func TestIngest(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var req types.IngestRequest
-		json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req)
 		if req.Text != "test thought" {
 			t.Errorf("got text %q", req.Text)
 		}
-		json.NewEncoder(w).Encode(types.IngestResponse{Summary: "Stored 1 note."})
+		_ = json.NewEncoder(w).Encode(types.IngestResponse{Summary: "Stored 1 note."})
 	}))
 	defer srv.Close()
 
@@ -45,7 +45,7 @@ func TestRecall(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/recall" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(types.RecallResponse{Answer: "You know about GTD.", Context: ctx})
+		_ = json.NewEncoder(w).Encode(types.RecallResponse{Answer: "You know about GTD.", Context: ctx})
 	}))
 	defer srv.Close()
 
@@ -69,11 +69,11 @@ func TestConverse(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var req types.ConverseRequest
-		json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req)
 		if req.Message != "hello" {
 			t.Errorf("got message %q", req.Message)
 		}
-		json.NewEncoder(w).Encode(types.ConverseResponse{Response: "Hi there."})
+		_ = json.NewEncoder(w).Encode(types.ConverseResponse{Response: "Hi there."})
 	}))
 	defer srv.Close()
 
@@ -92,7 +92,7 @@ func TestGraph(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/graph/note:abc" {
 			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(types.GraphResponse{
+		_ = json.NewEncoder(w).Encode(types.GraphResponse{
 			Node:        types.Node{ID: "note:abc", Table: "note", Content: "test"},
 			Connections: []types.Connection{},
 		})
@@ -112,7 +112,7 @@ func TestGraph(t *testing.T) {
 func TestServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	}))
 	defer srv.Close()
 

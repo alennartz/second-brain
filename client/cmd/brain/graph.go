@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
 	"second-brain-client/internal/api"
 	"second-brain-client/internal/types"
 )
@@ -20,13 +21,13 @@ func newGraphCmd() *cobra.Command {
 				return fmt.Errorf("graph failed: %w", err)
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "[%s] %s — %s\n", resp.Node.Table, resp.Node.ID, types.NodeLabel(resp.Node))
+			_, _ = fmt.Fprintf(out, "[%s] %s — %s\n", resp.Node.Table, resp.Node.ID, types.NodeLabel(resp.Node))
 			if len(resp.Connections) == 0 {
-				fmt.Fprintln(out, "  (no connections)")
+				_, _ = fmt.Fprintln(out, "  (no connections)")
 				return nil
 			}
 			for _, conn := range resp.Connections {
-				fmt.Fprintf(out, "  ──%s──> [%s] %s\n", conn.Edge.Table, conn.Node.Table, types.NodeLabel(conn.Node))
+				_, _ = fmt.Fprintf(out, "  ──%s──> [%s] %s\n", conn.Edge.Table, conn.Node.Table, types.NodeLabel(conn.Node))
 			}
 			return nil
 		},

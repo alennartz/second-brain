@@ -1,7 +1,7 @@
 import pytest
 from pydantic_ai.models.test import TestModel
 
-from second_brain.agents.recall import RecallDeps, create_recall_agent
+from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
 from second_brain.db import init_schema
 
 
@@ -33,4 +33,8 @@ async def test_recall_agent_runs(recall_deps):
         deps=recall_deps,
         model=TestModel(),
     )
-    assert result.output is not None
+    # With RecallOutput, result.output should be a RecallOutput instance
+    assert isinstance(result.output, RecallOutput)
+    assert isinstance(result.output.answer, str)
+    assert isinstance(result.output.cited_node_ids, list)
+    assert isinstance(result.output.cited_edge_ids, list)

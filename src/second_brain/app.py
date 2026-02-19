@@ -12,6 +12,7 @@ from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.config import settings
 from second_brain.db import init_schema
 from second_brain.embedding import embed_text, init_vector_indexes
+from second_brain.models import Context, make_serializable
 
 _db: Any = None
 _ingest_agent = create_ingest_agent()
@@ -45,10 +46,12 @@ class IngestResponse(BaseModel):
 
 class RecallRequest(BaseModel):
     question: str
+    hints: list[str] = []
 
 
 class RecallResponse(BaseModel):
     answer: str
+    context: Context | None = None
 
 
 async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
@@ -64,13 +67,35 @@ async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
     return result.output
 
 
-async def run_recall_agent(question: str) -> str:
+async def run_recall_agent(
+    question: str, hints: list[str] | None = None
+) -> RecallResponse:
+    prompt = question
+    if hints:
+        hint_str = ", ".join(hints)
+        prompt = f"Possibly related nodes: {hint_str}\n\n{question}"
+
     result = await _recall_agent.run(
-        question,
+        prompt,
         deps=RecallDeps(db=_db),
         model=settings.reasoning_model,
     )
-    return result.output
+    output = result.output  # RecallOutput
+
+    # Fetch actual records for cited IDs
+    from second_brain.tools.recall_tools import fetch_records_by_ids
+
+    nodes = await fetch_records_by_ids(_db, output.cited_node_ids)
+    edges = await fetch_records_by_ids(_db, output.cited_edge_ids)
+
+    ctx = None
+    if nodes or edges:
+        ctx = Context(
+            nodes=[make_serializable(n) for n in nodes],
+            edges=[make_serializable(e) for e in edges],
+        )
+
+    return RecallResponse(answer=output.answer, context=ctx)
 
 
 @app.get("/health")
@@ -86,5 +111,4 @@ async def ingest(req: IngestRequest):
 
 @app.post("/recall", response_model=RecallResponse)
 async def recall(req: RecallRequest):
-    answer = await run_recall_agent(req.question)
-    return RecallResponse(answer=answer)
+    return await run_recall_agent(req.question, req.hints if req.hints else None)

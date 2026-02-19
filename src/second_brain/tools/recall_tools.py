@@ -52,3 +52,15 @@ async def graph_traverse(
     arrows = "->?->?" * depth
     result = await db.query(f"SELECT * FROM {record_id}{arrows}")
     return result
+
+
+async def fetch_records_by_ids(db: AsyncSurreal, record_ids: list[str]) -> list[dict]:
+    """Fetch multiple records by their SurrealDB IDs."""
+    if not record_ids:
+        return []
+    results = []
+    for rid in record_ids:
+        result = await db.query(f"SELECT * FROM {rid}")
+        if result:
+            results.append(result[0])
+    return results

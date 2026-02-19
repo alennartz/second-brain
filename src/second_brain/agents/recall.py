@@ -1,9 +1,16 @@
 from dataclasses import dataclass
 
+from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
 from second_brain.tools import recall_tools
+
+
+class RecallOutput(BaseModel):
+    answer: str
+    cited_node_ids: list[str] = []
+    cited_edge_ids: list[str] = []
 
 
 @dataclass
@@ -11,7 +18,7 @@ class RecallDeps:
     db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues] - SDK types AsyncSurreal as function
 
 
-def create_recall_agent() -> Agent[RecallDeps, str]:
+def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     """Create a recall agent with search and graph traversal tools.
 
     The agent is created without a default model so it can be used in tests
@@ -21,14 +28,16 @@ def create_recall_agent() -> Agent[RecallDeps, str]:
     """
     agent = Agent(
         deps_type=RecallDeps,
-        output_type=str,
+        output_type=RecallOutput,
         system_prompt=(
             "You are a personal knowledge recall agent. The user asks questions and you "
             "explore their knowledge base using the tools available to you. "
             "Use search tools to find relevant notes and entities, follow graph connections "
             "to discover related knowledge, and refine your search based on what you find. "
             "Keep exploring until you have enough context to give a thorough answer. "
-            "If you find nothing relevant, say so honestly."
+            "If you find nothing relevant, say so honestly.\n\n"
+            "IMPORTANT: In your response, include the IDs of all nodes and edges you "
+            "referenced in your answer in the cited_node_ids and cited_edge_ids fields."
         ),
     )
 

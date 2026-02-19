@@ -2,6 +2,7 @@ import pytest
 
 from second_brain.db import init_schema
 from second_brain.tools.recall_tools import (
+    fetch_records_by_ids,
     full_text_search,
     get_connections,
     get_node,
@@ -47,3 +48,25 @@ async def test_full_text_search(seeded_db):
 async def test_graph_traverse(seeded_db):
     results = await graph_traverse(seeded_db, "note:1", depth=2)
     assert len(results) >= 1
+
+
+async def test_fetch_records_by_ids(seeded_db):
+    """fetch_records_by_ids returns records for valid IDs."""
+    results = await fetch_records_by_ids(seeded_db, ["note:1"])
+    assert len(results) == 1
+    assert "Spaced repetition" in results[0]["content"]
+
+
+async def test_fetch_records_by_ids_empty(seeded_db):
+    """Passing an empty list returns an empty list."""
+    results = await fetch_records_by_ids(seeded_db, [])
+    assert results == []
+
+
+async def test_fetch_records_by_ids_missing(seeded_db):
+    """Passing a non-existent ID does not crash; returns empty or skips gracefully."""
+    results = await fetch_records_by_ids(seeded_db, ["note:nonexistent"])
+    # Should not crash; result should be empty (no record found)
+    assert isinstance(results, list)
+    # The missing ID should not produce a result
+    assert len(results) == 0

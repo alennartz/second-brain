@@ -88,3 +88,18 @@ type GraphResponse struct {
 	Node        Node         `json:"node"`
 	Connections []Connection `json:"connections"`
 }
+
+// NodeLabel returns a human-readable label for a node, preferring Name, then
+// Content (truncated to 60 chars), and falling back to ID.
+func NodeLabel(n Node) string {
+	if n.Name != "" {
+		return n.Name
+	}
+	if n.Content != "" {
+		if len(n.Content) > 60 {
+			return n.Content[:57] + "..."
+		}
+		return n.Content
+	}
+	return n.ID
+}

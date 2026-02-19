@@ -20,32 +20,42 @@ type chatMessage struct {
 
 // Model is the top-level Bubble Tea model for the TUI.
 type Model struct {
-	client   *api.Client
-	history  []types.Exchange
-	context  *types.Context
-	graph    types.Context
-	focus    int
-	loading  bool
-	err      error
-	width    int
-	height   int
-	messages []chatMessage
+	client     *api.Client
+	history    []types.Exchange
+	context    *types.Context
+	graph      types.Context
+	focus      int
+	loading    bool
+	err        error
+	width      int
+	height     int
+	chat       chatPanel
+	graphPanel graphPanel
+	input      inputBar
 }
 
 // NewModel creates a new TUI model connected to the given server URL.
 func NewModel(serverURL string) Model {
-	return Model{
-		client:   api.New(serverURL),
-		history:  []types.Exchange{},
-		graph:    types.Context{},
-		messages: []chatMessage{},
-		focus:    focusChat,
+	m := Model{
+		client:  api.New(serverURL),
+		history: []types.Exchange{},
+		graph:   types.Context{},
+		focus:   focusChat,
 	}
+	m.initPanels()
+	return m
 }
 
-// Init implements tea.Model. Returns nil (no initial command).
+// initPanels sets up the chat, graph, and input sub-components.
+func (m *Model) initPanels() {
+	m.chat = newChatPanel(40, 10)
+	m.graphPanel = newGraphPanel(30, 10)
+	m.input = newInputBar()
+}
+
+// Init implements tea.Model. Returns the text input blink command.
 func (m Model) Init() tea.Cmd {
-	return nil
+	return m.input.textInput.Cursor.BlinkCmd()
 }
 
 // Update implements tea.Model. Handles all message types for state transitions.
@@ -61,19 +71,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
+
 		case tea.KeyTab:
 			if m.focus == focusChat {
 				m.focus = focusGraph
+				m.input.textInput.Blur()
 			} else {
 				m.focus = focusChat
+				m.input.textInput.Focus()
 			}
 			return m, nil
+
+		case tea.KeyEnter:
+			if m.focus == focusChat {
+				updated, cmd := m.submitInput()
+				return updated, cmd
+			}
+			// Graph mode: expand selected node
+			if m.focus == focusGraph {
+				node := m.graphPanel.selectedNode()
+				if node != nil {
+					return m, m.sendGraphExpand(node.ID)
+				}
+			}
+			return m, nil
+
+		case tea.KeyUp:
+			if m.focus == focusGraph {
+				m.graphPanel.moveUp()
+				return m, nil
+			}
+
+		case tea.KeyDown:
+			if m.focus == focusGraph {
+				m.graphPanel.moveDown()
+				return m, nil
+			}
+
+		case tea.KeyEsc:
+			if m.focus == focusGraph {
+				m.focus = focusChat
+				m.input.textInput.Focus()
+				return m, nil
+			}
 		}
+
+		// Forward to textinput when chat focused
+		if m.focus == focusChat {
+			var cmd tea.Cmd
+			m.input.textInput, cmd = m.input.textInput.Update(msg)
+
+			// Update autocomplete suggestions
+			if query, found := extractAtQuery(m.input.textInput.Value()); found {
+				m.input.suggestions = filterSuggestions(m.graph.Nodes, query)
+				m.input.showSuggest = len(m.input.suggestions) > 0
+			} else {
+				m.input.showSuggest = false
+			}
+
+			return m, cmd
+		}
+
+		return m, nil
 
 	case converseResponseMsg:
 		m.loading = false
+		m.chat.loading = false
 		if msg.err != nil {
 			m.err = msg.err
+			m.chat.viewport.SetContent(m.chat.renderMessages())
 			return m, nil
 		}
 		if msg.response != nil {
@@ -98,8 +164,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				mergeContext(&m.graph, msg.response.Context)
 			}
 
-			// Add brain response to messages
-			m.messages = append(m.messages, chatMessage{role: "brain", text: msg.response.Response})
+			// Add brain response to chat panel
+			m.chat.addMessage("brain", msg.response.Response)
+
+			// Update graph panel with merged graph
+			m.graphPanel.setContext(m.graph)
 		}
 		return m, nil
 
@@ -121,6 +190,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.graph.Edges = append(m.graph.Edges, conn.Edge)
 				}
 			}
+			// Update graph panel
+			m.graphPanel.setContext(m.graph)
 		}
 		return m, nil
 
@@ -128,7 +199,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = []types.Exchange{}
 		m.graph = types.Context{}
 		m.context = nil
-		m.messages = []chatMessage{}
+		m.chat = newChatPanel(m.chat.width, m.chat.height)
+		m.graphPanel.setContext(types.Context{})
 		m.err = nil
 		return m, nil
 
@@ -140,9 +212,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View implements tea.Model. Returns a placeholder for now.
+// View implements tea.Model. Returns the full rendered TUI view.
 func (m Model) View() string {
-	return "brain TUI"
+	return m.renderView()
 }
 
 // mergeContext adds nodes and edges from src into dst, skipping duplicates.

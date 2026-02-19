@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"second-brain-client/internal/tui"
 )
 
 var serverURL string
@@ -15,7 +17,11 @@ func newRootCmd() *cobra.Command {
 		Short: "Second Brain TUI client",
 		Long:  "A terminal client for the Second Brain knowledge engine.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), "TUI mode not yet implemented. Use a subcommand: ingest, recall, graph")
+			m := tui.NewModel(serverURL)
+			p := tea.NewProgram(m, tea.WithAltScreen())
+			if _, err := p.Run(); err != nil {
+				return fmt.Errorf("TUI error: %w", err)
+			}
 			return nil
 		},
 	}

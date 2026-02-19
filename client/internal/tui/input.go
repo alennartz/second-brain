@@ -42,7 +42,7 @@ func filterSuggestions(nodes []types.Node, query string) []suggestion {
 	query = strings.ToLower(query)
 	var results []suggestion
 	for _, n := range nodes {
-		label := nodeLabel(n)
+		label := types.NodeLabel(n)
 		if query == "" || strings.Contains(strings.ToLower(label), query) {
 			results = append(results, suggestion{label: label, node: n})
 		}
@@ -54,7 +54,7 @@ func resolveAtReferences(text string, nodes []types.Node) (string, []string) {
 	var ids []string
 	result := text
 	for _, n := range nodes {
-		label := nodeLabel(n)
+		label := types.NodeLabel(n)
 		ref := "@" + label
 		if strings.Contains(result, ref) {
 			result = strings.ReplaceAll(result, ref, label)

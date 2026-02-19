@@ -68,7 +68,7 @@ func (g graphPanel) View() string {
 		if i == g.cursor {
 			prefix = "> "
 		}
-		label := nodeLabel(n)
+		label := types.NodeLabel(n)
 		tag := fmt.Sprintf("[%s]", n.Table)
 		var line string
 		if i == g.cursor {
@@ -94,23 +94,10 @@ func (g graphPanel) View() string {
 	return b.String()
 }
 
-func nodeLabel(n types.Node) string {
-	if n.Name != "" {
-		return n.Name
-	}
-	if n.Content != "" {
-		if len(n.Content) > 60 {
-			return n.Content[:57] + "..."
-		}
-		return n.Content
-	}
-	return n.ID
-}
-
 func (g graphPanel) findNodeLabel(id string) string {
 	for _, n := range g.nodes {
 		if n.ID == id {
-			return nodeLabel(n)
+			return types.NodeLabel(n)
 		}
 	}
 	return id

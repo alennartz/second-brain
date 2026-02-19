@@ -1,0 +1,180 @@
+package tui
+
+import (
+	tea "github.com/charmbracelet/bubbletea"
+	"second-brain-client/internal/api"
+	"second-brain-client/internal/types"
+)
+
+const (
+	focusChat  = 0
+	focusGraph = 1
+	maxHistory = 10
+)
+
+// chatMessage represents a single message displayed in the chat panel.
+type chatMessage struct {
+	role string
+	text string
+}
+
+// Model is the top-level Bubble Tea model for the TUI.
+type Model struct {
+	client   *api.Client
+	history  []types.Exchange
+	context  *types.Context
+	graph    types.Context
+	focus    int
+	loading  bool
+	err      error
+	width    int
+	height   int
+	messages []chatMessage
+}
+
+// NewModel creates a new TUI model connected to the given server URL.
+func NewModel(serverURL string) Model {
+	return Model{
+		client:   api.New(serverURL),
+		history:  []types.Exchange{},
+		graph:    types.Context{},
+		messages: []chatMessage{},
+		focus:    focusChat,
+	}
+}
+
+// Init implements tea.Model. Returns nil (no initial command).
+func (m Model) Init() tea.Cmd {
+	return nil
+}
+
+// Update implements tea.Model. Handles all message types for state transitions.
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			return m, tea.Quit
+		case tea.KeyTab:
+			if m.focus == focusChat {
+				m.focus = focusGraph
+			} else {
+				m.focus = focusChat
+			}
+			return m, nil
+		}
+
+	case converseResponseMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		if msg.response != nil {
+			// Add the exchange to history
+			exchange := types.Exchange{
+				User: msg.userMsg,
+				Assistant: types.AssistantResponse{
+					Response: msg.response.Response,
+					Context:  msg.response.Context,
+				},
+			}
+			m.history = append(m.history, exchange)
+			if len(m.history) > maxHistory {
+				m.history = m.history[len(m.history)-maxHistory:]
+			}
+
+			// Update context
+			m.context = msg.response.Context
+
+			// Merge graph context if response has context
+			if msg.response.Context != nil {
+				mergeContext(&m.graph, msg.response.Context)
+			}
+
+			// Add brain response to messages
+			m.messages = append(m.messages, chatMessage{role: "brain", text: msg.response.Response})
+		}
+		return m, nil
+
+	case graphResponseMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		if msg.response != nil {
+			// Merge the node and its connections into the graph
+			if !containsNode(m.graph.Nodes, msg.response.Node.ID) {
+				m.graph.Nodes = append(m.graph.Nodes, msg.response.Node)
+			}
+			for _, conn := range msg.response.Connections {
+				if !containsNode(m.graph.Nodes, conn.Node.ID) {
+					m.graph.Nodes = append(m.graph.Nodes, conn.Node)
+				}
+				if !containsEdge(m.graph.Edges, conn.Edge.ID) {
+					m.graph.Edges = append(m.graph.Edges, conn.Edge)
+				}
+			}
+		}
+		return m, nil
+
+	case clearMsg:
+		m.history = []types.Exchange{}
+		m.graph = types.Context{}
+		m.context = nil
+		m.messages = []chatMessage{}
+		m.err = nil
+		return m, nil
+
+	case errorMsg:
+		m.err = msg.err
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// View implements tea.Model. Returns a placeholder for now.
+func (m Model) View() string {
+	return "brain TUI"
+}
+
+// mergeContext adds nodes and edges from src into dst, skipping duplicates.
+func mergeContext(dst *types.Context, src *types.Context) {
+	for _, n := range src.Nodes {
+		if !containsNode(dst.Nodes, n.ID) {
+			dst.Nodes = append(dst.Nodes, n)
+		}
+	}
+	for _, e := range src.Edges {
+		if !containsEdge(dst.Edges, e.ID) {
+			dst.Edges = append(dst.Edges, e)
+		}
+	}
+}
+
+// containsNode checks whether a node with the given ID exists in the slice.
+func containsNode(nodes []types.Node, id string) bool {
+	for _, n := range nodes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// containsEdge checks whether an edge with the given ID exists in the slice.
+func containsEdge(edges []types.Edge, id string) bool {
+	for _, e := range edges {
+		if e.ID == id {
+			return true
+		}
+	}
+	return false
+}

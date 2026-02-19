@@ -1,7 +1,9 @@
 package main
 
-import "fmt"
+import "os"
 
 func main() {
-	fmt.Println("brain")
+	if err := newRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
 }

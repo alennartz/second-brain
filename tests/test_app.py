@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from second_brain.app import RecallResponse, app
+from second_brain.app import ConverseResponse, RecallResponse, app
 from second_brain.models import Context
 
 
@@ -115,3 +115,30 @@ async def test_graph_endpoint_no_connections(client):
         resp = await client.get("/graph/note:1")
     assert resp.status_code == 200
     assert resp.json()["connections"] == []
+
+
+async def test_converse_endpoint(client):
+    with patch("second_brain.app.run_converse_agent", new_callable=AsyncMock) as mock:
+        mock.return_value = ConverseResponse(response="Hello!")
+        resp = await client.post("/converse", json={"message": "hi"})
+    assert resp.status_code == 200
+    assert resp.json()["response"] == "Hello!"
+
+
+async def test_converse_with_history(client):
+    with patch("second_brain.app.run_converse_agent", new_callable=AsyncMock) as mock:
+        mock.return_value = ConverseResponse(response="I remember that")
+        resp = await client.post(
+            "/converse",
+            json={
+                "message": "what about that?",
+                "history": [
+                    {
+                        "user": "tell me about GTD",
+                        "assistant": {"response": "GTD is a methodology..."},
+                    }
+                ],
+            },
+        )
+    assert resp.status_code == 200
+    assert resp.json()["response"] == "I remember that"

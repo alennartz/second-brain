@@ -5,8 +5,10 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from surrealdb import AsyncSurreal
 
+from second_brain.agents.converse import ConverseDeps, create_converse_agent
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.config import settings
@@ -18,6 +20,7 @@ from second_brain.tools.recall_tools import get_connections, get_node
 _db: Any = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
+_converse_agent = create_converse_agent()
 
 
 @asynccontextmanager
@@ -65,6 +68,26 @@ class GraphResponse(BaseModel):
     connections: list[ConnectionItem] = []
 
 
+class AssistantMessage(BaseModel):
+    response: str
+    context: Context | None = None
+
+
+class HistoryTurn(BaseModel):
+    user: str
+    assistant: AssistantMessage
+
+
+class ConverseRequest(BaseModel):
+    message: str
+    history: list[HistoryTurn] = []
+
+
+class ConverseResponse(BaseModel):
+    response: str
+    context: Context | None = None
+
+
 async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
     prompt = text
     if hints:
@@ -109,6 +132,34 @@ async def run_recall_agent(
     return RecallResponse(answer=output.answer, context=ctx)
 
 
+async def run_converse_agent(
+    message: str, history: list[HistoryTurn]
+) -> ConverseResponse:
+    deps = ConverseDeps(
+        db=_db,
+        embed_fn=embed_text,
+        model_setting=settings.reasoning_model,
+    )
+
+    # Build PydanticAI message history
+    pydantic_history = []
+    for turn in history:
+        pydantic_history.append(ModelRequest(parts=[UserPromptPart(content=turn.user)]))
+        pydantic_history.append(
+            ModelResponse(parts=[TextPart(content=turn.assistant.response)])
+        )
+
+    result = await _converse_agent.run(
+        message,
+        deps=deps,
+        model=settings.reasoning_model,
+        message_history=pydantic_history,
+    )
+
+    ctx = deps.context if (deps.context.nodes or deps.context.edges) else None
+    return ConverseResponse(response=result.output, context=ctx)
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -123,6 +174,11 @@ async def ingest(req: IngestRequest):
 @app.post("/recall", response_model=RecallResponse)
 async def recall(req: RecallRequest):
     return await run_recall_agent(req.question, req.hints if req.hints else None)
+
+
+@app.post("/converse", response_model=ConverseResponse)
+async def converse(req: ConverseRequest):
+    return await run_converse_agent(req.message, req.history)
 
 
 @app.get("/graph/{record_id:path}", response_model=GraphResponse)

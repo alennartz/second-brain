@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies
 uv sync --all-extras
 
+# Setup pre-commit hooks (run once after clone)
+uv run pre-commit install
+
 # Run dev server (http://localhost:8000)
 uv run uvicorn second_brain.app:app --reload
 
@@ -28,6 +31,9 @@ uv run ruff format src/ tests/
 
 # Type check
 uv run basedpyright src/
+
+# Run all hooks manually
+uv run pre-commit run --all-files
 ```
 
 ## Environment

@@ -16,8 +16,8 @@ async def init_schema(db: AsyncSurreal) -> None:
     await db.query("""
         -- Full-text search analyzer
         DEFINE ANALYZER IF NOT EXISTS simple_analyzer
-            TOKENIZERS blank, class
-            FILTERS lowercase;
+            TOKENIZERS blank, class, camel, punct
+            FILTERS lowercase, snowball(english);
 
         -- Note table
         DEFINE TABLE IF NOT EXISTS note SCHEMALESS;

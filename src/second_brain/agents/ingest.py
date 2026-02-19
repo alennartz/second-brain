@@ -1,26 +1,11 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
 
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
+from second_brain.models import make_serializable
 from second_brain.tools import ingest_tools, recall_tools
-
-
-def _make_serializable(obj: Any) -> Any:
-    """Convert SurrealDB types (RecordID, datetime, etc.) to JSON-safe values."""
-    if isinstance(obj, dict):
-        return {k: _make_serializable(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_make_serializable(v) for v in obj]
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    # Convert RecordID and any other non-primitive types to str
-    if not isinstance(obj, (str, int, float, bool, type(None))):
-        return str(obj)
-    return obj
 
 
 @dataclass
@@ -67,7 +52,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             result = await ingest_tools.create_note(
                 ctx.deps.db, content=content, source=source, summary=summary
             )
-            return _make_serializable(result)
+            return make_serializable(result)
         except Exception as e:
             return {"error": str(e)}
 
@@ -83,7 +68,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             result = await ingest_tools.create_entity(
                 ctx.deps.db, name=name, type=type, description=description
             )
-            return _make_serializable(result)
+            return make_serializable(result)
         except Exception as e:
             return {"error": str(e)}
 
@@ -104,7 +89,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 to_id=to_id,
                 context=context,
             )
-            return _make_serializable(result)
+            return make_serializable(result)
         except Exception as e:
             return {"error": str(e)}
 
@@ -117,7 +102,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             result = await ingest_tools.update_node(
                 ctx.deps.db, record_id=record_id, fields=fields
             )
-            return _make_serializable(result)
+            return make_serializable(result)
         except Exception as e:
             return {"error": str(e)}
 

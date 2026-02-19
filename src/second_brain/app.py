@@ -36,7 +36,7 @@ app = FastAPI(title="Second Brain", lifespan=lifespan)
 
 class IngestRequest(BaseModel):
     text: str
-    source: str = "api"
+    hints: list[str] = []
 
 
 class IngestResponse(BaseModel):
@@ -51,9 +51,13 @@ class RecallResponse(BaseModel):
     answer: str
 
 
-async def run_ingest_agent(text: str, source: str) -> str:
+async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
+    prompt = text
+    if hints:
+        hint_str = ", ".join(hints)
+        prompt = f"Possibly related nodes: {hint_str}\n\n{text}"
     result = await _ingest_agent.run(
-        f"Source: {source}\n\n{text}",
+        prompt,
         deps=IngestDeps(db=_db, embed_fn=embed_text),
         model=settings.reasoning_model,
     )
@@ -76,7 +80,7 @@ async def health():
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest):
-    summary = await run_ingest_agent(req.text, req.source)
+    summary = await run_ingest_agent(req.text, req.hints if req.hints else None)
     return IngestResponse(summary=summary)
 
 

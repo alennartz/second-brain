@@ -24,8 +24,19 @@ async def test_health(client):
 async def test_ingest_endpoint_exists(client):
     with patch("second_brain.app.run_ingest_agent", new_callable=AsyncMock) as mock:
         mock.return_value = "Stored 1 note"
-        resp = await client.post("/ingest", json={"text": "test note", "source": "cli"})
+        resp = await client.post("/ingest", json={"text": "test note"})
     assert resp.status_code == 200
+    mock.assert_called_once_with("test note", None)
+
+
+async def test_ingest_with_hints(client):
+    with patch("second_brain.app.run_ingest_agent", new_callable=AsyncMock) as mock:
+        mock.return_value = "Stored 1 note"
+        resp = await client.post(
+            "/ingest", json={"text": "test", "hints": ["entity:1"]}
+        )
+    assert resp.status_code == 200
+    mock.assert_called_once_with("test", ["entity:1"])
 
 
 async def test_recall_endpoint_exists(client):

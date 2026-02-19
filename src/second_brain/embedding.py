@@ -1,9 +1,12 @@
+from collections.abc import Callable, Coroutine
+from typing import Any
+
 from surrealdb import AsyncSurreal
 
 from second_brain.config import settings
 
 # Late-initialized by configure_embedding()
-_embed_fn = None
+_embed_fn: Callable[[str], Coroutine[Any, Any, list[float]]] | None = None
 
 
 async def _get_embedding(text: str) -> list[float]:
@@ -11,8 +14,9 @@ async def _get_embedding(text: str) -> list[float]:
     if _embed_fn is not None:
         return await _embed_fn(text)
 
-    import httpx
     import os
+
+    import httpx
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -32,7 +36,7 @@ async def embed_text(text: str) -> list[float]:
     return await _get_embedding(text)
 
 
-async def init_vector_indexes(db: AsyncSurreal, dimensions: int | None = None) -> None:
+async def init_vector_indexes(db: AsyncSurreal, dimensions: int | None = None) -> None:  # pyright: ignore[reportGeneralTypeIssues]
     """Define HNSW vector indexes. Idempotent."""
     dim = dimensions or settings.embedding_dimensions
     await db.query(f"""

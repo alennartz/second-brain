@@ -1,6 +1,7 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
@@ -24,7 +25,7 @@ def _make_serializable(obj: Any) -> Any:
 
 @dataclass
 class IngestDeps:
-    db: AsyncSurreal
+    db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues] - SDK types AsyncSurreal as function
     embed_fn: Callable[[str], Awaitable[list[float]]]
 
 

@@ -1,7 +1,7 @@
 import pytest
 from pydantic_ai.models.test import TestModel
 
-from second_brain.agents.recall import create_recall_agent, RecallDeps
+from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.db import init_schema
 
 
@@ -19,7 +19,7 @@ async def recall_deps(db):
 
 async def test_recall_agent_has_tools():
     agent = create_recall_agent()
-    tool_names = set(agent._function_toolset.tools.keys())
+    tool_names = set(agent._function_toolset.tools)
     assert "full_text_search" in tool_names
     assert "get_node" in tool_names
     assert "get_connections" in tool_names

@@ -3,15 +3,15 @@ from surrealdb import AsyncSurreal
 from second_brain.config import settings
 
 
-async def get_db() -> AsyncSurreal:
+async def get_db() -> AsyncSurreal:  # pyright: ignore[reportGeneralTypeIssues]
     """Create and return an embedded SurrealDB connection."""
-    db = AsyncSurreal(f"surrealkv://{settings.db_path}")
+    db = AsyncSurreal(f"surrealkv://{settings.db_path}")  # pyright: ignore[reportGeneralTypeIssues]
     await db.use("brain", "brain")
     await init_schema(db)
     return db
 
 
-async def init_schema(db: AsyncSurreal) -> None:
+async def init_schema(db: AsyncSurreal) -> None:  # pyright: ignore[reportGeneralTypeIssues]
     """Define tables, fields, and indexes. Idempotent."""
     await db.query("""
         -- Full-text search analyzer

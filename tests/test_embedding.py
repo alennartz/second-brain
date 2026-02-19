@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
 from second_brain.embedding import embed_text, init_vector_indexes

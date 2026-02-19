@@ -1,8 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from pydantic_ai.models.test import TestModel
 
-from second_brain.agents.ingest import create_ingest_agent, IngestDeps
+from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.db import init_schema
 
 
@@ -14,7 +15,7 @@ async def ingest_deps(db):
 
 async def test_ingest_agent_has_tools():
     agent = create_ingest_agent()
-    tool_names = {name for name in agent._function_toolset.tools.keys()}
+    tool_names = set(agent._function_toolset.tools)
     assert "create_note" in tool_names
     assert "create_entity" in tool_names
     assert "create_edge" in tool_names

@@ -1,3 +1,5 @@
+# pyright: reportGeneralTypeIssues=false
+# AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
 from surrealdb import AsyncSurreal
 
 

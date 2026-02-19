@@ -13,7 +13,6 @@ from second_brain.config import settings
 from second_brain.db import init_schema
 from second_brain.embedding import embed_text, init_vector_indexes
 
-
 _db: Any = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()

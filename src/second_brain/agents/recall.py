@@ -3,13 +3,12 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
-from second_brain.config import settings
 from second_brain.tools import recall_tools
 
 
 @dataclass
 class RecallDeps:
-    db: AsyncSurreal
+    db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues] - SDK types AsyncSurreal as function
 
 
 def create_recall_agent() -> Agent[RecallDeps, str]:
@@ -48,9 +47,7 @@ def create_recall_agent() -> Agent[RecallDeps, str]:
         k: int = 5,
     ) -> list[dict]:
         """Find the k nearest notes/entities by semantic similarity."""
-        return await recall_tools.vector_search(
-            ctx.deps.db, table, query_embedding, k
-        )
+        return await recall_tools.vector_search(ctx.deps.db, table, query_embedding, k)
 
     @agent.tool
     async def get_node(ctx: RunContext[RecallDeps], record_id: str) -> dict:

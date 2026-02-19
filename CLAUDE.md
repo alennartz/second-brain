@@ -19,6 +19,15 @@ uv run pytest -v tests/test_recall_tools.py
 
 # Run a single test function
 uv run pytest -v tests/test_recall_tools.py::test_full_text_search
+
+# Lint
+uv run ruff check src/ tests/
+
+# Format
+uv run ruff format src/ tests/
+
+# Type check
+uv run basedpyright src/
 ```
 
 ## Environment

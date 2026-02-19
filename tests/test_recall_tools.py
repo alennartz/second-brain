@@ -1,11 +1,11 @@
 import pytest
+
 from second_brain.db import init_schema
 from second_brain.tools.recall_tools import (
     full_text_search,
     get_connections,
     get_node,
     graph_traverse,
-    vector_search,
 )
 
 

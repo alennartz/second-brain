@@ -96,8 +96,9 @@ func NodeLabel(n Node) string {
 		return n.Name
 	}
 	if n.Content != "" {
-		if len(n.Content) > 60 {
-			return n.Content[:57] + "..."
+		runes := []rune(n.Content)
+		if len(runes) > 60 {
+			return string(runes[:57]) + "..."
 		}
 		return n.Content
 	}

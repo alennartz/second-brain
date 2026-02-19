@@ -38,7 +38,9 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 
 	default:
 		// Resolve @ references
-		resolved, _ := resolveAtReferences(value, m.graph.Nodes)
+		resolved, hintIDs := resolveAtReferences(value, m.graph.Nodes)
+		// TODO: pass hintIDs to the /converse request when the server supports hints
+		_ = hintIDs
 
 		// Add user message to chat panel
 		m.chat.addMessage("user", value)

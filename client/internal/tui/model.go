@@ -139,7 +139,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chat.loading = false
 		if msg.err != nil {
 			m.err = msg.err
-			m.chat.viewport.SetContent(m.chat.renderMessages())
+			m.chat.addMessage("brain", "Error: "+msg.err.Error())
 			return m, nil
 		}
 		if msg.response != nil {
@@ -159,9 +159,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update context
 			m.context = msg.response.Context
 
-			// Merge graph context if response has context
+			// Replace graph with new context (per design: context does not stack)
 			if msg.response.Context != nil {
-				mergeContext(&m.graph, msg.response.Context)
+				m.graph = *msg.response.Context
 			}
 
 			// Add brain response to chat panel
@@ -215,20 +215,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View implements tea.Model. Returns the full rendered TUI view.
 func (m Model) View() string {
 	return m.renderView()
-}
-
-// mergeContext adds nodes and edges from src into dst, skipping duplicates.
-func mergeContext(dst *types.Context, src *types.Context) {
-	for _, n := range src.Nodes {
-		if !containsNode(dst.Nodes, n.ID) {
-			dst.Nodes = append(dst.Nodes, n)
-		}
-	}
-	for _, e := range src.Edges {
-		if !containsEdge(dst.Edges, e.ID) {
-			dst.Edges = append(dst.Edges, e)
-		}
-	}
 }
 
 // containsNode checks whether a node with the given ID exists in the slice.

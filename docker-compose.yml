@@ -1,0 +1,30 @@
+services:
+  server:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - brain-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  server-test:
+    build: .
+    ports:
+      - "8001:8000"
+    environment:
+      BRAIN_TEST_MODE: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - test
+
+volumes:
+  brain-data:

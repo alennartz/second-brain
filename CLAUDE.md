@@ -85,12 +85,14 @@ The following checks run automatically on every `git commit`. Do not run these m
 ## Environment
 
 Requires a `.env` file (copy from `.env.example`). Key variables use the `BRAIN_` prefix:
-- `OPENAI_API_KEY` — required for embeddings and agent LLM calls
 - `BRAIN_DB_PATH` — SurrealDB file path (default: `data/brain.db`)
-- `BRAIN_REASONING_MODEL` — LLM for agents (default: `openai:gpt-4o-mini`)
+- `BRAIN_REASONING_MODEL` — LLM for agents (default: `openai:gpt-4o-mini`). Any PydanticAI model string works (e.g. `anthropic:claude-sonnet-4-5`, `groq:llama-3.3-70b`)
 - `BRAIN_EMBEDDING_MODEL` — embedding model (default: `openai:text-embedding-3-small`)
 - `BRAIN_EMBEDDING_DIMENSIONS` — vector dimensions (default: `1536`)
-- `BRAIN_TEST_MODE` — when `true`, uses `TestModel()` and in-memory SurrealDB (no OpenAI key needed)
+- `BRAIN_TEST_MODE` — when `true`, uses `TestModel()` and in-memory SurrealDB (no API keys needed)
+- `BRAIN_FOUNDRY_URL` — Azure AI Foundry endpoint (optional). When set, uses `DefaultAzureCredential` instead of API keys. Supports `openai:` and `anthropic:` model prefixes
+- `OPENAI_API_KEY` — required when using `openai:` models without Foundry
+- `ANTHROPIC_API_KEY` — required when using `anthropic:` models without Foundry
 
 ## Architecture
 
@@ -108,8 +110,8 @@ GET  /graph/{record_id}             →  node + connections lookup
 ### Key modules (server — `src/second_brain/`)
 
 - **`app.py`** — FastAPI app with lifespan (DB init on startup). Endpoints: `/health`, `/ingest`, `/recall`, `/converse`, `/graph/{record_id}`.
-- **`db.py`** — SurrealDB schema definition (`init_schema`). Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and field definitions.
-- **`embedding.py`** — `embed_text()` calls OpenAI embeddings API. `init_vector_indexes()` creates HNSW cosine indexes on `note.embedding` and `entity.embedding`.
+- **`db.py`** — SurrealDB schema definition (`init_schema`) and vector index setup (`init_vector_indexes`). Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and HNSW cosine indexes.
+- **`providers.py`** — Model and embedding factory. When `BRAIN_FOUNDRY_URL` is set, constructs Azure Foundry clients with `DefaultAzureCredential`. Otherwise, model strings pass through to PydanticAI for native resolution.
 - **`config.py`** — `Settings(BaseSettings)` with `BRAIN_` env prefix.
 - **`models.py`** — Shared `Context` model (nodes + edges) and `make_serializable()` for SurrealDB types.
 - **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, and creates graph relationships. Auto-embeds on create. Tools: `create_note`, `create_entity`, `create_edge`, `update_node`, `search_knowledge`. Dependencies: `IngestDeps(db, embed_fn)`.

@@ -50,7 +50,7 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         question as-is — the recall agent handles all reasoning internally."""
         result = await _recall_agent.run(
             question,
-            deps=RecallDeps(db=ctx.deps.db),
+            deps=RecallDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
             model=ctx.deps.model_setting,
         )
         output: RecallOutput = result.output

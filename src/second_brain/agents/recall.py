@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ class RecallOutput(BaseModel):
 @dataclass
 class RecallDeps:
     db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues] - SDK types AsyncSurreal as function
+    embed_fn: Callable[[str], Awaitable[list[float]]]
 
 
 def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
@@ -32,8 +34,9 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         system_prompt=(
             "You are a personal knowledge recall agent. The user asks questions and you "
             "explore their knowledge base using the tools available to you. "
-            "Use search tools to find relevant notes and entities, follow graph connections "
-            "to discover related knowledge, and refine your search based on what you find. "
+            "Use search_knowledge to search notes and entities by keyword and meaning, "
+            "follow graph connections to discover related knowledge, and refine your search "
+            "based on what you find. "
             "Keep exploring until you have enough context to give a thorough answer. "
             "If you find nothing relevant, say so honestly.\n\n"
             "IMPORTANT: In your response, include the IDs of all nodes and edges you "
@@ -42,30 +45,22 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     )
 
     @agent.tool
-    async def full_text_search(
-        ctx: RunContext[RecallDeps], table: str, query: str
+    async def search_knowledge(
+        ctx: RunContext[RecallDeps], tables: list[str], query: str, k: int = 5
     ) -> list[dict]:
-        """Search notes or entities by keyword. Table must be 'note' or 'entity'."""
-        field = "content" if table == "note" else "name"
-        return await ctx.deps.db.query(
-            f"SELECT *, search::score(1) AS score FROM {table} "
-            f"WHERE {field} @1@ $query ORDER BY score DESC LIMIT 10",
-            {"query": query},
-        )
-
-    @agent.tool
-    async def vector_search(
-        ctx: RunContext[RecallDeps],
-        table: str,
-        query_embedding: list[float],
-        k: int = 5,
-    ) -> list[dict]:
-        """Find the k nearest notes/entities by semantic similarity."""
-        return await ctx.deps.db.query(
-            f"SELECT *, vector::similarity::cosine(embedding, $vec) AS score "
-            f"FROM {table} ORDER BY score DESC LIMIT $k",
-            {"vec": query_embedding, "k": k},
-        )
+        """Search the knowledge base using hybrid keyword + semantic search.
+        tables: list containing 'note', 'entity', or both."""
+        try:
+            query_embedding = await ctx.deps.embed_fn(query)
+            all_results: list[dict] = []
+            for table in tables:
+                results = await recall_tools.hybrid_search(
+                    ctx.deps.db, table, query, query_embedding, k
+                )
+                all_results.extend(results)
+            return all_results
+        except Exception as e:
+            return [{"error": str(e)}]
 
     @agent.tool
     async def get_node(ctx: RunContext[RecallDeps], record_id: str) -> dict:

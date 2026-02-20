@@ -111,7 +111,7 @@ async def run_recall_agent(
 
     result = await _recall_agent.run(
         prompt,
-        deps=RecallDeps(db=_db),
+        deps=RecallDeps(db=_db, embed_fn=embed_text),
         model=settings.reasoning_model,
     )
     output = result.output  # RecallOutput

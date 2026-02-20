@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic_ai.models.test import TestModel
 
@@ -14,16 +16,19 @@ async def recall_deps(db):
         CREATE entity:sr SET name = 'spaced repetition', type = 'concept';
         RELATE note:1->references->entity:sr;
     """)
-    return RecallDeps(db=db)
+    return RecallDeps(db=db, embed_fn=AsyncMock(return_value=[0.1, 0.2, 0.3]))
 
 
 async def test_recall_agent_has_tools():
     agent = create_recall_agent()
     tool_names = set(agent._function_toolset.tools)
-    assert "full_text_search" in tool_names
+    assert "search_knowledge" in tool_names
     assert "get_node" in tool_names
     assert "get_connections" in tool_names
     assert "graph_traverse" in tool_names
+    # Old tools should NOT exist
+    assert "full_text_search" not in tool_names
+    assert "vector_search" not in tool_names
 
 
 async def test_recall_agent_runs(recall_deps):

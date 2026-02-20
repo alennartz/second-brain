@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     reasoning_model: str = "openai:gpt-4o-mini"
     embedding_dimensions: int = 1536
     test_mode: bool = False
+    foundry_url: str | None = None
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}
 

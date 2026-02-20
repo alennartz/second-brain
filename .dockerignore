@@ -1,0 +1,15 @@
+.venv/
+.git/
+client/
+tests/
+data/
+docs/
+*.pyc
+__pycache__/
+.env
+.env.example
+.pre-commit-config.yaml
+.ruff_cache/
+Makefile
+docker-compose.yml
+.dockerignore

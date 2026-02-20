@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from second_brain.providers import _parse_model_string, create_model
@@ -28,3 +30,28 @@ def test_create_model_no_foundry_returns_string():
 def test_create_model_no_foundry_any_provider():
     result = create_model("groq:llama-3.3-70b-versatile", foundry_url=None)
     assert result == "groq:llama-3.3-70b-versatile"
+
+
+@patch("second_brain.providers._get_token_provider")
+def test_create_model_foundry_openai(mock_token):
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    mock_token.return_value = lambda: "fake-token"
+    result = create_model("openai:gpt-4o-mini", foundry_url="https://my.azure.com")
+    assert isinstance(result, OpenAIChatModel)
+
+
+@patch("second_brain.providers._get_token_provider")
+def test_create_model_foundry_anthropic(mock_token):
+    from pydantic_ai.models.anthropic import AnthropicModel
+
+    mock_token.return_value = lambda: "fake-token"
+    result = create_model(
+        "anthropic:claude-sonnet-4-5", foundry_url="https://my.azure.com"
+    )
+    assert isinstance(result, AnthropicModel)
+
+
+def test_create_model_foundry_unsupported_prefix():
+    with pytest.raises(ValueError, match=r"anthropic.*openai"):
+        create_model("groq:llama-3.3-70b", foundry_url="https://my.azure.com")

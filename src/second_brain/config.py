@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     embedding_model: str = "openai:text-embedding-3-small"
     reasoning_model: str = "openai:gpt-4o-mini"
     embedding_dimensions: int = 1536
+    test_mode: bool = False
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}
 

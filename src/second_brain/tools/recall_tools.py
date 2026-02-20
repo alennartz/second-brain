@@ -3,31 +3,50 @@
 from surrealdb import AsyncSurreal
 
 
-async def vector_search(
-    db: AsyncSurreal, table: str, query_embedding: list[float], k: int = 5
+async def hybrid_search(
+    db: AsyncSurreal,
+    table: str,
+    query_text: str,
+    query_embedding: list[float],
+    k: int = 5,
 ) -> list[dict]:
-    """Find the k nearest notes/entities by vector similarity."""
-    result = await db.query(
-        f"SELECT *, vector::similarity::cosine(embedding, $vec) AS score "
-        f"FROM {table} "
-        f"ORDER BY score DESC LIMIT $k",
-        {"vec": query_embedding, "k": k},
-    )
-    return result
-
-
-async def full_text_search(
-    db: AsyncSurreal, table: str, query: str, limit: int = 10
-) -> list[dict]:
-    """Search notes or entities by full-text match using BM25."""
+    """Hybrid BM25 + vector search fused with reciprocal rank fusion."""
+    if table not in ("note", "entity"):
+        raise ValueError(f"Invalid table: {table}")
     field = "content" if table == "note" else "name"
-    result = await db.query(
-        f"SELECT *, search::score(1) AS score FROM {table} "
-        f"WHERE {field} @1@ $query "
-        f"ORDER BY score DESC LIMIT $limit",
-        {"query": query, "limit": limit},
+
+    # Run vector search and full-text search separately, then fuse with RRF.
+    # SurrealDB's search::rrf() may not be available in mem:// test backend,
+    # so we compute RRF in Python for portability.
+    vs_result = await db.query(
+        f"SELECT * FROM {table} WHERE embedding <|{k},100|> $vec",
+        {"vec": query_embedding},
     )
-    return result
+    ft_result = await db.query(
+        f"SELECT *, search::score(1) AS score "
+        f"FROM {table} WHERE {field} @1@ $query "
+        f"ORDER BY score DESC LIMIT {k}",
+        {"query": query_text},
+    )
+
+    # Reciprocal rank fusion: score = sum(1 / (k + rank)) across lists
+    rrf_k = 60  # standard RRF constant
+    scores: dict[str, float] = {}
+    records: dict[str, dict] = {}
+
+    for rank, rec in enumerate(vs_result):
+        rid = str(rec["id"])
+        scores[rid] = scores.get(rid, 0) + 1 / (rrf_k + rank + 1)
+        records[rid] = rec
+
+    for rank, rec in enumerate(ft_result):
+        rid = str(rec["id"])
+        scores[rid] = scores.get(rid, 0) + 1 / (rrf_k + rank + 1)
+        records[rid] = rec
+
+    # Sort by RRF score descending and return top k
+    ranked_ids = sorted(scores, key=lambda rid: scores[rid], reverse=True)[:k]
+    return [records[rid] for rid in ranked_ids]
 
 
 async def get_node(db: AsyncSurreal, record_id: str) -> dict:

@@ -1,12 +1,13 @@
 import pytest
 
 from second_brain.db import init_schema
+from second_brain.embedding import init_vector_indexes
 from second_brain.tools.recall_tools import (
     fetch_records_by_ids,
-    full_text_search,
     get_connections,
     get_node,
     graph_traverse,
+    hybrid_search,
 )
 
 
@@ -30,6 +31,51 @@ async def seeded_db(db):
     return db
 
 
+@pytest.fixture
+async def hybrid_db(db):
+    """DB with schema, vector indexes, and sample data with embeddings."""
+    await init_schema(db)
+    await init_vector_indexes(db, dimensions=3)
+    await db.query("""
+        CREATE note:1 SET content = 'Spaced repetition improves long-term memory',
+            summary = 'spaced repetition for memory', source = 'cli',
+            embedding = [0.1, 0.2, 0.3];
+        CREATE note:2 SET content = 'GTD is a productivity methodology',
+            summary = 'GTD methodology', source = 'cli',
+            embedding = [0.4, 0.5, 0.6];
+        CREATE entity:sr SET name = 'spaced repetition', type = 'concept',
+            embedding = [0.1, 0.2, 0.3];
+        CREATE entity:gtd SET name = 'GTD', type = 'concept',
+            embedding = [0.4, 0.5, 0.6];
+    """)
+    return db
+
+
+async def test_hybrid_search_notes(hybrid_db):
+    """Hybrid search on notes table finds results matching both keyword and vector."""
+    results = await hybrid_search(hybrid_db, "note", "repetition", [0.1, 0.2, 0.3], k=5)
+    assert len(results) >= 1
+    # The note about spaced repetition should be in results
+    ids = [r["id"] for r in results]
+    assert any("note:1" in str(rid) for rid in ids)
+
+
+async def test_hybrid_search_entities(hybrid_db):
+    """Hybrid search on entities table works."""
+    results = await hybrid_search(hybrid_db, "entity", "spaced", [0.1, 0.2, 0.3], k=5)
+    assert len(results) >= 1
+    ids = [r["id"] for r in results]
+    assert any("entity:sr" in str(rid) for rid in ids)
+
+
+async def test_hybrid_search_no_results(db):
+    """Returns empty list when table has no data."""
+    await init_schema(db)
+    await init_vector_indexes(db, dimensions=3)
+    results = await hybrid_search(db, "note", "xyznonexistent", [0.9, 0.9, 0.9], k=5)
+    assert results == []
+
+
 async def test_get_node(seeded_db):
     result = await get_node(seeded_db, "note:1")
     assert "Spaced repetition" in result["content"]
@@ -38,11 +84,6 @@ async def test_get_node(seeded_db):
 async def test_get_connections(seeded_db):
     result = await get_connections(seeded_db, "entity:sr")
     assert len(result) > 0
-
-
-async def test_full_text_search(seeded_db):
-    results = await full_text_search(seeded_db, "note", "repetition")
-    assert len(results) >= 1
 
 
 async def test_graph_traverse(seeded_db):

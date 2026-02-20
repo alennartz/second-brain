@@ -5,7 +5,7 @@ from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
 from second_brain.models import make_serializable
-from second_brain.tools import ingest_tools, recall_tools
+from second_brain.tools import ingest_tools
 
 
 @dataclass
@@ -111,7 +111,12 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         ctx: RunContext[IngestDeps], table: str, query: str
     ) -> list[dict]:
         """Search existing notes/entities by keyword to find related knowledge."""
-        return await recall_tools.full_text_search(ctx.deps.db, table, query)
+        field = "content" if table == "note" else "name"
+        return await ctx.deps.db.query(
+            f"SELECT *, search::score(1) AS score FROM {table} "
+            f"WHERE {field} @1@ $query ORDER BY score DESC LIMIT 10",
+            {"query": query},
+        )
 
     @agent.tool
     async def embed(ctx: RunContext[IngestDeps], text: str) -> list[float]:

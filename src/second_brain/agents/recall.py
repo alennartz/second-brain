@@ -46,7 +46,12 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         ctx: RunContext[RecallDeps], table: str, query: str
     ) -> list[dict]:
         """Search notes or entities by keyword. Table must be 'note' or 'entity'."""
-        return await recall_tools.full_text_search(ctx.deps.db, table, query)
+        field = "content" if table == "note" else "name"
+        return await ctx.deps.db.query(
+            f"SELECT *, search::score(1) AS score FROM {table} "
+            f"WHERE {field} @1@ $query ORDER BY score DESC LIMIT 10",
+            {"query": query},
+        )
 
     @agent.tool
     async def vector_search(
@@ -56,7 +61,11 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         k: int = 5,
     ) -> list[dict]:
         """Find the k nearest notes/entities by semantic similarity."""
-        return await recall_tools.vector_search(ctx.deps.db, table, query_embedding, k)
+        return await ctx.deps.db.query(
+            f"SELECT *, vector::similarity::cosine(embedding, $vec) AS score "
+            f"FROM {table} ORDER BY score DESC LIMIT $k",
+            {"vec": query_embedding, "k": k},
+        )
 
     @agent.tool
     async def get_node(ctx: RunContext[RecallDeps], record_id: str) -> dict:

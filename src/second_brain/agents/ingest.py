@@ -5,7 +5,7 @@ from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
 from second_brain.models import make_serializable
-from second_brain.tools import ingest_tools
+from second_brain.tools import ingest_tools, recall_tools
 
 
 @dataclass
@@ -33,8 +33,8 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             "2. Extract entities (people, projects, concepts, tools) mentioned.\n"
             "3. Search the existing knowledge base to find related entities and notes. "
             "Resolve references like 'that thing I was thinking about' to existing nodes.\n"
-            "4. Create notes, entities, and relationship edges. Use the embed tool to generate "
-            "vectors for each new note and entity.\n"
+            "4. Create notes, entities, and relationship edges. Embeddings are generated "
+            "automatically when you create notes and entities.\n"
             "5. Surface any interesting connections you found to existing knowledge.\n\n"
             "Return a summary of what you stored and any connections you discovered."
         ),
@@ -47,10 +47,15 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         source: str = "api",
         summary: str | None = None,
     ) -> dict:
-        """Create a new note. Call embed() first to get the embedding vector."""
+        """Create a new note. Embedding is generated automatically."""
         try:
+            embedding = await ctx.deps.embed_fn(content)
             result = await ingest_tools.create_note(
-                ctx.deps.db, content=content, source=source, summary=summary
+                ctx.deps.db,
+                content=content,
+                source=source,
+                summary=summary,
+                embedding=embedding,
             )
             return make_serializable(result)
         except Exception as e:
@@ -63,10 +68,16 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         type: str,
         description: str | None = None,
     ) -> dict:
-        """Create a new entity (concept, person, project, tool, etc.)."""
+        """Create a new entity (concept, person, project, tool, etc.). Embedding is generated automatically."""
         try:
+            text_to_embed = description or name
+            embedding = await ctx.deps.embed_fn(text_to_embed)
             result = await ingest_tools.create_entity(
-                ctx.deps.db, name=name, type=type, description=description
+                ctx.deps.db,
+                name=name,
+                type=type,
+                description=description,
+                embedding=embedding,
             )
             return make_serializable(result)
         except Exception as e:
@@ -107,20 +118,21 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             return {"error": str(e)}
 
     @agent.tool
-    async def search_existing(
-        ctx: RunContext[IngestDeps], table: str, query: str
+    async def search_knowledge(
+        ctx: RunContext[IngestDeps], tables: list[str], query: str, k: int = 5
     ) -> list[dict]:
-        """Search existing notes/entities by keyword to find related knowledge."""
-        field = "content" if table == "note" else "name"
-        return await ctx.deps.db.query(
-            f"SELECT *, search::score(1) AS score FROM {table} "
-            f"WHERE {field} @1@ $query ORDER BY score DESC LIMIT 10",
-            {"query": query},
-        )
-
-    @agent.tool
-    async def embed(ctx: RunContext[IngestDeps], text: str) -> list[float]:
-        """Generate a vector embedding for the given text."""
-        return await ctx.deps.embed_fn(text)
+        """Search existing notes/entities using hybrid keyword + semantic search.
+        tables: list containing 'note', 'entity', or both."""
+        try:
+            query_embedding = await ctx.deps.embed_fn(query)
+            all_results: list[dict] = []
+            for table in tables:
+                results = await recall_tools.hybrid_search(
+                    ctx.deps.db, table, query, query_embedding, k
+                )
+                all_results.extend(results)
+            return all_results
+        except Exception as e:
+            return [{"error": str(e)}]
 
     return agent

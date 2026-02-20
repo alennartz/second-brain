@@ -20,8 +20,11 @@ async def test_ingest_agent_has_tools():
     assert "create_entity" in tool_names
     assert "create_edge" in tool_names
     assert "update_node" in tool_names
-    assert "search_existing" in tool_names
-    assert "embed" in tool_names
+    assert "search_knowledge" in tool_names
+    # embed tool should NOT exist
+    assert "embed" not in tool_names
+    # search_existing replaced by search_knowledge
+    assert "search_existing" not in tool_names
 
 
 async def test_ingest_agent_runs(ingest_deps):

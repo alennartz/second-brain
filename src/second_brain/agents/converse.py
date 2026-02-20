@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models import Model
 from surrealdb import AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
 
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
@@ -16,7 +17,7 @@ from second_brain.tools.recall_tools import fetch_records_by_ids
 class ConverseDeps:
     db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
     embed_fn: Callable[[str], Awaitable[list[float]]]
-    model_setting: str  # model string for sub-agent calls, e.g. "openai:gpt-4o-mini"
+    model_setting: Model | str  # model string or TestModel for sub-agent calls
     context: Context = field(default_factory=Context)  # mutable accumulator
 
 

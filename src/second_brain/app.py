@@ -18,15 +18,35 @@ from second_brain.models import Context, make_serializable
 from second_brain.tools.recall_tools import get_connections, get_node
 
 _db: Any = None
+_model: Any = None
+_embed: Any = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()
 
 
+def _dummy_embed(dimensions: int):
+    """Return an async embed function that produces zero vectors."""
+
+    async def _embed_fn(text: str) -> list[float]:
+        return [0.0] * dimensions
+
+    return _embed_fn
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _db
-    _db = AsyncSurreal(f"surrealkv://{settings.db_path}")
+    global _db, _model, _embed
+    if settings.test_mode:
+        from pydantic_ai.models.test import TestModel
+
+        _db = AsyncSurreal("mem://")
+        _model = TestModel()
+        _embed = _dummy_embed(settings.embedding_dimensions)
+    else:
+        _db = AsyncSurreal(f"surrealkv://{settings.db_path}")
+        _model = settings.reasoning_model
+        _embed = embed_text
     await _db.use("brain", "brain")
     await init_schema(_db)
     await init_vector_indexes(_db)
@@ -95,8 +115,8 @@ async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
         prompt = f"Possibly related nodes: {hint_str}\n\n{text}"
     result = await _ingest_agent.run(
         prompt,
-        deps=IngestDeps(db=_db, embed_fn=embed_text),
-        model=settings.reasoning_model,
+        deps=IngestDeps(db=_db, embed_fn=_embed),
+        model=_model,
     )
     return result.output
 
@@ -111,8 +131,8 @@ async def run_recall_agent(
 
     result = await _recall_agent.run(
         prompt,
-        deps=RecallDeps(db=_db, embed_fn=embed_text),
-        model=settings.reasoning_model,
+        deps=RecallDeps(db=_db, embed_fn=_embed),
+        model=_model,
     )
     output = result.output  # RecallOutput
 
@@ -137,8 +157,8 @@ async def run_converse_agent(
 ) -> ConverseResponse:
     deps = ConverseDeps(
         db=_db,
-        embed_fn=embed_text,
-        model_setting=settings.reasoning_model,
+        embed_fn=_embed,
+        model_setting=_model,
     )
 
     # Build PydanticAI message history
@@ -152,7 +172,7 @@ async def run_converse_agent(
     result = await _converse_agent.run(
         message,
         deps=deps,
-        model=settings.reasoning_model,
+        model=_model,
         message_history=pydantic_history,
     )
 

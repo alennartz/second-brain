@@ -72,8 +72,13 @@ def test_create_embed_fn_foundry(mock_token):
     assert callable(fn)
 
 
-def test_create_embed_fn_anthropic_raises():
+def test_create_embed_fn_anthropic_raises_foundry():
     with pytest.raises(ValueError, match=r"[Ee]mbedding"):
         create_embed_fn(
             "anthropic:claude-sonnet-4-5", foundry_url="https://my.azure.com"
         )
+
+
+def test_create_embed_fn_anthropic_raises_no_foundry():
+    with pytest.raises(ValueError, match=r"[Ee]mbedding"):
+        create_embed_fn("anthropic:claude-sonnet-4-5", foundry_url=None)

@@ -47,7 +47,7 @@ def _create_openai_foundry_model(model_name: str, foundry_url: str) -> Any:
     client = AsyncAzureOpenAI(
         azure_endpoint=foundry_url,
         azure_ad_token_provider=_get_token_provider(),
-        api_version="2024-07-01-preview",
+        api_version=_AZURE_API_VERSION,
     )
     return OpenAIChatModel(model_name, provider=OpenAIProvider(openai_client=client))
 
@@ -65,6 +65,8 @@ def _create_anthropic_foundry_model(model_name: str, foundry_url: str) -> Any:
         model_name, provider=AnthropicProvider(anthropic_client=client)
     )
 
+
+_AZURE_API_VERSION = "2024-07-01-preview"
 
 _FOUNDRY_BUILDERS: dict[str, Callable[..., Any]] = {
     "openai": _create_openai_foundry_model,
@@ -112,14 +114,13 @@ def create_embed_fn(
 
     provider_prefix, model_name = _parse_model_string(model_string)
 
-    if foundry_url is not None and provider_prefix != "openai":
+    if provider_prefix != "openai":
         raise ValueError(
-            f"Foundry embeddings only support 'openai:' prefix, got '{provider_prefix}:'. "
-            "Anthropic does not offer an embeddings API."
+            f"Embeddings only support 'openai:' prefix, got '{provider_prefix}:'."
         )
 
     if foundry_url is None:
-        embedding_model = OpenAIEmbeddingModel(model_name, provider=provider_prefix)  # pyright: ignore[reportArgumentType]
+        embedding_model = OpenAIEmbeddingModel(model_name, provider="openai")
     else:
         from openai import AsyncAzureOpenAI
         from pydantic_ai.providers.openai import OpenAIProvider
@@ -127,7 +128,7 @@ def create_embed_fn(
         client = AsyncAzureOpenAI(
             azure_endpoint=foundry_url,
             azure_ad_token_provider=_get_token_provider(),
-            api_version="2024-07-01-preview",
+            api_version=_AZURE_API_VERSION,
         )
         embedding_model = OpenAIEmbeddingModel(
             model_name, provider=OpenAIProvider(openai_client=client)

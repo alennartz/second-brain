@@ -1,7 +1,6 @@
 import pytest
 
-from second_brain.db import init_schema
-from second_brain.embedding import init_vector_indexes
+from second_brain.db import init_schema, init_vector_indexes
 from second_brain.tools.recall_tools import (
     fetch_records_by_ids,
     get_connections,

@@ -47,3 +47,14 @@ async def init_schema(db: AsyncSurreal) -> None:  # pyright: ignore[reportGenera
         DEFINE INDEX IF NOT EXISTS entity_name_fts ON entity FIELDS name
             SEARCH ANALYZER simple_analyzer BM25;
     """)
+
+
+async def init_vector_indexes(db: AsyncSurreal, dimensions: int | None = None) -> None:  # pyright: ignore[reportGeneralTypeIssues]
+    """Define HNSW vector indexes. Idempotent."""
+    dim = dimensions or settings.embedding_dimensions
+    await db.query(f"""
+        DEFINE INDEX IF NOT EXISTS note_embedding_hnsw ON note
+            FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
+        DEFINE INDEX IF NOT EXISTS entity_embedding_hnsw ON entity
+            FIELDS embedding HNSW DIMENSION {dim} DIST COSINE;
+    """)

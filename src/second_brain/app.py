@@ -12,8 +12,7 @@ from second_brain.agents.converse import ConverseDeps, create_converse_agent
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.config import settings
-from second_brain.db import init_schema
-from second_brain.embedding import embed_text, init_vector_indexes
+from second_brain.db import init_schema, init_vector_indexes
 from second_brain.models import Context, make_serializable
 from second_brain.tools.recall_tools import get_connections, get_node
 
@@ -44,9 +43,11 @@ async def lifespan(app: FastAPI):
         _model = TestModel()
         _embed = _dummy_embed(settings.embedding_dimensions)
     else:
+        from second_brain.providers import create_embed_fn, create_model
+
         _db = AsyncSurreal(f"surrealkv://{settings.db_path}")
-        _model = settings.reasoning_model
-        _embed = embed_text
+        _model = create_model(settings.reasoning_model, settings.foundry_url)
+        _embed = create_embed_fn(settings.embedding_model, settings.foundry_url)
     await _db.use("brain", "brain")
     await init_schema(_db)
     await init_vector_indexes(_db)

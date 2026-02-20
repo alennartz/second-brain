@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 
@@ -96,3 +96,47 @@ def create_model(model_string: str, foundry_url: str | None) -> Any:
             f"Unsupported Foundry provider '{provider_prefix}'. Supported: {supported}"
         )
     return builder(model_name, foundry_url)
+
+
+def create_embed_fn(
+    model_string: str, foundry_url: str | None
+) -> Callable[[str], Awaitable[list[float]]]:
+    """Create an async embedding function from a provider:model_name string.
+
+    Returns an ``async def embed(text: str) -> list[float]`` callable that
+    uses either the direct OpenAI API or an Azure Foundry endpoint depending
+    on *foundry_url*.
+    """
+    from pydantic_ai import Embedder
+    from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
+
+    provider_prefix, model_name = _parse_model_string(model_string)
+
+    if foundry_url is not None and provider_prefix != "openai":
+        raise ValueError(
+            f"Foundry embeddings only support 'openai:' prefix, got '{provider_prefix}:'. "
+            "Anthropic does not offer an embeddings API."
+        )
+
+    if foundry_url is None:
+        embedding_model = OpenAIEmbeddingModel(model_name, provider=provider_prefix)  # pyright: ignore[reportArgumentType]
+    else:
+        from openai import AsyncAzureOpenAI
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        client = AsyncAzureOpenAI(
+            azure_endpoint=foundry_url,
+            azure_ad_token_provider=_get_token_provider(),
+            api_version="2024-07-01-preview",
+        )
+        embedding_model = OpenAIEmbeddingModel(
+            model_name, provider=OpenAIProvider(openai_client=client)
+        )
+
+    embedder = Embedder(embedding_model)
+
+    async def embed(text: str) -> list[float]:
+        result = await embedder.embed_query(text)
+        return list(result[0])
+
+    return embed

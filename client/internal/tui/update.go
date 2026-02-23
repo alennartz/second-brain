@@ -12,12 +12,13 @@ import (
 // dispatches converse requests. Returns the updated model and an optional
 // tea.Cmd for async work.
 func (m Model) submitInput() (Model, tea.Cmd) {
-	value := strings.TrimSpace(m.input.textInput.Value())
+	value := strings.TrimSpace(m.input.textArea.Value())
 	if value == "" {
 		return m, nil
 	}
 
-	m.input.textInput.SetValue("")
+	m.input.textArea.SetValue("")
+	m.input.textArea.SetHeight(3)
 	m.input.showSuggest = false
 
 	switch value {

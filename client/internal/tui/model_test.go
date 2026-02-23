@@ -99,7 +99,7 @@ func TestSubmitSendsConverse(t *testing.T) {
 	m := NewModel("http://localhost:8000")
 	m.width = 80
 	m.height = 24
-	m.input.textInput.SetValue("What do I know about GTD?")
+	m.input.textArea.SetValue("What do I know about GTD?")
 	updated, cmd := m.submitInput()
 	model := updated
 	if !model.loading {
@@ -108,7 +108,7 @@ func TestSubmitSendsConverse(t *testing.T) {
 	if cmd == nil {
 		t.Error("expected a command for the HTTP call")
 	}
-	if model.input.textInput.Value() != "" {
+	if model.input.textArea.Value() != "" {
 		t.Error("expected input cleared after submit")
 	}
 }
@@ -118,7 +118,7 @@ func TestSubmitClearCommand(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.history = []types.Exchange{{User: "q", Assistant: types.AssistantResponse{Response: "a"}}}
-	m.input.textInput.SetValue("/clear")
+	m.input.textArea.SetValue("/clear")
 	updated, _ := m.submitInput()
 	model := updated
 	if len(model.history) != 0 {
@@ -128,7 +128,7 @@ func TestSubmitClearCommand(t *testing.T) {
 
 func TestSubmitQuitCommand(t *testing.T) {
 	m := NewModel("http://localhost:8000")
-	m.input.textInput.SetValue("/quit")
+	m.input.textArea.SetValue("/quit")
 	_, cmd := m.submitInput()
 	if cmd == nil {
 		t.Error("expected quit command")
@@ -200,7 +200,7 @@ func TestEnterInGraphExpandsNode(t *testing.T) {
 
 func TestSubmitEmptyDoesNothing(t *testing.T) {
 	m := NewModel("http://localhost:8000")
-	m.input.textInput.SetValue("")
+	m.input.textArea.SetValue("")
 	updated, cmd := m.submitInput()
 	if cmd != nil {
 		t.Error("expected nil command for empty input")
@@ -212,7 +212,7 @@ func TestSubmitEmptyDoesNothing(t *testing.T) {
 
 func TestSlashGraphSwitchesFocus(t *testing.T) {
 	m := NewModel("http://localhost:8000")
-	m.input.textInput.SetValue("/graph")
+	m.input.textArea.SetValue("/graph")
 	updated, _ := m.submitInput()
 	if updated.focus != focusGraph {
 		t.Error("expected focus on graph after /graph command")

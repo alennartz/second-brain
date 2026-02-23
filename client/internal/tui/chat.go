@@ -49,6 +49,7 @@ func (c chatPanel) renderMessages() string {
 	if len(c.messages) == 0 {
 		return lipgloss.NewStyle().Faint(true).Render("Type a message to start...")
 	}
+	wrapStyle := lipgloss.NewStyle().Width(c.width)
 	var b strings.Builder
 	for _, msg := range c.messages {
 		var label string
@@ -57,7 +58,8 @@ func (c chatPanel) renderMessages() string {
 		} else {
 			label = brainStyle.Render("Brain: ")
 		}
-		fmt.Fprintf(&b, "\n%s%s\n", label, msg.text)
+		wrapped := wrapStyle.Render(msg.text)
+		fmt.Fprintf(&b, "\n%s\n%s\n", label, wrapped)
 	}
 	if c.loading {
 		fmt.Fprintf(&b, "\n%s\n", brainStyle.Render("Thinking..."))

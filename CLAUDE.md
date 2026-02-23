@@ -73,7 +73,7 @@ Each concern (reasoning, embedding) can independently target an Azure AI Foundry
 
 ## Architecture
 
-Personal knowledge engine: FastAPI REST API backed by an embedded SurrealDB graph database and three PydanticAI agent loops, with a Go terminal client.
+Personal knowledge engine: FastAPI REST API backed by an embedded SurrealDB graph database and three PydanticAI agent loops, with a Go terminal client. See [DESIGN.md](docs/DESIGN.md) for design rationale.
 
 ### Data flow
 

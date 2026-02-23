@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -6,6 +7,8 @@ from surrealdb import AsyncSurreal
 
 from second_brain.models import make_serializable
 from second_brain.tools import ingest_tools, recall_tools
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,6 +51,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         summary: str | None = None,
     ) -> dict:
         """Create a new note. Embedding is generated automatically."""
+        logger.info("ingest: create_note (%d chars) source=%s", len(content), source)
         try:
             embedding = await ctx.deps.embed_fn(content)
             result = await ingest_tools.create_note(
@@ -57,8 +61,11 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 summary=summary,
                 embedding=embedding,
             )
-            return make_serializable(result)
+            serialized = make_serializable(result)
+            logger.info("ingest: create_note → id=%s", serialized.get("id"))
+            return serialized
         except Exception as e:
+            logger.error("ingest: create_note failed: %s", e)
             return {"error": str(e)}
 
     @agent.tool
@@ -69,6 +76,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         description: str | None = None,
     ) -> dict:
         """Create a new entity (concept, person, project, tool, etc.). Embedding is generated automatically."""
+        logger.info("ingest: create_entity name='%s' type=%s", name, type)
         try:
             text_to_embed = description or name
             embedding = await ctx.deps.embed_fn(text_to_embed)
@@ -79,8 +87,11 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 description=description,
                 embedding=embedding,
             )
-            return make_serializable(result)
+            serialized = make_serializable(result)
+            logger.info("ingest: create_entity → id=%s", serialized.get("id"))
+            return serialized
         except Exception as e:
+            logger.error("ingest: create_entity failed: %s", e)
             return {"error": str(e)}
 
     @agent.tool
@@ -92,6 +103,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         context: str | None = None,
     ) -> dict:
         """Create a relationship. edge_table is one of: references, relates_to, derived_from."""
+        logger.info("ingest: create_edge %s -[%s]-> %s", from_id, edge_table, to_id)
         try:
             result = await ingest_tools.create_edge(
                 ctx.deps.db,
@@ -102,6 +114,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             )
             return make_serializable(result)
         except Exception as e:
+            logger.error("ingest: create_edge failed: %s", e)
             return {"error": str(e)}
 
     @agent.tool
@@ -109,12 +122,16 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         ctx: RunContext[IngestDeps], record_id: str, fields: dict
     ) -> dict:
         """Update fields on an existing note or entity."""
+        logger.info(
+            "ingest: update_node id=%s fields=%s", record_id, list(fields.keys())
+        )
         try:
             result = await ingest_tools.update_node(
                 ctx.deps.db, record_id=record_id, fields=fields
             )
             return make_serializable(result)
         except Exception as e:
+            logger.error("ingest: update_node failed: %s", e)
             return {"error": str(e)}
 
     @agent.tool
@@ -123,6 +140,9 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
     ) -> list[dict]:
         """Search existing notes/entities using hybrid keyword + semantic search.
         tables: list containing 'note', 'entity', or both."""
+        logger.info(
+            "ingest: search_knowledge tables=%s query='%.80s' k=%d", tables, query, k
+        )
         try:
             query_embedding = await ctx.deps.embed_fn(query)
             all_results: list[dict] = []
@@ -131,8 +151,10 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                     ctx.deps.db, table, query, query_embedding, k
                 )
                 all_results.extend(results)
+            logger.info("ingest: search_knowledge → %d results", len(all_results))
             return all_results
         except Exception as e:
+            logger.error("ingest: search_knowledge failed: %s", e)
             return [{"error": str(e)}]
 
     return agent

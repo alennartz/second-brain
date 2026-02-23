@@ -35,9 +35,9 @@ func (m Model) renderView() string {
 	// Header
 	header := headerStyle.Render("second-brain")
 
-	// Panel dimensions: subtract header (1), input (1), status (1), borders (2 top/bottom per panel)
+	// Panel dimensions: subtract header (1), input (3), status (1), borders (2 top/bottom per panel)
 	// border takes 2 lines (top+bottom) and 2 columns (left+right) per panel
-	panelHeight := m.height - 1 - 1 - 1 - 2 // header + input + status + border vertical
+	panelHeight := m.height - 1 - 3 - 1 - 2 // header + input + status + border vertical
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
@@ -77,8 +77,8 @@ func (m Model) renderView() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, chatBox, graphBox)
 
 	// Input bar
-	m.input.textInput.Width = m.width - 2
-	inputView := m.input.textInput.View()
+	m.input.textArea.SetWidth(m.width - 2)
+	inputView := m.input.textArea.View()
 
 	// Status line
 	nodeCount := len(m.graphPanel.nodes)
@@ -89,7 +89,7 @@ func (m Model) renderView() string {
 	} else if m.loading {
 		statusText = fmt.Sprintf("Thinking... | Nodes: %d | Edges: %d", nodeCount, edgeCount)
 	} else {
-		statusText = fmt.Sprintf("Tab: switch panel | /quit: exit | /clear: reset | Nodes: %d | Edges: %d", nodeCount, edgeCount)
+		statusText = fmt.Sprintf("Enter: send | Alt+Enter: newline | Tab: switch panel | /quit | /clear | Nodes: %d | Edges: %d", nodeCount, edgeCount)
 	}
 	status := statusStyle.Render(statusText)
 

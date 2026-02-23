@@ -3,13 +3,13 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 
 	"second-brain-client/internal/types"
 )
 
 type inputBar struct {
-	textInput   textinput.Model
+	textArea    textarea.Model
 	suggestions []suggestion
 	showSuggest bool
 }
@@ -20,10 +20,13 @@ type suggestion struct {
 }
 
 func newInputBar() inputBar {
-	ti := textinput.New()
-	ti.Placeholder = "Type a message..."
-	ti.Focus()
-	return inputBar{textInput: ti}
+	ta := textarea.New()
+	ta.Placeholder = "Type a message..."
+	ta.Focus()
+	ta.ShowLineNumbers = false
+	ta.SetHeight(3)
+	ta.CharLimit = 0
+	return inputBar{textArea: ta}
 }
 
 func extractAtQuery(input string) (string, bool) {

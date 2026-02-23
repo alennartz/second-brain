@@ -1,6 +1,10 @@
 # pyright: reportGeneralTypeIssues=false
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
+import logging
+
 from surrealdb import AsyncSurreal
+
+logger = logging.getLogger(__name__)
 
 
 async def create_note(
@@ -18,7 +22,9 @@ async def create_note(
         data["embedding"] = embedding
     result = await db.create("note", data)
     # db.create() returns a single dict in this SDK version
-    return result if isinstance(result, dict) else result[0]
+    rec = result if isinstance(result, dict) else result[0]
+    logger.info("db: created note id=%s (%d chars)", rec.get("id"), len(content))
+    return rec
 
 
 async def create_entity(
@@ -35,7 +41,9 @@ async def create_entity(
     if embedding:
         data["embedding"] = embedding
     result = await db.create("entity", data)
-    return result if isinstance(result, dict) else result[0]
+    rec = result if isinstance(result, dict) else result[0]
+    logger.info("db: created entity id=%s name='%s' type=%s", rec.get("id"), name, type)
+    return rec
 
 
 async def create_edge(
@@ -53,7 +61,15 @@ async def create_edge(
         {"context": context} if context else None,
     )
     # db.query() returns a flat list of dicts
-    return result[0] if result else {}
+    rec = result[0] if result else {}
+    logger.info(
+        "db: created edge %s -[%s]-> %s id=%s",
+        from_id,
+        edge_table,
+        to_id,
+        rec.get("id"),
+    )
+    return rec
 
 
 async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:
@@ -64,4 +80,6 @@ async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:
         fields,
     )
     # db.query() returns a flat list of dicts
-    return result[0] if result else {}
+    rec = result[0] if result else {}
+    logger.info("db: updated node id=%s fields=%s", record_id, list(fields.keys()))
+    return rec

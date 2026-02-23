@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
@@ -11,6 +12,8 @@ from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
 from second_brain.models import Context, make_serializable
 from second_brain.tools.recall_tools import fetch_records_by_ids
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -49,12 +52,14 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         """Delegate a question to the recall agent, which will search the knowledge
         base, follow graph connections, and synthesize an answer. Pass the user's
         question as-is — the recall agent handles all reasoning internally."""
+        logger.info("Converse → recall sub-agent starting")
         result = await _recall_agent.run(
             question,
             deps=RecallDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
             model=ctx.deps.model_setting,
         )
         output: RecallOutput = result.output
+        logger.info("Converse → recall sub-agent completed")
 
         # Fetch actual records and accumulate onto deps.context
         nodes = await fetch_records_by_ids(ctx.deps.db, output.cited_node_ids)
@@ -69,11 +74,13 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         """Delegate new knowledge to the ingest agent, which will parse it into
         notes and entities, find connections, and store everything. Pass the user's
         input as-is — the ingest agent handles all structuring internally."""
+        logger.info("Converse → ingest sub-agent starting")
         result = await _ingest_agent.run(
             text,
             deps=IngestDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
             model=ctx.deps.model_setting,
         )
+        logger.info("Converse → ingest sub-agent completed")
         return result.output
 
     return agent

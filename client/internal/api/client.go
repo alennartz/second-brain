@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ func New(baseURL string) *Client {
 func (c *Client) Ingest(text string, hints []string) (*types.IngestResponse, error) {
 	req := types.IngestRequest{Text: text, Hints: hints}
 	var resp types.IngestResponse
-	if err := c.post("/ingest", req, &resp); err != nil {
+	if err := c.post("/ingest", req, &resp, 0); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -39,20 +40,21 @@ func (c *Client) Ingest(text string, hints []string) (*types.IngestResponse, err
 func (c *Client) Recall(question string, hints []string) (*types.RecallResponse, error) {
 	req := types.RecallRequest{Question: question, Hints: hints}
 	var resp types.RecallResponse
-	if err := c.post("/recall", req, &resp); err != nil {
+	if err := c.post("/recall", req, &resp, 0); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
 // Converse sends a conversational message with optional history.
+// Uses a longer timeout because the converse endpoint involves nested LLM calls.
 func (c *Client) Converse(message string, history []types.Exchange) (*types.ConverseResponse, error) {
 	if history == nil {
 		history = []types.Exchange{}
 	}
 	req := types.ConverseRequest{Message: message, History: history}
 	var resp types.ConverseResponse
-	if err := c.post("/converse", req, &resp); err != nil {
+	if err := c.post("/converse", req, &resp, 5*time.Minute); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -79,13 +81,28 @@ func (c *Client) Graph(id string) (*types.GraphResponse, error) {
 
 // post is a helper that JSON-encodes reqBody, POSTs to the given path,
 // checks for a 200 status, and JSON-decodes the response into respBody.
-func (c *Client) post(path string, reqBody any, respBody any) error {
+// When timeout is non-zero it overrides the client's default timeout for
+// that single request (used for slow endpoints like /converse).
+func (c *Client) post(path string, reqBody any, respBody any, timeout time.Duration) error {
 	data, err := json.Marshal(reqBody)
 	if err != nil {
 		return fmt.Errorf("encode request: %w", err)
 	}
 	url := fmt.Sprintf("%s%s", c.baseURL, path)
-	httpResp, err := c.httpClient.Post(url, "application/json", bytes.NewReader(data))
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	if timeout > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		req = req.WithContext(ctx)
+	}
+
+	httpResp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

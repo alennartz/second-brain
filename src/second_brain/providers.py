@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_model_string(model_string: str) -> tuple[str, str]:
@@ -190,7 +193,15 @@ def create_embed_fn(
         embedder = Embedder(embedding_model)
 
     async def embed(text: str) -> list[float]:
+        logger.info(
+            "Embedding request (%d chars): '%.60s%s'",
+            len(text),
+            text,
+            "…" if len(text) > 60 else "",
+        )
         result = await embedder.embed_query(text)
+        dims = len(result[0])
+        logger.info("Embedding response: %d dimensions", dims)
         return list(result[0])
 
     return embed

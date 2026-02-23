@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -6,6 +7,8 @@ from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
 from second_brain.tools import recall_tools
+
+logger = logging.getLogger(__name__)
 
 
 class RecallOutput(BaseModel):
@@ -50,6 +53,9 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     ) -> list[dict]:
         """Search the knowledge base using hybrid keyword + semantic search.
         tables: list containing 'note', 'entity', or both."""
+        logger.info(
+            "recall: search_knowledge tables=%s query='%.80s' k=%d", tables, query, k
+        )
         try:
             query_embedding = await ctx.deps.embed_fn(query)
             all_results: list[dict] = []
@@ -58,13 +64,16 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
                     ctx.deps.db, table, query, query_embedding, k
                 )
                 all_results.extend(results)
+            logger.info("recall: search_knowledge → %d results", len(all_results))
             return all_results
         except Exception as e:
+            logger.error("recall: search_knowledge failed: %s", e)
             return [{"error": str(e)}]
 
     @agent.tool
     async def get_node(ctx: RunContext[RecallDeps], record_id: str) -> dict:
         """Get a single node by ID, e.g. 'note:abc123' or 'entity:sr'."""
+        logger.info("recall: get_node id=%s", record_id)
         return await recall_tools.get_node(ctx.deps.db, record_id)
 
     @agent.tool
@@ -72,6 +81,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         ctx: RunContext[RecallDeps], record_id: str
     ) -> list[dict]:
         """Get all relationships connected to a node."""
+        logger.info("recall: get_connections id=%s", record_id)
         return await recall_tools.get_connections(ctx.deps.db, record_id)
 
     @agent.tool
@@ -79,6 +89,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         ctx: RunContext[RecallDeps], record_id: str, depth: int = 2
     ) -> list[dict]:
         """Traverse the knowledge graph from a node up to N hops deep."""
+        logger.info("recall: graph_traverse id=%s depth=%d", record_id, depth)
         return await recall_tools.graph_traverse(ctx.deps.db, record_id, depth)
 
     return agent

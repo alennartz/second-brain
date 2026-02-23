@@ -1,6 +1,10 @@
 # pyright: reportGeneralTypeIssues=false
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
+import logging
+
 from surrealdb import AsyncSurreal
+
+logger = logging.getLogger(__name__)
 
 
 async def hybrid_search(
@@ -18,16 +22,25 @@ async def hybrid_search(
     # Run vector search and full-text search separately, then fuse with RRF.
     # SurrealDB's search::rrf() may not be available in mem:// test backend,
     # so we compute RRF in Python for portability.
+    #
+    # NOTE: The SurrealDB Python SDK does not check per-statement errors.
+    # When a statement fails (e.g. dimension mismatch), db.query() returns
+    # the error string instead of a list of records. We must check for this.
     vs_result = await db.query(
         f"SELECT * FROM {table} WHERE embedding <|{k},100|> $vec",
         {"vec": query_embedding},
     )
+    if isinstance(vs_result, str):
+        raise RuntimeError(f"Vector search on {table} failed: {vs_result}")
+
     ft_result = await db.query(
         f"SELECT *, search::score(1) AS score "
         f"FROM {table} WHERE {field} @1@ $query "
         f"ORDER BY score DESC LIMIT {k}",
         {"query": query_text},
     )
+    if isinstance(ft_result, str):
+        raise RuntimeError(f"Full-text search on {table} failed: {ft_result}")
 
     # Reciprocal rank fusion: score = sum(1 / (k + rank)) across lists
     rrf_k = 60  # standard RRF constant
@@ -46,6 +59,13 @@ async def hybrid_search(
 
     # Sort by RRF score descending and return top k
     ranked_ids = sorted(scores, key=lambda rid: scores[rid], reverse=True)[:k]
+    logger.info(
+        "hybrid_search table=%s: vs=%d ft=%d fused=%d",
+        table,
+        len(vs_result),
+        len(ft_result),
+        len(ranked_ids),
+    )
     return [records[rid] for rid in ranked_ids]
 
 

@@ -75,6 +75,14 @@ async def test_hybrid_search_no_results(db):
     assert results == []
 
 
+async def test_hybrid_search_dimension_mismatch(hybrid_db):
+    """Raises RuntimeError with clear message on vector dimension mismatch."""
+    with pytest.raises(RuntimeError, match="Vector search on note failed"):
+        await hybrid_search(
+            hybrid_db, "note", "anything", [0.1, 0.2, 0.3, 0.4, 0.5], k=5
+        )
+
+
 async def test_get_node(seeded_db):
     result = await get_node(seeded_db, "note:1")
     assert "Spaced repetition" in result["content"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -15,6 +16,13 @@ from second_brain.config import settings
 from second_brain.db import init_schema, init_vector_indexes
 from second_brain.models import Context, make_serializable
 from second_brain.tools.recall_tools import get_connections, get_node
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 _db: Any = None
 _model: Any = None
@@ -39,12 +47,18 @@ async def lifespan(app: FastAPI):
     if settings.test_mode:
         from pydantic_ai.models.test import TestModel
 
+        logger.info("Starting in TEST mode (in-memory DB, TestModel)")
         _db = AsyncSurreal("mem://")
         _model = TestModel()
         _embed = _dummy_embed(settings.embedding_dimensions)
     else:
         from second_brain.providers import create_embed_fn, create_model
 
+        logger.info(
+            "Starting with model=%s, embedding=%s",
+            settings.reasoning_model,
+            settings.embedding_model,
+        )
         _db = AsyncSurreal(f"surrealkv://{settings.db_path}")
         _model = create_model(
             settings.reasoning_model,
@@ -61,6 +75,7 @@ async def lifespan(app: FastAPI):
     await _db.use("brain", "brain")
     await init_schema(_db)
     await init_vector_indexes(_db)
+    logger.info("Database schema initialized")
     yield
     if _db:
         await _db.close()
@@ -124,11 +139,13 @@ async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
     if hints:
         hint_str = ", ".join(hints)
         prompt = f"Possibly related nodes: {hint_str}\n\n{text}"
+    logger.info("Ingest agent starting (text length=%d)", len(text))
     result = await _ingest_agent.run(
         prompt,
         deps=IngestDeps(db=_db, embed_fn=_embed),
         model=_model,
     )
+    logger.info("Ingest agent completed")
     return result.output
 
 
@@ -140,12 +157,18 @@ async def run_recall_agent(
         hint_str = ", ".join(hints)
         prompt = f"Possibly related nodes: {hint_str}\n\n{question}"
 
+    logger.info("Recall agent starting (question length=%d)", len(question))
     result = await _recall_agent.run(
         prompt,
         deps=RecallDeps(db=_db, embed_fn=_embed),
         model=_model,
     )
     output = result.output  # RecallOutput
+    logger.info(
+        "Recall agent completed (cited %d nodes, %d edges)",
+        len(output.cited_node_ids),
+        len(output.cited_edge_ids),
+    )
 
     # Fetch actual records for cited IDs
     from second_brain.tools.recall_tools import fetch_records_by_ids
@@ -180,12 +203,18 @@ async def run_converse_agent(
             ModelResponse(parts=[TextPart(content=turn.assistant.response)])
         )
 
+    logger.info(
+        "Converse agent starting (message length=%d, history turns=%d)",
+        len(message),
+        len(history),
+    )
     result = await _converse_agent.run(
         message,
         deps=deps,
         model=_model,
         message_history=pydantic_history,
     )
+    logger.info("Converse agent completed")
 
     ctx = deps.context if (deps.context.nodes or deps.context.edges) else None
     return ConverseResponse(response=result.output, context=ctx)
@@ -198,17 +227,20 @@ async def health():
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest):
+    logger.info("POST /ingest")
     summary = await run_ingest_agent(req.text, req.hints if req.hints else None)
     return IngestResponse(summary=summary)
 
 
 @app.post("/recall", response_model=RecallResponse)
 async def recall(req: RecallRequest):
+    logger.info("POST /recall")
     return await run_recall_agent(req.question, req.hints if req.hints else None)
 
 
 @app.post("/converse", response_model=ConverseResponse)
 async def converse(req: ConverseRequest):
+    logger.info("POST /converse")
     return await run_converse_agent(req.message, req.history)
 
 

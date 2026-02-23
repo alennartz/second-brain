@@ -54,9 +54,9 @@ func (m *Model) initPanels() {
 	m.input = newInputBar()
 }
 
-// Init implements tea.Model. Returns the text input blink command.
+// Init implements tea.Model. Returns the textarea blink command.
 func (m Model) Init() tea.Cmd {
-	return m.input.textInput.Cursor.BlinkCmd()
+	return m.input.textArea.Cursor.BlinkCmd()
 }
 
 // Update implements tea.Model. Handles all message types for state transitions.
@@ -76,15 +76,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyTab:
 			if m.focus == focusChat {
 				m.focus = focusGraph
-				m.input.textInput.Blur()
+				m.input.textArea.Blur()
 			} else {
 				m.focus = focusChat
-				m.input.textInput.Focus()
+				m.input.textArea.Focus()
 			}
 			return m, nil
 
 		case tea.KeyEnter:
 			if m.focus == focusChat {
+				if msg.Alt {
+					// Alt+Enter: insert newline in textarea
+					m.input.textArea.InsertString("\n")
+					return m, nil
+				}
 				updated, cmd := m.submitInput()
 				return updated, cmd
 			}
@@ -112,18 +117,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			if m.focus == focusGraph {
 				m.focus = focusChat
-				m.input.textInput.Focus()
+				m.input.textArea.Focus()
 				return m, nil
 			}
 		}
 
-		// Forward to textinput when chat focused
+		// Forward to textarea when chat focused
 		if m.focus == focusChat {
 			var cmd tea.Cmd
-			m.input.textInput, cmd = m.input.textInput.Update(msg)
+			m.input.textArea, cmd = m.input.textArea.Update(msg)
 
 			// Update autocomplete suggestions
-			if query, found := extractAtQuery(m.input.textInput.Value()); found {
+			if query, found := extractAtQuery(m.input.textArea.Value()); found {
 				m.input.suggestions = filterSuggestions(m.graph.Nodes, query)
 				m.input.showSuggest = len(m.input.suggestions) > 0
 			} else {

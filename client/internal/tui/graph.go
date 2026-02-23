@@ -62,6 +62,7 @@ func (g graphPanel) View() string {
 	if len(g.nodes) == 0 {
 		return lipgloss.NewStyle().Faint(true).Render("No graph context")
 	}
+	wrapStyle := lipgloss.NewStyle().Width(g.width)
 	var b strings.Builder
 	b.WriteString("Nodes:\n")
 	for i, n := range g.nodes {
@@ -81,7 +82,7 @@ func (g graphPanel) View() string {
 			}
 			line = fmt.Sprintf("%s%s %s", prefix, style.Render(tag), label)
 		}
-		b.WriteString(line + "\n")
+		b.WriteString(wrapStyle.Render(line) + "\n")
 	}
 	if len(g.edges) > 0 {
 		b.WriteString("\nEdges:\n")
@@ -89,7 +90,7 @@ func (g graphPanel) View() string {
 			fromLabel := g.findNodeLabel(e.From)
 			toLabel := g.findNodeLabel(e.To)
 			line := edgeStyle.Render(fmt.Sprintf("  %s --%s--> %s", fromLabel, e.Table, toLabel))
-			b.WriteString(line + "\n")
+			b.WriteString(wrapStyle.Render(line) + "\n")
 		}
 	}
 	return b.String()

@@ -8,3 +8,4 @@ dist/
 .pytest_cache/
 .DS_Store
 client/brain
+run.local.sh

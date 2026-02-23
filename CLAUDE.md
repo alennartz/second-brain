@@ -4,55 +4,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-### Python (server)
-
-```bash
-# Install dependencies
-uv sync --all-extras
-
-# Setup pre-commit hooks (run once after clone)
-uv run pre-commit install
-
-# Run dev server (http://localhost:8000)
-uv run uvicorn second_brain.app:app --reload
-
-# Run all tests
-uv run pytest -v
-
-# Run a single test file
-uv run pytest -v tests/test_recall_tools.py
-
-# Run a single test function
-uv run pytest -v tests/test_recall_tools.py::test_full_text_search
-
-# Lint
-uv run ruff check src/ tests/
-
-# Format
-uv run ruff format src/ tests/
-
-# Type check
-uv run basedpyright src/
-
-# Run all hooks manually
-uv run pre-commit run --all-files
-```
-
-### Go (client)
-
-```bash
-# Build the TUI client
-cd client && go build -o brain ./cmd/brain
-
-# Run tests
-cd client && go test ./...
-
-# Run a specific test
-cd client && go test ./internal/tui/ -run TestChatView
-```
-
-### Makefile (unified entry point)
-
 ```bash
 make install        # Install deps + pre-commit hooks
 make dev            # Start server with hot reload
@@ -75,6 +26,12 @@ make clean          # Remove build artifacts
 make help           # List all targets
 ```
 
+Run a single test (no Makefile equivalent):
+
+```bash
+uv run pytest -v tests/test_recall_tools.py::test_full_text_search
+```
+
 ### Pre-commit hooks
 
 The following checks run automatically on every `git commit`. Do not run these manually before committing — the hooks handle it and will block the commit if there are errors. If a hook fails, fix the reported issues and retry the commit.
@@ -84,18 +41,35 @@ The following checks run automatically on every `git commit`. Do not run these m
 
 ## Environment
 
-Requires a `.env` file (copy from `.env.example`). Key variables use the `BRAIN_` prefix:
+Requires a `.env` file (copy from `.env.example`). All app variables use the `BRAIN_` prefix.
+
+### Core
+
 - `BRAIN_DB_PATH` — SurrealDB file path (default: `data/brain.db`)
 - `BRAIN_REASONING_MODEL` — LLM for agents (default: `openai:gpt-4o-mini`). Any PydanticAI model string works (e.g. `anthropic:claude-sonnet-4-5`, `groq:llama-3.3-70b`)
 - `BRAIN_EMBEDDING_MODEL` — embedding model (default: `openai:text-embedding-3-small`)
 - `BRAIN_EMBEDDING_DIMENSIONS` — vector dimensions (default: `1536`)
 - `BRAIN_TEST_MODE` — when `true`, uses `TestModel()` and in-memory SurrealDB (no API keys needed)
-- `BRAIN_REASONING_FOUNDRY_URL` — Azure AI Foundry endpoint for reasoning (optional)
-- `BRAIN_REASONING_AUTH` — auth mode for reasoning Foundry: `aad` or `key` (default: `key`)
-- `BRAIN_EMBEDDING_FOUNDRY_URL` — Azure AI Foundry endpoint for embeddings (optional)
-- `BRAIN_EMBEDDING_AUTH` — auth mode for embedding Foundry: `aad` or `key` (default: `key`)
+
+### Direct API keys
+
 - `OPENAI_API_KEY` — required when using `openai:` models without Foundry
 - `ANTHROPIC_API_KEY` — required when using `anthropic:` models without Foundry
+
+### Azure Foundry (optional, per-concern)
+
+Each concern (reasoning, embedding) can independently target an Azure AI Foundry endpoint:
+
+| Variable | Description |
+|---|---|
+| `BRAIN_REASONING_FOUNDRY_URL` | Foundry endpoint for reasoning |
+| `BRAIN_REASONING_AUTH` | `aad` (DefaultAzureCredential) or `key` (default: `key`) |
+| `BRAIN_REASONING_KEY` | Explicit API key override; when omitted, SDK reads its default env var (`AZURE_OPENAI_API_KEY` for openai, `ANTHROPIC_API_KEY` for anthropic) |
+| `BRAIN_EMBEDDING_FOUNDRY_URL` | Foundry endpoint for embeddings |
+| `BRAIN_EMBEDDING_AUTH` | `aad` or `key` (default: `key`) |
+| `BRAIN_EMBEDDING_KEY` | Explicit API key override; when omitted, SDK reads `AZURE_OPENAI_API_KEY` |
+
+**Resolution logic:** `*_FOUNDRY_URL` unset → PydanticAI passthrough (uses `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` directly). Set + `auth=aad` → DefaultAzureCredential. Set + `auth=key` → explicit `BRAIN_*_KEY` if provided, otherwise SDK reads its own default env var.
 
 ## Architecture
 
@@ -114,7 +88,7 @@ GET  /graph/{record_id}             →  node + connections lookup
 
 - **`app.py`** — FastAPI app with lifespan (DB init on startup). Endpoints: `/health`, `/ingest`, `/recall`, `/converse`, `/graph/{record_id}`.
 - **`db.py`** — SurrealDB schema definition (`init_schema`) and vector index setup (`init_vector_indexes`). Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and HNSW cosine indexes.
-- **`providers.py`** — Model and embedding factory. Per-concern Foundry support: when `BRAIN_REASONING_FOUNDRY_URL` or `BRAIN_EMBEDDING_FOUNDRY_URL` is set, constructs Azure Foundry clients with the configured auth mode (`aad` for DefaultAzureCredential, `key` for API key). Otherwise, model strings pass through to PydanticAI for native resolution.
+- **`providers.py`** — Model and embedding factory. `create_model` and `create_embed_fn` accept an optional `key` parameter for explicit API key override. Per-concern Foundry support: when `BRAIN_REASONING_FOUNDRY_URL` or `BRAIN_EMBEDDING_FOUNDRY_URL` is set, constructs Azure Foundry clients with the configured auth mode (`aad` for DefaultAzureCredential, `key` for explicit key or SDK default env var). Any model string prefix is accepted for Foundry embeddings (OpenAI-compatible API). Otherwise, model strings pass through to PydanticAI for native resolution.
 - **`config.py`** — `Settings(BaseSettings)` with `BRAIN_` env prefix.
 - **`models.py`** — Shared `Context` model (nodes + edges) and `make_serializable()` for SurrealDB types.
 - **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, and creates graph relationships. Auto-embeds on create. Tools: `create_note`, `create_entity`, `create_edge`, `update_node`, `search_knowledge`. Dependencies: `IngestDeps(db, embed_fn)`.

@@ -84,42 +84,78 @@ def test_create_embed_fn_no_foundry_cohere(monkeypatch):
     assert callable(fn)
 
 
-def test_create_embed_fn_anthropic_raises_foundry():
-    with pytest.raises(ValueError, match=r"[Ff]oundry.*openai"):
-        create_embed_fn(
-            "anthropic:claude-sonnet-4-5",
-            foundry_url="https://my.azure.com",
-            auth="aad",
-        )
-
-
-def test_create_model_foundry_openai_key_auth(monkeypatch):
-    from pydantic_ai.models.openai import OpenAIChatModel
-
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    result = create_model(
-        "openai:gpt-4o-mini", foundry_url="https://my.azure.com", auth="key"
+@patch("second_brain.providers._get_token_provider")
+def test_create_embed_fn_cohere_foundry(mock_token):
+    mock_token.return_value = lambda: "fake-token"
+    fn = create_embed_fn(
+        "cohere:embed-v4.0",
+        foundry_url="https://my.cognitiveservices.azure.com",
+        auth="aad",
     )
-    assert isinstance(result, OpenAIChatModel)
+    assert callable(fn)
 
 
-def test_create_model_foundry_anthropic_key_auth(monkeypatch):
-    from pydantic_ai.models.anthropic import AnthropicModel
-
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    result = create_model(
-        "anthropic:claude-sonnet-4-5",
-        foundry_url="https://my.azure.com",
+def test_create_embed_fn_foundry_key_explicit():
+    fn = create_embed_fn(
+        "cohere:embed-v4.0",
+        foundry_url="https://my.cognitiveservices.azure.com",
         auth="key",
+        key="my-explicit-key",
     )
-    assert isinstance(result, AnthropicModel)
+    assert callable(fn)
 
 
-def test_create_embed_fn_foundry_key_auth(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+def test_create_embed_fn_foundry_key_default_env(monkeypatch):
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-default-key")
     fn = create_embed_fn(
         "openai:text-embedding-3-small",
         foundry_url="https://my.azure.com",
         auth="key",
+    )
+    assert callable(fn)
+
+
+def test_create_model_foundry_openai_key_auth():
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model(
+        "openai:gpt-4o-mini",
+        foundry_url="https://my.azure.com",
+        auth="key",
+        key="test-key",
+    )
+    assert isinstance(result, OpenAIChatModel)
+
+
+def test_create_model_foundry_openai_key_default_env(monkeypatch):
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-default-key")
+    result = create_model(
+        "openai:gpt-4o-mini",
+        foundry_url="https://my.azure.com",
+        auth="key",
+    )
+    assert isinstance(result, OpenAIChatModel)
+
+
+def test_create_model_foundry_anthropic_key_auth():
+    from pydantic_ai.models.anthropic import AnthropicModel
+
+    result = create_model(
+        "anthropic:claude-sonnet-4-5",
+        foundry_url="https://my.azure.com",
+        auth="key",
+        key="test-key",
+    )
+    assert isinstance(result, AnthropicModel)
+
+
+def test_create_embed_fn_foundry_key_auth():
+    fn = create_embed_fn(
+        "openai:text-embedding-3-small",
+        foundry_url="https://my.azure.com",
+        auth="key",
+        key="test-key",
     )
     assert callable(fn)

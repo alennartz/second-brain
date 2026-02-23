@@ -50,11 +50,13 @@ async def lifespan(app: FastAPI):
             settings.reasoning_model,
             settings.reasoning_foundry_url,
             settings.reasoning_auth,
+            settings.reasoning_key,
         )
         _embed = create_embed_fn(
             settings.embedding_model,
             settings.embedding_foundry_url,
             settings.embedding_auth,
+            settings.embedding_key,
         )
     await _db.use("brain", "brain")
     await init_schema(_db)

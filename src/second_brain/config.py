@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     reasoning_auth: Literal["key", "aad"] = "key"
     embedding_foundry_url: str | None = None
     embedding_auth: Literal["key", "aad"] = "key"
+    embedding_key: str | None = None
+    reasoning_key: str | None = None
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}
 

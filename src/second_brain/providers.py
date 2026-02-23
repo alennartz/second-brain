@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
@@ -41,7 +40,10 @@ def _get_token_provider() -> Callable[[], str]:
 
 
 def _create_openai_foundry_model(
-    model_name: str, foundry_url: str, auth: Literal["key", "aad"]
+    model_name: str,
+    foundry_url: str,
+    auth: Literal["key", "aad"],
+    key: str | None = None,
 ) -> Any:
     from openai import AsyncAzureOpenAI
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -54,16 +56,21 @@ def _create_openai_foundry_model(
             api_version=_AZURE_API_VERSION,
         )
     else:
-        client = AsyncAzureOpenAI(
-            azure_endpoint=foundry_url,
-            api_key=os.environ["OPENAI_API_KEY"],
-            api_version=_AZURE_API_VERSION,
-        )
+        kwargs: dict[str, Any] = {
+            "azure_endpoint": foundry_url,
+            "api_version": _AZURE_API_VERSION,
+        }
+        if key is not None:
+            kwargs["api_key"] = key
+        client = AsyncAzureOpenAI(**kwargs)
     return OpenAIChatModel(model_name, provider=OpenAIProvider(openai_client=client))
 
 
 def _create_anthropic_foundry_model(
-    model_name: str, foundry_url: str, auth: Literal["key", "aad"]
+    model_name: str,
+    foundry_url: str,
+    auth: Literal["key", "aad"],
+    key: str | None = None,
 ) -> Any:
     from anthropic import AsyncAnthropicFoundry
     from pydantic_ai.models.anthropic import AnthropicModel
@@ -75,10 +82,12 @@ def _create_anthropic_foundry_model(
             azure_ad_token_provider=_get_token_provider(),
         )
     else:
-        client = AsyncAnthropicFoundry(
-            base_url=f"{foundry_url.rstrip('/')}/anthropic/v1/",
-            api_key=os.environ["ANTHROPIC_API_KEY"],
-        )
+        kwargs: dict[str, Any] = {
+            "base_url": f"{foundry_url.rstrip('/')}/anthropic/v1/",
+        }
+        if key is not None:
+            kwargs["api_key"] = key
+        client = AsyncAnthropicFoundry(**kwargs)
     return AnthropicModel(
         model_name, provider=AnthropicProvider(anthropic_client=client)
     )
@@ -98,7 +107,10 @@ _FOUNDRY_BUILDERS: dict[str, Callable[..., Any]] = {
 
 
 def create_model(
-    model_string: str, foundry_url: str | None, auth: Literal["key", "aad"] = "key"
+    model_string: str,
+    foundry_url: str | None,
+    auth: Literal["key", "aad"] = "key",
+    key: str | None = None,
 ) -> Any:
     """Create a pydantic-ai model from a provider:model_name string.
 
@@ -108,8 +120,10 @@ def create_model(
     appropriate pydantic-ai model class.
 
     *auth* selects the authentication strategy when talking to Foundry:
-    ``"aad"`` uses ``DefaultAzureCredential``; ``"key"`` (default) reads the
-    provider's API-key from the environment.
+    ``"aad"`` uses ``DefaultAzureCredential``; ``"key"`` (default) uses
+    *key* when provided, otherwise the SDK reads its own default env var
+    (``AZURE_OPENAI_API_KEY`` for OpenAI, ``ANTHROPIC_API_KEY`` for
+    Anthropic).
     """
     if foundry_url is None:
         return model_string
@@ -121,11 +135,14 @@ def create_model(
         raise ValueError(
             f"Unsupported Foundry provider '{provider_prefix}'. Supported: {supported}"
         )
-    return builder(model_name, foundry_url, auth)
+    return builder(model_name, foundry_url, auth, key)
 
 
 def create_embed_fn(
-    model_string: str, foundry_url: str | None, auth: Literal["key", "aad"] = "key"
+    model_string: str,
+    foundry_url: str | None,
+    auth: Literal["key", "aad"] = "key",
+    key: str | None = None,
 ) -> Callable[[str], Awaitable[list[float]]]:
     """Create an async embedding function from a provider:model_name string.
 
@@ -135,10 +152,11 @@ def create_embed_fn(
     :class:`pydantic_ai.Embedder` which resolves it via its built-in
     provider registry (openai, cohere, google-gla, voyageai, …).
 
-    When a Foundry URL is supplied only ``openai:`` models are accepted
-    because Azure Foundry only exposes OpenAI embeddings via the unified
-    endpoint.  *auth* selects the authentication strategy: ``"aad"`` uses
-    ``DefaultAzureCredential``; ``"key"`` (default) reads ``OPENAI_API_KEY``
+    When a Foundry URL is supplied, any model string is accepted because
+    Azure AI Services exposes an OpenAI-compatible API for all deployed
+    models (including Cohere).  *auth* selects the authentication strategy:
+    ``"aad"`` uses ``DefaultAzureCredential``; ``"key"`` (default) uses
+    *key* when provided, otherwise the SDK reads ``AZURE_OPENAI_API_KEY``
     from the environment.
     """
     from pydantic_ai import Embedder
@@ -150,11 +168,7 @@ def create_embed_fn(
         from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
         from pydantic_ai.providers.openai import OpenAIProvider
 
-        provider_prefix, model_name = _parse_model_string(model_string)
-        if provider_prefix != "openai":
-            raise ValueError(
-                f"Foundry embeddings only support 'openai:' prefix, got '{provider_prefix}:'."
-            )
+        _provider_prefix, model_name = _parse_model_string(model_string)
 
         if auth == "aad":
             client = AsyncAzureOpenAI(
@@ -163,11 +177,13 @@ def create_embed_fn(
                 api_version=_AZURE_API_VERSION,
             )
         else:
-            client = AsyncAzureOpenAI(
-                azure_endpoint=foundry_url,
-                api_key=os.environ["OPENAI_API_KEY"],
-                api_version=_AZURE_API_VERSION,
-            )
+            kwargs: dict[str, Any] = {
+                "azure_endpoint": foundry_url,
+                "api_version": _AZURE_API_VERSION,
+            }
+            if key is not None:
+                kwargs["api_key"] = key
+            client = AsyncAzureOpenAI(**kwargs)
         embedding_model = OpenAIEmbeddingModel(
             model_name, provider=OpenAIProvider(openai_client=client)
         )

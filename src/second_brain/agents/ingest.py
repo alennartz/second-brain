@@ -152,7 +152,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 )
                 all_results.extend(results)
             logger.info("ingest: search_knowledge → %d results", len(all_results))
-            return all_results
+            return [make_serializable(r) for r in all_results]
         except Exception as e:
             logger.error("ingest: search_knowledge failed: %s", e)
             return [{"error": str(e)}]

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
+from second_brain.models import make_serializable
 from second_brain.tools import recall_tools
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
                 )
                 all_results.extend(results)
             logger.info("recall: search_knowledge → %d results", len(all_results))
-            return all_results
+            return [make_serializable(r) for r in all_results]
         except Exception as e:
             logger.error("recall: search_knowledge failed: %s", e)
             return [{"error": str(e)}]
@@ -74,7 +75,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     async def get_node(ctx: RunContext[RecallDeps], record_id: str) -> dict:
         """Get a single node by ID, e.g. 'note:abc123' or 'entity:sr'."""
         logger.info("recall: get_node id=%s", record_id)
-        return await recall_tools.get_node(ctx.deps.db, record_id)
+        return make_serializable(await recall_tools.get_node(ctx.deps.db, record_id))
 
     @agent.tool
     async def get_connections(
@@ -82,7 +83,10 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     ) -> list[dict]:
         """Get all relationships connected to a node."""
         logger.info("recall: get_connections id=%s", record_id)
-        return await recall_tools.get_connections(ctx.deps.db, record_id)
+        return [
+            make_serializable(r)
+            for r in await recall_tools.get_connections(ctx.deps.db, record_id)
+        ]
 
     @agent.tool
     async def graph_traverse(
@@ -90,6 +94,9 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     ) -> list[dict]:
         """Traverse the knowledge graph from a node up to N hops deep."""
         logger.info("recall: graph_traverse id=%s depth=%d", record_id, depth)
-        return await recall_tools.graph_traverse(ctx.deps.db, record_id, depth)
+        return [
+            make_serializable(r)
+            for r in await recall_tools.graph_traverse(ctx.deps.db, record_id, depth)
+        ]
 
     return agent

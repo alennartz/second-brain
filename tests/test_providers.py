@@ -72,13 +72,14 @@ def test_create_embed_fn_foundry(mock_token):
     assert callable(fn)
 
 
+def test_create_embed_fn_no_foundry_cohere(monkeypatch):
+    monkeypatch.setenv("CO_API_KEY", "test-key")
+    fn = create_embed_fn("cohere:embed-v4.0", foundry_url=None)
+    assert callable(fn)
+
+
 def test_create_embed_fn_anthropic_raises_foundry():
-    with pytest.raises(ValueError, match=r"[Ee]mbedding"):
+    with pytest.raises(ValueError, match=r"[Ff]oundry.*openai"):
         create_embed_fn(
             "anthropic:claude-sonnet-4-5", foundry_url="https://my.azure.com"
         )
-
-
-def test_create_embed_fn_anthropic_raises_no_foundry():
-    with pytest.raises(ValueError, match=r"[Ee]mbedding"):
-        create_embed_fn("anthropic:claude-sonnet-4-5", foundry_url=None)

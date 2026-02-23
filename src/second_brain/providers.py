@@ -105,25 +105,30 @@ def create_embed_fn(
 ) -> Callable[[str], Awaitable[list[float]]]:
     """Create an async embedding function from a provider:model_name string.
 
-    Returns an ``async def embed(text: str) -> list[float]`` callable that
-    uses either the direct OpenAI API or an Azure Foundry endpoint depending
-    on *foundry_url*.
+    Returns an ``async def embed(text: str) -> list[float]`` callable.
+
+    When *foundry_url* is ``None`` the raw model string is handed to
+    :class:`pydantic_ai.Embedder` which resolves it via its built-in
+    provider registry (openai, cohere, google-gla, voyageai, …).
+
+    When a Foundry URL is supplied only ``openai:`` models are accepted
+    because Azure Foundry only exposes OpenAI embeddings via the unified
+    endpoint with ``DefaultAzureCredential``.
     """
     from pydantic_ai import Embedder
-    from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
-
-    provider_prefix, model_name = _parse_model_string(model_string)
-
-    if provider_prefix != "openai":
-        raise ValueError(
-            f"Embeddings only support 'openai:' prefix, got '{provider_prefix}:'."
-        )
 
     if foundry_url is None:
-        embedding_model = OpenAIEmbeddingModel(model_name, provider="openai")
+        embedder = Embedder(model_string)
     else:
         from openai import AsyncAzureOpenAI
+        from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
         from pydantic_ai.providers.openai import OpenAIProvider
+
+        provider_prefix, model_name = _parse_model_string(model_string)
+        if provider_prefix != "openai":
+            raise ValueError(
+                f"Foundry embeddings only support 'openai:' prefix, got '{provider_prefix}:'."
+            )
 
         client = AsyncAzureOpenAI(
             azure_endpoint=foundry_url,
@@ -133,8 +138,7 @@ def create_embed_fn(
         embedding_model = OpenAIEmbeddingModel(
             model_name, provider=OpenAIProvider(openai_client=client)
         )
-
-    embedder = Embedder(embedding_model)
+        embedder = Embedder(embedding_model)
 
     async def embed(text: str) -> list[float]:
         result = await embedder.embed_query(text)

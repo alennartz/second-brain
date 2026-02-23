@@ -90,7 +90,10 @@ Requires a `.env` file (copy from `.env.example`). Key variables use the `BRAIN_
 - `BRAIN_EMBEDDING_MODEL` — embedding model (default: `openai:text-embedding-3-small`)
 - `BRAIN_EMBEDDING_DIMENSIONS` — vector dimensions (default: `1536`)
 - `BRAIN_TEST_MODE` — when `true`, uses `TestModel()` and in-memory SurrealDB (no API keys needed)
-- `BRAIN_FOUNDRY_URL` — Azure AI Foundry endpoint (optional). When set, uses `DefaultAzureCredential` instead of API keys. Supports `openai:` and `anthropic:` model prefixes
+- `BRAIN_REASONING_FOUNDRY_URL` — Azure AI Foundry endpoint for reasoning (optional)
+- `BRAIN_REASONING_AUTH` — auth mode for reasoning Foundry: `aad` or `key` (default: `key`)
+- `BRAIN_EMBEDDING_FOUNDRY_URL` — Azure AI Foundry endpoint for embeddings (optional)
+- `BRAIN_EMBEDDING_AUTH` — auth mode for embedding Foundry: `aad` or `key` (default: `key`)
 - `OPENAI_API_KEY` — required when using `openai:` models without Foundry
 - `ANTHROPIC_API_KEY` — required when using `anthropic:` models without Foundry
 
@@ -111,7 +114,7 @@ GET  /graph/{record_id}             →  node + connections lookup
 
 - **`app.py`** — FastAPI app with lifespan (DB init on startup). Endpoints: `/health`, `/ingest`, `/recall`, `/converse`, `/graph/{record_id}`.
 - **`db.py`** — SurrealDB schema definition (`init_schema`) and vector index setup (`init_vector_indexes`). Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and HNSW cosine indexes.
-- **`providers.py`** — Model and embedding factory. When `BRAIN_FOUNDRY_URL` is set, constructs Azure Foundry clients with `DefaultAzureCredential`. Otherwise, model strings pass through to PydanticAI for native resolution.
+- **`providers.py`** — Model and embedding factory. Per-concern Foundry support: when `BRAIN_REASONING_FOUNDRY_URL` or `BRAIN_EMBEDDING_FOUNDRY_URL` is set, constructs Azure Foundry clients with the configured auth mode (`aad` for DefaultAzureCredential, `key` for API key). Otherwise, model strings pass through to PydanticAI for native resolution.
 - **`config.py`** — `Settings(BaseSettings)` with `BRAIN_` env prefix.
 - **`models.py`** — Shared `Context` model (nodes + edges) and `make_serializable()` for SurrealDB types.
 - **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, and creates graph relationships. Auto-embeds on create. Tools: `create_note`, `create_entity`, `create_edge`, `update_node`, `search_knowledge`. Dependencies: `IngestDeps(db, embed_fn)`.

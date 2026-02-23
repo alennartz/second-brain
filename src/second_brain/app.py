@@ -46,8 +46,10 @@ async def lifespan(app: FastAPI):
         from second_brain.providers import create_embed_fn, create_model
 
         _db = AsyncSurreal(f"surrealkv://{settings.db_path}")
-        _model = create_model(settings.reasoning_model, settings.foundry_url)
-        _embed = create_embed_fn(settings.embedding_model, settings.foundry_url)
+        _model = create_model(settings.reasoning_model, settings.reasoning_foundry_url)
+        _embed = create_embed_fn(
+            settings.embedding_model, settings.embedding_foundry_url
+        )
     await _db.use("brain", "brain")
     await init_schema(_db)
     await init_vector_indexes(_db)

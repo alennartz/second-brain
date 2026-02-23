@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI):
             settings.embedding_foundry_url,
             settings.embedding_auth,
             settings.embedding_key,
+            settings.embedding_dimensions,
         )
     await _db.use("brain", "brain")
     await init_schema(_db)

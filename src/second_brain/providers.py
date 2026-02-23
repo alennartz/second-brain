@@ -146,6 +146,7 @@ def create_embed_fn(
     foundry_url: str | None,
     auth: Literal["key", "aad"] = "key",
     key: str | None = None,
+    dimensions: int | None = None,
 ) -> Callable[[str], Awaitable[list[float]]]:
     """Create an async embedding function from a provider:model_name string.
 
@@ -161,11 +162,20 @@ def create_embed_fn(
     ``"aad"`` uses ``DefaultAzureCredential``; ``"key"`` (default) uses
     *key* when provided, otherwise the SDK reads ``AZURE_OPENAI_API_KEY``
     from the environment.
+
+    *dimensions* requests a specific output dimensionality from models that
+    support it (e.g. ``text-embedding-3-small``, Cohere ``embed-v4``).
+    When ``None``, the model's default is used.
     """
     from pydantic_ai import Embedder
+    from pydantic_ai.embeddings.settings import EmbeddingSettings
+
+    embed_settings: EmbeddingSettings | None = None
+    if dimensions is not None:
+        embed_settings = EmbeddingSettings(dimensions=dimensions)
 
     if foundry_url is None:
-        embedder = Embedder(model_string)
+        embedder = Embedder(model_string, settings=embed_settings)
     else:
         from openai import AsyncAzureOpenAI
         from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
@@ -190,7 +200,7 @@ def create_embed_fn(
         embedding_model = OpenAIEmbeddingModel(
             model_name, provider=OpenAIProvider(openai_client=client)
         )
-        embedder = Embedder(embedding_model)
+        embedder = Embedder(embedding_model, settings=embed_settings)
 
     async def embed(text: str) -> list[float]:
         logger.info(

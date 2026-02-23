@@ -159,3 +159,26 @@ def test_create_embed_fn_foundry_key_auth():
         key="test-key",
     )
     assert callable(fn)
+
+
+def test_create_embed_fn_dimensions_passed_to_embedder(monkeypatch):
+    """Dimensions parameter is forwarded to the Embedder settings."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    fn = create_embed_fn(
+        "openai:text-embedding-3-small",
+        foundry_url=None,
+        dimensions=1024,
+    )
+    assert callable(fn)
+
+
+def test_create_embed_fn_dimensions_foundry():
+    """Dimensions parameter works with Foundry embedder too."""
+    fn = create_embed_fn(
+        "cohere:embed-v4.0",
+        foundry_url="https://my.cognitiveservices.azure.com",
+        auth="key",
+        key="test-key",
+        dimensions=1024,
+    )
+    assert callable(fn)

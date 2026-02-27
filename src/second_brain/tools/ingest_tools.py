@@ -1,75 +1,83 @@
 # pyright: reportGeneralTypeIssues=false
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
 import logging
+from collections.abc import Awaitable, Callable
 
 from surrealdb import AsyncSurreal
 
 logger = logging.getLogger(__name__)
 
 
-async def create_note(
+async def create_notes(
     db: AsyncSurreal,
-    content: str,
-    source: str,
-    summary: str | None = None,
-    embedding: list[float] | None = None,
-) -> dict:
-    """Create a new note in the knowledge base."""
-    data: dict = {"content": content, "source": source}
-    if summary:
-        data["summary"] = summary
-    if embedding:
-        data["embedding"] = embedding
-    result = await db.create("note", data)
-    # db.create() returns a single dict in this SDK version
-    rec = result if isinstance(result, dict) else result[0]
-    logger.info("db: created note id=%s (%d chars)", rec.get("id"), len(content))
-    return rec
+    notes: list[dict],
+    embed_fn: Callable[[str], Awaitable[list[float]]],
+) -> list[dict]:
+    """Create multiple notes. Each dict needs 'content', optional 'source' and 'summary'."""
+    results = []
+    for note in notes:
+        content = note["content"]
+        source = note.get("source", "api")
+        embedding = await embed_fn(content)
+        data: dict = {"content": content, "source": source, "embedding": embedding}
+        if note.get("summary"):
+            data["summary"] = note["summary"]
+        result = await db.create("note", data)
+        rec = result if isinstance(result, dict) else result[0]
+        logger.info("db: created note id=%s (%d chars)", rec.get("id"), len(content))
+        results.append(rec)
+    return results
 
 
-async def create_entity(
+async def create_entities(
     db: AsyncSurreal,
-    name: str,
-    type: str,
-    description: str | None = None,
-    embedding: list[float] | None = None,
-) -> dict:
-    """Create a new entity (concept, person, project, etc.)."""
-    data: dict = {"name": name, "type": type}
-    if description:
-        data["description"] = description
-    if embedding:
-        data["embedding"] = embedding
-    result = await db.create("entity", data)
-    rec = result if isinstance(result, dict) else result[0]
-    logger.info("db: created entity id=%s name='%s' type=%s", rec.get("id"), name, type)
-    return rec
+    entities: list[dict],
+    embed_fn: Callable[[str], Awaitable[list[float]]],
+) -> list[dict]:
+    """Create multiple entities. Each dict needs 'name', 'type', optional 'description'."""
+    results = []
+    for entity in entities:
+        name = entity["name"]
+        etype = entity["type"]
+        description = entity.get("description")
+        text_to_embed = description or name
+        embedding = await embed_fn(text_to_embed)
+        data: dict = {"name": name, "type": etype, "embedding": embedding}
+        if description:
+            data["description"] = description
+        result = await db.create("entity", data)
+        rec = result if isinstance(result, dict) else result[0]
+        logger.info(
+            "db: created entity id=%s name='%s' type=%s", rec.get("id"), name, etype
+        )
+        results.append(rec)
+    return results
 
 
-async def create_edge(
+async def create_edges(
     db: AsyncSurreal,
-    from_id: str,
-    edge_table: str,
-    to_id: str,
-    context: str | None = None,
-) -> dict:
-    """Create a relationship edge between two nodes."""
-    ctx_clause = " SET context = $context" if context else ""
-    query = f"RELATE {from_id}->{edge_table}->{to_id}{ctx_clause}"
-    result = await db.query(
-        query,
-        {"context": context} if context else None,
-    )
-    # db.query() returns a flat list of dicts
-    rec = result[0] if result else {}
-    logger.info(
-        "db: created edge %s -[%s]-> %s id=%s",
-        from_id,
-        edge_table,
-        to_id,
-        rec.get("id"),
-    )
-    return rec
+    edges: list[dict],
+) -> list[dict]:
+    """Create multiple relationship edges. Each dict needs 'from_id', 'edge_table', 'to_id', optional 'context'."""
+    results = []
+    for edge in edges:
+        from_id = edge["from_id"]
+        edge_table = edge["edge_table"]
+        to_id = edge["to_id"]
+        context = edge.get("context")
+        ctx_clause = " SET context = $context" if context else ""
+        query = f"RELATE {from_id}->{edge_table}->{to_id}{ctx_clause}"
+        result = await db.query(query, {"context": context} if context else None)
+        rec = result[0] if result else {}
+        logger.info(
+            "db: created edge %s -[%s]-> %s id=%s",
+            from_id,
+            edge_table,
+            to_id,
+            rec.get("id"),
+        )
+        results.append(rec)
+    return results
 
 
 async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:
@@ -79,7 +87,6 @@ async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:
         f"UPDATE {record_id} SET {set_clauses}, updated_at = time::now()",
         fields,
     )
-    # db.query() returns a flat list of dicts
     rec = result[0] if result else {}
     logger.info("db: updated node id=%s fields=%s", record_id, list(fields.keys()))
     return rec

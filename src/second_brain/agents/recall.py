@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable
+from second_brain.models import make_serializable, strip_embeddings
 from second_brain.tools import recall_tools
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class RecallDeps:
 
 
 def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
-    """Create a recall agent with search and graph traversal tools.
+    """Create a recall agent with search and graph exploration tools.
 
     The agent is created without a default model so it can be used in tests
     with TestModel(). In production, pass ``settings.reasoning_model`` to
@@ -38,9 +38,10 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         system_prompt=(
             "You are a personal knowledge recall agent. The user asks questions and you "
             "explore their knowledge base using the tools available to you. "
-            "Use search_knowledge to search notes and entities by keyword and meaning, "
-            "follow graph connections to discover related knowledge, and refine your search "
-            "based on what you find. "
+            "Use search_knowledge to search notes and entities by keyword and meaning. "
+            "Each result includes its connections — edges with labels, directions, and "
+            "adjacent node IDs. Use get_node to follow interesting connections and explore "
+            "the graph selectively. "
             "Keep exploring until you have enough context to give a thorough answer. "
             "If you find nothing relevant, say so honestly.\n\n"
             "IMPORTANT: In your response, include the IDs of all nodes and edges you "
@@ -53,7 +54,8 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         ctx: RunContext[RecallDeps], tables: list[str], query: str, k: int = 5
     ) -> list[dict]:
         """Search the knowledge base using hybrid keyword + semantic search.
-        tables: list containing 'note', 'entity', or both."""
+        tables: list containing 'note', 'entity', or both.
+        Results include a 'connections' list showing edges with labels and adjacent node IDs."""
         logger.info(
             "recall: search_knowledge tables=%s query='%.80s' k=%d", tables, query, k
         )
@@ -65,38 +67,25 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
                     ctx.deps.db, table, query, query_embedding, k
                 )
                 all_results.extend(results)
-            logger.info("recall: search_knowledge → %d results", len(all_results))
-            return [make_serializable(r) for r in all_results]
+            enriched = []
+            for r in all_results:
+                e = await recall_tools.enrich_with_connections(ctx.deps.db, r)
+                enriched.append(strip_embeddings(make_serializable(e)))
+            logger.info("recall: search_knowledge → %d results", len(enriched))
+            return enriched
         except Exception as e:
             logger.error("recall: search_knowledge failed: %s", e)
             return [{"error": str(e)}]
 
     @agent.tool
     async def get_node(ctx: RunContext[RecallDeps], record_id: str) -> dict:
-        """Get a single node by ID, e.g. 'note:abc123' or 'entity:sr'."""
+        """Get a single node by ID, e.g. 'note:abc123' or 'entity:sr'.
+        Result includes a 'connections' list showing edges with labels and adjacent node IDs."""
         logger.info("recall: get_node id=%s", record_id)
-        return make_serializable(await recall_tools.get_node(ctx.deps.db, record_id))
-
-    @agent.tool
-    async def get_connections(
-        ctx: RunContext[RecallDeps], record_id: str
-    ) -> list[dict]:
-        """Get all relationships connected to a node."""
-        logger.info("recall: get_connections id=%s", record_id)
-        return [
-            make_serializable(r)
-            for r in await recall_tools.get_connections(ctx.deps.db, record_id)
-        ]
-
-    @agent.tool
-    async def graph_traverse(
-        ctx: RunContext[RecallDeps], record_id: str, depth: int = 2
-    ) -> list[dict]:
-        """Traverse the knowledge graph from a node up to N hops deep."""
-        logger.info("recall: graph_traverse id=%s depth=%d", record_id, depth)
-        return [
-            make_serializable(r)
-            for r in await recall_tools.graph_traverse(ctx.deps.db, record_id, depth)
-        ]
+        node = await recall_tools.get_node(ctx.deps.db, record_id)
+        if not node:
+            return {"error": f"Node {record_id} not found"}
+        enriched = await recall_tools.enrich_with_connections(ctx.deps.db, node)
+        return strip_embeddings(make_serializable(enriched))
 
     return agent

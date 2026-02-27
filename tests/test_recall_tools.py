@@ -2,10 +2,9 @@ import pytest
 
 from second_brain.db import init_schema, init_vector_indexes
 from second_brain.tools.recall_tools import (
+    enrich_with_connections,
     fetch_records_by_ids,
-    get_connections,
     get_node,
-    graph_traverse,
     hybrid_search,
 )
 
@@ -88,14 +87,35 @@ async def test_get_node(seeded_db):
     assert "Spaced repetition" in result["content"]
 
 
-async def test_get_connections(seeded_db):
-    result = await get_connections(seeded_db, "entity:sr")
-    assert len(result) > 0
+async def test_enrich_with_connections_outgoing(seeded_db):
+    """enrich_with_connections attaches outgoing edges."""
+    node = (await seeded_db.query("SELECT * FROM entity:sr"))[0]
+    enriched = await enrich_with_connections(seeded_db, node)
+    # entity:sr has an outgoing relates_to edge to entity:gtd
+    assert "connections" in enriched
+    out_conns = [c for c in enriched["connections"] if c["direction"] == "out"]
+    assert len(out_conns) >= 1
+    assert out_conns[0]["edge_label"] == "relates_to"
+    assert "entity:gtd" in out_conns[0]["adjacent_id"]
 
 
-async def test_graph_traverse(seeded_db):
-    results = await graph_traverse(seeded_db, "note:1", depth=2)
-    assert len(results) >= 1
+async def test_enrich_with_connections_incoming(seeded_db):
+    """enrich_with_connections attaches incoming edges."""
+    node = (await seeded_db.query("SELECT * FROM entity:sr"))[0]
+    enriched = await enrich_with_connections(seeded_db, node)
+    # entity:sr has an incoming references edge from note:1
+    in_conns = [c for c in enriched["connections"] if c["direction"] == "in"]
+    assert len(in_conns) >= 1
+    assert in_conns[0]["edge_label"] == "references"
+    assert "note:1" in in_conns[0]["adjacent_id"]
+
+
+async def test_enrich_with_connections_no_edges(seeded_db):
+    """enrich_with_connections returns empty connections for isolated node."""
+    await seeded_db.query("CREATE entity:lonely SET name = 'lonely', type = 'test'")
+    node = (await seeded_db.query("SELECT * FROM entity:lonely"))[0]
+    enriched = await enrich_with_connections(seeded_db, node)
+    assert enriched["connections"] == []
 
 
 async def test_fetch_records_by_ids(seeded_db):

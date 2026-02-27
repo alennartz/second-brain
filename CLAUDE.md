@@ -90,12 +90,12 @@ GET  /graph/{record_id}             →  node + connections lookup
 - **`db.py`** — SurrealDB schema definition (`init_schema`) and vector index setup (`init_vector_indexes`). Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and HNSW cosine indexes.
 - **`providers.py`** — Model and embedding factory. `create_model` and `create_embed_fn` accept an optional `key` parameter for explicit API key override. Per-concern Foundry support: when `BRAIN_REASONING_FOUNDRY_URL` or `BRAIN_EMBEDDING_FOUNDRY_URL` is set, constructs Azure Foundry clients with the configured auth mode (`aad` for DefaultAzureCredential, `key` for explicit key or SDK default env var). Any model string prefix is accepted for Foundry embeddings (OpenAI-compatible API). Otherwise, model strings pass through to PydanticAI for native resolution.
 - **`config.py`** — `Settings(BaseSettings)` with `BRAIN_` env prefix.
-- **`models.py`** — Shared `Context` model (nodes + edges) and `make_serializable()` for SurrealDB types.
-- **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, and creates graph relationships. Auto-embeds on create. Tools: `create_note`, `create_entity`, `create_edge`, `update_node`, `search_knowledge`. Dependencies: `IngestDeps(db, embed_fn)`.
-- **`agents/recall.py`** — PydanticAI agent that searches via hybrid search and graph traversal, returns `RecallOutput` with answer + cited IDs. Tools: `search_knowledge`, `get_node`, `get_connections`, `graph_traverse`. Dependencies: `RecallDeps(db, embed_fn)`.
+- **`models.py`** — Shared `Context` model (nodes + edges), `make_serializable()` for SurrealDB types, `strip_embeddings()` to remove embedding arrays from LLM-facing results, and node/edge normalization helpers.
+- **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, deduplicates entities, and creates graph relationships with semantically meaningful edge names. Auto-embeds on create. Tools: `search_knowledge`, `get_node`, `create_notes`, `create_entities`, `create_edges`, `update_node`. Dependencies: `IngestDeps(db, embed_fn)`.
+- **`agents/recall.py`** — PydanticAI agent that searches via hybrid search, returns `RecallOutput` with answer + cited IDs. Each node result is enriched with its edge neighborhood (label, direction, adjacent ID) for graph exploration. Tools: `search_knowledge`, `get_node`. Dependencies: `RecallDeps(db, embed_fn)`.
 - **`agents/converse.py`** — Conversational router that delegates to recall/ingest agents as internal tools. Supports multi-turn history. Accumulates `Context` across tool calls. Dependencies: `ConverseDeps(db, embed_fn, model_setting)`.
-- **`tools/ingest_tools.py`** — DB write operations: `create_note`, `create_entity`, `create_edge`, `update_node`.
-- **`tools/recall_tools.py`** — DB read operations: `hybrid_search` (BM25 + vector with RRF fusion), `get_node`, `get_connections`, `graph_traverse`, `fetch_records_by_ids`.
+- **`tools/ingest_tools.py`** — DB write operations: `create_notes` (bulk), `create_entities` (bulk), `create_edges` (bulk), `update_node`.
+- **`tools/recall_tools.py`** — DB read operations: `hybrid_search` (BM25 + vector with RRF fusion), `get_node`, `enrich_with_connections` (attaches edge neighborhood to node results), `fetch_records_by_ids`.
 
 ### Client (`client/`)
 

@@ -2,9 +2,49 @@
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
 import logging
 
-from surrealdb import AsyncSurreal
+from surrealdb import AsyncSurreal, RecordID
 
 logger = logging.getLogger(__name__)
+
+
+def _to_str(val) -> str:
+    """Convert a RecordID or other value to a plain string like 'table:id'."""
+    if isinstance(val, RecordID):
+        return f"{val.table_name}:{val.id}"
+    return str(val)
+
+
+async def enrich_with_connections(db: AsyncSurreal, record: dict) -> dict:
+    """Attach edge neighborhood summary to a node record.
+
+    Each connection has: edge_label (edge table name), direction (in/out),
+    and adjacent_id (the node on the other side).
+    """
+    rid = _to_str(record["id"])
+    outgoing = await db.query(f"SELECT * FROM {rid}->?")
+    incoming = await db.query(f"SELECT * FROM {rid}<-?")
+
+    connections = []
+    for edge in outgoing if isinstance(outgoing, list) else []:
+        connections.append(
+            {
+                "edge_label": _to_str(edge["id"]).split(":")[0],
+                "direction": "out",
+                "adjacent_id": _to_str(edge["out"]),
+            }
+        )
+    for edge in incoming if isinstance(incoming, list) else []:
+        connections.append(
+            {
+                "edge_label": _to_str(edge["id"]).split(":")[0],
+                "direction": "in",
+                "adjacent_id": _to_str(edge["in"]),
+            }
+        )
+
+    enriched = dict(record)
+    enriched["connections"] = connections
+    return enriched
 
 
 async def hybrid_search(
@@ -75,22 +115,6 @@ async def get_node(db: AsyncSurreal, record_id: str) -> dict:
     if not result:
         return {}
     return result[0]
-
-
-async def get_connections(db: AsyncSurreal, record_id: str) -> list[dict]:
-    """Get all edges connected to a node (both incoming and outgoing)."""
-    outgoing = await db.query(f"SELECT * FROM {record_id}->?.*")
-    incoming = await db.query(f"SELECT * FROM {record_id}<-?.*")
-    return outgoing + incoming
-
-
-async def graph_traverse(
-    db: AsyncSurreal, record_id: str, depth: int = 2
-) -> list[dict]:
-    """Traverse the graph from a starting node up to N hops."""
-    arrows = "->?->?" * depth
-    result = await db.query(f"SELECT * FROM {record_id}{arrows}")
-    return result
 
 
 async def fetch_records_by_ids(db: AsyncSurreal, record_ids: list[str]) -> list[dict]:

@@ -24,11 +24,9 @@ async def test_recall_agent_has_tools():
     tool_names = set(agent._function_toolset.tools)
     assert "search_knowledge" in tool_names
     assert "get_node" in tool_names
-    assert "get_connections" in tool_names
-    assert "graph_traverse" in tool_names
-    # Old tools should NOT exist
-    assert "full_text_search" not in tool_names
-    assert "vector_search" not in tool_names
+    # Removed tools should NOT exist
+    assert "get_connections" not in tool_names
+    assert "graph_traverse" not in tool_names
 
 
 async def test_recall_agent_runs(recall_deps):

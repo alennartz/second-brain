@@ -14,8 +14,13 @@ from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.config import settings
 from second_brain.db import init_schema, init_vector_indexes
-from second_brain.models import Context, make_serializable
-from second_brain.tools.recall_tools import get_connections, get_node
+from second_brain.models import (
+    Context,
+    make_serializable,
+    normalize_edge,
+    normalize_node,
+)
+from second_brain.tools.recall_tools import get_node
 
 logging.basicConfig(
     level=logging.INFO,
@@ -180,8 +185,8 @@ async def run_recall_agent(
     ctx = None
     if nodes or edges:
         ctx = Context(
-            nodes=[make_serializable(n) for n in nodes],
-            edges=[make_serializable(e) for e in edges],
+            nodes=[normalize_node(make_serializable(n)) for n in nodes],
+            edges=[normalize_edge(make_serializable(e)) for e in edges],
         )
 
     return RecallResponse(answer=output.answer, context=ctx)
@@ -245,13 +250,22 @@ async def converse(req: ConverseRequest):
     return await run_converse_agent(req.message, req.history)
 
 
+async def _get_raw_connections(db: Any, record_id: str) -> list[dict]:
+    """Get all edge records connected to a node (both directions)."""
+    outgoing = await db.query(f"SELECT * FROM {record_id}->?")
+    incoming = await db.query(f"SELECT * FROM {record_id}<-?")
+    out = outgoing if isinstance(outgoing, list) else []
+    inc = incoming if isinstance(incoming, list) else []
+    return out + inc
+
+
 @app.get("/graph/{record_id:path}", response_model=GraphResponse)
 async def get_graph(record_id: str):
     node = await get_node(_db, record_id)
     if not node:
         raise HTTPException(status_code=404, detail=f"Node {record_id} not found")
 
-    raw_edges = await get_connections(_db, record_id)
+    raw_edges = await _get_raw_connections(_db, record_id)
     connections = []
     for edge in raw_edges:
         edge_s = make_serializable(edge)
@@ -266,8 +280,10 @@ async def get_graph(record_id: str):
             if other_node:
                 connections.append(
                     ConnectionItem(
-                        edge=edge_s,
-                        node=make_serializable(other_node),
+                        edge=normalize_edge(edge_s),
+                        node=normalize_node(make_serializable(other_node)),
                     )
                 )
-    return GraphResponse(node=make_serializable(node), connections=connections)
+    return GraphResponse(
+        node=normalize_node(make_serializable(node)), connections=connections
+    )

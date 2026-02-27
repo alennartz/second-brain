@@ -85,11 +85,11 @@ func (m Model) renderView() string {
 	edgeCount := len(m.graphPanel.edges)
 	var statusText string
 	if m.err != nil {
-		statusText = fmt.Sprintf("Error: %s | Tab: switch panel | /quit: exit", m.err)
+		statusText = fmt.Sprintf("Error: %s | Tab: switch panel | /exit: exit", m.err)
 	} else if m.loading {
 		statusText = fmt.Sprintf("Thinking... | Nodes: %d | Edges: %d", nodeCount, edgeCount)
 	} else {
-		statusText = fmt.Sprintf("Enter: send | Alt+Enter: newline | Tab: switch panel | /quit | /clear | Nodes: %d | Edges: %d", nodeCount, edgeCount)
+		statusText = fmt.Sprintf("Enter: send | Alt+Enter: newline | Tab: switch panel | PgUp/PgDn: scroll | /exit | /clear | Nodes: %d | Edges: %d", nodeCount, edgeCount)
 	}
 	status := statusStyle.Render(statusText)
 

@@ -66,6 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.input.textArea.SetWidth(msg.Width - 2)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -113,6 +114,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.graphPanel.moveDown()
 				return m, nil
 			}
+
+		case tea.KeyPgUp:
+			if m.focus == focusChat {
+				m.chat.viewport.PageUp()
+			} else {
+				m.graphPanel.viewport.PageUp()
+			}
+			return m, nil
+
+		case tea.KeyPgDown:
+			if m.focus == focusChat {
+				m.chat.viewport.PageDown()
+			} else {
+				m.graphPanel.viewport.PageDown()
+			}
+			return m, nil
 
 		case tea.KeyEsc:
 			if m.focus == focusGraph {

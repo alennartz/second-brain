@@ -10,7 +10,12 @@ from surrealdb import AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
 
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
-from second_brain.models import Context, make_serializable
+from second_brain.models import (
+    Context,
+    make_serializable,
+    normalize_edge,
+    normalize_node,
+)
 from second_brain.tools.recall_tools import fetch_records_by_ids
 
 logger = logging.getLogger(__name__)
@@ -64,8 +69,12 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         # Fetch actual records and accumulate onto deps.context
         nodes = await fetch_records_by_ids(ctx.deps.db, output.cited_node_ids)
         edges = await fetch_records_by_ids(ctx.deps.db, output.cited_edge_ids)
-        ctx.deps.context.nodes.extend([make_serializable(n) for n in nodes])
-        ctx.deps.context.edges.extend([make_serializable(e) for e in edges])
+        ctx.deps.context.nodes.extend(
+            [normalize_node(make_serializable(n)) for n in nodes]
+        )
+        ctx.deps.context.edges.extend(
+            [normalize_edge(make_serializable(e)) for e in edges]
+        )
 
         return output.answer
 

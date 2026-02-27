@@ -22,7 +22,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 	m.input.showSuggest = false
 
 	switch value {
-	case "/quit":
+	case "/exit":
 		return m, tea.Quit
 
 	case "/clear":

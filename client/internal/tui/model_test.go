@@ -128,7 +128,7 @@ func TestSubmitClearCommand(t *testing.T) {
 
 func TestSubmitQuitCommand(t *testing.T) {
 	m := NewModel("http://localhost:8000")
-	m.input.textArea.SetValue("/quit")
+	m.input.textArea.SetValue("/exit")
 	_, cmd := m.submitInput()
 	if cmd == nil {
 		t.Error("expected quit command")

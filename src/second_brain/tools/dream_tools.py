@@ -283,6 +283,74 @@ async def explore(
     return {"targets": targets}
 
 
+async def find_unlinked_cooccurrences(
+    db: AsyncSurreal,
+    record_id: str,
+) -> list[dict]:
+    """Find entities that share notes with this entity but have no direct edge.
+
+    Follows: entity <-references- note -references-> other_entity
+    Filters out pairs that already have any direct edge between them.
+
+    Returns: [{"entity": {...}, "shared_notes": ["note:x", ...]}, ...]
+    """
+    table = record_id.split(":")[0]
+    if table != "entity":
+        return []
+
+    # Find all notes that reference this entity.
+    # RELATE note->references->entity creates in=note, out=entity.
+    # So entity<-references gives edges where out=entity; in=note.
+    notes = await db.query(f"SELECT * FROM {record_id}<-references")
+    if not isinstance(notes, list) or not notes:
+        return []
+
+    note_ids = [_to_str(n["in"]) for n in notes]
+
+    # For each note, find other entities it references
+    cooccurrences: dict[str, list[str]] = {}  # other_entity_id -> [note_ids]
+    for note_id in note_ids:
+        # note->references gives edges where in=note; out=entity
+        refs = await db.query(f"SELECT * FROM {note_id}->references")
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            other_id = _to_str(ref["out"])
+            if other_id == record_id:
+                continue
+            other_table = other_id.split(":")[0]
+            if other_table != "entity":
+                continue
+            cooccurrences.setdefault(other_id, []).append(note_id)
+
+    # Filter out entities that already have a direct edge (either direction)
+    results = []
+    for other_id, shared_notes in cooccurrences.items():
+        # Check for any direct edge in either direction
+        out_edges = await db.query(
+            f"SELECT * FROM {record_id}->? WHERE out = {other_id}"
+        )
+        in_edges = await db.query(
+            f"SELECT * FROM {other_id}->? WHERE out = {record_id}"
+        )
+        has_out = isinstance(out_edges, list) and len(out_edges) > 0
+        has_in = isinstance(in_edges, list) and len(in_edges) > 0
+        if has_out or has_in:
+            continue
+
+        # Fetch the other entity's content
+        other = await db.query(f"SELECT * FROM {other_id}")
+        if other:
+            results.append(
+                {
+                    "entity": strip_embeddings(make_serializable(other[0])),
+                    "shared_notes": list(set(shared_notes)),
+                }
+            )
+
+    return results
+
+
 async def merge_edges(
     db: AsyncSurreal,
     ids: list[str],

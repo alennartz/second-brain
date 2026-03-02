@@ -275,3 +275,44 @@ async def test_explore_depth_bounded(graph_db):
         graph_db, "entity:sr", direction="out", node_types=["entity"], depth=1
     )
     assert len(result["targets"]) == 0
+
+
+# ── find_unlinked_cooccurrences tests ─────────────────────────────────
+
+
+async def test_find_unlinked_cooccurrences(graph_db):
+    from second_brain.tools.dream_tools import find_unlinked_cooccurrences
+
+    # entity:py and entity:fa share note:1 and fa->built_with->py exists,
+    # but entity:py and entity:sr share note:2 and have no direct edge
+    results = await find_unlinked_cooccurrences(graph_db, "entity:py")
+    other_ids = [str(r["entity"]["id"]) for r in results]
+    assert any("entity:sr" in oid for oid in other_ids)
+
+
+async def test_find_unlinked_cooccurrences_excludes_linked(graph_db):
+    from second_brain.tools.dream_tools import find_unlinked_cooccurrences
+
+    # entity:fa is linked to entity:py via built_with, should not appear
+    results = await find_unlinked_cooccurrences(graph_db, "entity:py")
+    other_ids = [str(r["entity"]["id"]) for r in results]
+    assert not any("entity:fa" in oid for oid in other_ids)
+
+
+async def test_find_unlinked_cooccurrences_includes_shared_notes(graph_db):
+    from second_brain.tools.dream_tools import find_unlinked_cooccurrences
+
+    results = await find_unlinked_cooccurrences(graph_db, "entity:py")
+    for r in results:
+        assert "shared_notes" in r
+        assert len(r["shared_notes"]) >= 1
+
+
+async def test_find_unlinked_cooccurrences_no_results(graph_db):
+    from second_brain.tools.dream_tools import find_unlinked_cooccurrences
+
+    # Link entity:sr to entity:py, then check from entity:sr's perspective
+    await graph_db.query("RELATE entity:sr->relates_to->entity:py")
+    results = await find_unlinked_cooccurrences(graph_db, "entity:sr")
+    # Now they are linked, so no results
+    assert len(results) == 0

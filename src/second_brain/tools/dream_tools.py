@@ -207,6 +207,82 @@ async def merge_nodes(
     }
 
 
+async def explore(
+    db: AsyncSurreal,
+    record_id: str,
+    direction: str = "both",
+    node_types: list[str] | None = None,
+    depth: int = 2,
+) -> dict:
+    """Explore graph neighborhood from a node.
+
+    Args:
+        record_id: Starting node.
+        direction: "out", "in", or "both".
+        node_types: Filter target nodes by table (e.g., ["entity", "note"]).
+        depth: Max hops (bounded to 3).
+
+    Returns:
+        {"targets": [{"node": {...}, "path": [{"edge_label": ..., "node_id": ...}, ...]}]}
+        Target nodes have full content (embeddings stripped).
+        Paths show intermediate node IDs and edge labels.
+    """
+    depth = min(depth, 3)
+    node_types = node_types or ["entity", "note"]
+
+    visited = {record_id}
+    # BFS: each entry is (node_id, path_so_far)
+    queue: list[tuple[str, list[dict]]] = [(record_id, [])]
+    targets: list[dict] = []
+
+    for _ in range(depth):
+        next_queue: list[tuple[str, list[dict]]] = []
+        for current_id, path in queue:
+            neighbors: list[tuple[str, str]] = []
+
+            if direction in ("out", "both"):
+                out_edges = await db.query(f"SELECT * FROM {current_id}->?")
+                if isinstance(out_edges, list):
+                    for edge in out_edges:
+                        eid = _to_str(edge["id"])
+                        label = eid.split(":")[0]
+                        neighbor_id = _to_str(edge["out"])
+                        neighbors.append((neighbor_id, label))
+
+            if direction in ("in", "both"):
+                in_edges = await db.query(f"SELECT * FROM {current_id}<-?")
+                if isinstance(in_edges, list):
+                    for edge in in_edges:
+                        eid = _to_str(edge["id"])
+                        label = eid.split(":")[0]
+                        neighbor_id = _to_str(edge["in"])
+                        neighbors.append((neighbor_id, label))
+
+            for neighbor_id, label in neighbors:
+                if neighbor_id in visited:
+                    continue
+                visited.add(neighbor_id)
+                new_path = [*path, {"edge_label": label, "node_id": neighbor_id}]
+                neighbor_table = neighbor_id.split(":")[0]
+
+                if neighbor_table in node_types:
+                    node = await db.query(f"SELECT * FROM {neighbor_id}")
+                    if node:
+                        targets.append(
+                            {
+                                "node": strip_embeddings(make_serializable(node[0])),
+                                "path": new_path,
+                            }
+                        )
+
+                # Continue traversal regardless of whether this node matched filter
+                next_queue.append((neighbor_id, new_path))
+
+        queue = next_queue
+
+    return {"targets": targets}
+
+
 async def merge_edges(
     db: AsyncSurreal,
     ids: list[str],

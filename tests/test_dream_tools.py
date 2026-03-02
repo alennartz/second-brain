@@ -203,3 +203,75 @@ async def test_merge_edges_dream_age_takes_max(edge_merge_db):
         "SELECT * FROM relates_to WHERE in = entity:a AND out = entity:b"
     )
     assert remaining[0]["dream_age"] == 5
+
+
+# ── explore tests ──────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def graph_db(db):
+    """DB with a small graph for exploration tests."""
+    await init_schema(db)
+    await db.query("""
+        CREATE entity:py SET name = 'Python', type = 'language';
+        CREATE entity:fa SET name = 'FastAPI', type = 'framework';
+        CREATE entity:sr SET name = 'SurrealDB', type = 'database';
+        CREATE note:1 SET content = 'FastAPI is built with Python', source = 'cli';
+        CREATE note:2 SET content = 'SurrealDB has a Python SDK', source = 'cli';
+        RELATE note:1->references->entity:py;
+        RELATE note:1->references->entity:fa;
+        RELATE note:2->references->entity:py;
+        RELATE note:2->references->entity:sr;
+        RELATE entity:fa->built_with->entity:py;
+    """)
+    return db
+
+
+async def test_explore_outgoing_entities(graph_db):
+    from second_brain.tools.dream_tools import explore
+
+    result = await explore(
+        graph_db, "entity:fa", direction="out", node_types=["entity"], depth=2
+    )
+    target_ids = [str(t["node"]["id"]) for t in result["targets"]]
+    assert any("entity:py" in tid for tid in target_ids)
+
+
+async def test_explore_incoming_notes(graph_db):
+    from second_brain.tools.dream_tools import explore
+
+    result = await explore(
+        graph_db, "entity:py", direction="in", node_types=["note"], depth=1
+    )
+    target_ids = [str(t["node"]["id"]) for t in result["targets"]]
+    assert len(target_ids) >= 2
+
+
+async def test_explore_both_directions(graph_db):
+    from second_brain.tools.dream_tools import explore
+
+    result = await explore(
+        graph_db, "entity:py", direction="both", node_types=["entity"], depth=2
+    )
+    target_ids = [str(t["node"]["id"]) for t in result["targets"]]
+    assert any("entity:fa" in tid for tid in target_ids)
+
+
+async def test_explore_returns_paths(graph_db):
+    from second_brain.tools.dream_tools import explore
+
+    result = await explore(
+        graph_db, "entity:fa", direction="out", node_types=["entity"], depth=2
+    )
+    for target in result["targets"]:
+        assert "path" in target
+        assert isinstance(target["path"], list)
+
+
+async def test_explore_depth_bounded(graph_db):
+    from second_brain.tools.dream_tools import explore
+
+    result = await explore(
+        graph_db, "entity:sr", direction="out", node_types=["entity"], depth=1
+    )
+    assert len(result["targets"]) == 0

@@ -38,11 +38,15 @@ func (c *chatPanel) addMessage(role, text string) {
 }
 
 func (c *chatPanel) setSize(width, height int) {
+	if c.width == width && c.height == height {
+		return
+	}
 	c.width = width
 	c.height = height
 	c.viewport.Width = width
 	c.viewport.Height = height
 	c.viewport.SetContent(c.renderMessages())
+	c.viewport.GotoBottom()
 }
 
 func (c chatPanel) renderMessages() string {

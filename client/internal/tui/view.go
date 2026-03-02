@@ -37,6 +37,10 @@ func (m Model) renderView() string {
 
 	// Panel dimensions: subtract header (1), input (3), status (1), borders (2 top/bottom per panel)
 	// border takes 2 lines (top+bottom) and 2 columns (left+right) per panel
+	if m.width < 20 || m.height < 8 {
+		return "Terminal too small. Please resize."
+	}
+
 	panelHeight := m.height - 1 - 3 - 1 - 2 // header + input + status + border vertical
 	if panelHeight < 1 {
 		panelHeight = 1
@@ -54,10 +58,6 @@ func (m Model) renderView() string {
 	if graphInner < 1 {
 		graphInner = 1
 	}
-
-	// Resize panels
-	m.chat.setSize(chatInner, panelHeight)
-	m.graphPanel.setSize(graphInner, panelHeight)
 
 	// Render panel contents
 	chatContent := m.chat.View()
@@ -77,7 +77,6 @@ func (m Model) renderView() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, chatBox, graphBox)
 
 	// Input bar
-	m.input.textArea.SetWidth(m.width - 2)
 	inputView := m.input.textArea.View()
 
 	// Status line

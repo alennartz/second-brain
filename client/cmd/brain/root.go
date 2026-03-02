@@ -19,7 +19,7 @@ func newRootCmd() *cobra.Command {
 		Long:  "A terminal client for the Second Brain knowledge engine.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m := tui.NewModel(serverURL)
-			p := tea.NewProgram(m, tea.WithAltScreen())
+			p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 			if _, err := p.Run(); err != nil {
 				return fmt.Errorf("TUI error: %w", err)
 			}

@@ -67,6 +67,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.input.textArea.SetWidth(msg.Width - 2)
+
+		// Compute panel dimensions (same formula as renderView)
+		panelHeight := m.height - 1 - 3 - 1 - 2
+		if panelHeight < 1 {
+			panelHeight = 1
+		}
+		chatWidth := m.width * 60 / 100
+		graphWidth := m.width - chatWidth
+		chatInner := chatWidth - 2
+		graphInner := graphWidth - 2
+		if chatInner < 1 {
+			chatInner = 1
+		}
+		if graphInner < 1 {
+			graphInner = 1
+		}
+		m.chat.setSize(chatInner, panelHeight)
+		m.graphPanel.setSize(graphInner, panelHeight)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -165,6 +183,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chat.addMessage("brain", "Error: "+msg.err.Error())
 			return m, nil
 		}
+		m.err = nil
 		if msg.response != nil {
 			// Add the exchange to history
 			exchange := types.Exchange{
@@ -200,6 +219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
+		m.err = nil
 		if msg.response != nil {
 			// Merge the node and its connections into the graph
 			if !containsNode(m.graph.Nodes, msg.response.Node.ID) {
@@ -232,7 +252,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	return m, nil
+	// Forward to viewport for mouse wheel scrolling
+	var cmd tea.Cmd
+	if m.focus == focusChat {
+		m.chat.viewport, cmd = m.chat.viewport.Update(msg)
+	} else {
+		m.graphPanel.viewport, cmd = m.graphPanel.viewport.Update(msg)
+	}
+	return m, cmd
 }
 
 // View implements tea.Model. Returns the full rendered TUI view.

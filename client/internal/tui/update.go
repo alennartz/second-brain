@@ -26,13 +26,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "/clear":
-		m.history = []types.Exchange{}
-		m.graph = types.Context{}
-		m.context = nil
-		m.chat = newChatPanel(m.chat.width, m.chat.height)
-		m.graphPanel.setContext(types.Context{})
-		m.err = nil
-		return m, nil
+		return m, func() tea.Msg { return clearMsg{} }
 
 	case "/graph":
 		m.focus = focusGraph
@@ -49,6 +43,7 @@ func (m Model) submitInput() (Model, tea.Cmd) {
 		m.loading = true
 		m.chat.loading = true
 		m.chat.viewport.SetContent(m.chat.renderMessages())
+		m.chat.viewport.GotoBottom()
 
 		return m, m.sendConverse(resolved)
 	}

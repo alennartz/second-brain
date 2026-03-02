@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -76,6 +77,20 @@ func TestConverseResponseWithoutContextPreservesGraph(t *testing.T) {
 	}
 }
 
+func TestConverseResponseClearsError(t *testing.T) {
+	m := NewModel("http://localhost:8000")
+	m.err = errors.New("previous error")
+	resp := converseResponseMsg{
+		response: &types.ConverseResponse{Response: "OK.", Context: nil},
+		userMsg:  "test",
+	}
+	updated, _ := m.Update(resp)
+	model := updated.(Model)
+	if model.err != nil {
+		t.Error("expected err to be cleared after successful converse response")
+	}
+}
+
 func TestClearCommand(t *testing.T) {
 	m := NewModel("http://localhost:8000")
 	m.history = []types.Exchange{{User: "test", Assistant: types.AssistantResponse{Response: "resp"}}}
@@ -119,8 +134,14 @@ func TestSubmitClearCommand(t *testing.T) {
 	m.height = 24
 	m.history = []types.Exchange{{User: "q", Assistant: types.AssistantResponse{Response: "a"}}}
 	m.input.textArea.SetValue("/clear")
-	updated, _ := m.submitInput()
-	model := updated
+	updated, cmd := m.submitInput()
+	if cmd == nil {
+		t.Fatal("expected a command from /clear")
+	}
+	// Execute the returned command and pass result through Update
+	msg := cmd()
+	result, _ := updated.Update(msg)
+	model := result.(Model)
 	if len(model.history) != 0 {
 		t.Error("expected history cleared after /clear")
 	}
@@ -159,8 +180,9 @@ func TestGraphPanelKeysWhenFocused(t *testing.T) {
 
 func TestViewContainsPanels(t *testing.T) {
 	m := NewModel("http://localhost:8000")
-	m.width = 80
-	m.height = 24
+	// Send WindowSizeMsg through Update so panels get sized
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(Model)
 	m.chat.addMessage("user", "Hello")
 	m.chat.addMessage("brain", "Hi there")
 	m.graphPanel.setContext(types.Context{

@@ -28,6 +28,7 @@ type graphPanel struct {
 
 func newGraphPanel(width, height int) graphPanel {
 	vp := viewport.New(width, height)
+	vp.KeyMap = viewport.KeyMap{}
 	g := graphPanel{viewport: vp, width: width, height: height}
 	g.refreshViewport()
 	return g
@@ -41,6 +42,9 @@ func (g *graphPanel) setContext(ctx types.Context) {
 }
 
 func (g *graphPanel) setSize(width, height int) {
+	if g.width == width && g.height == height {
+		return
+	}
 	g.width = width
 	g.height = height
 	g.viewport.Width = width

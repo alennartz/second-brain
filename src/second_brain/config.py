@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     embedding_auth: Literal["key", "aad"] = "key"
     embedding_key: str | None = None
     reasoning_key: str | None = None
+    dream_enabled: bool = True
+    dream_idle_timeout: int = 10
+    dream_batch_size: int = 10
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}
 

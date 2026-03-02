@@ -27,6 +27,7 @@ async def init_schema(db: AsyncSurreal) -> None:  # pyright: ignore[reportGenera
         DEFINE FIELD IF NOT EXISTS source ON note TYPE string;
         DEFINE FIELD IF NOT EXISTS created_at ON note TYPE datetime DEFAULT time::now();
         DEFINE FIELD IF NOT EXISTS updated_at ON note TYPE datetime DEFAULT time::now();
+        DEFINE FIELD IF NOT EXISTS dream_age ON note TYPE int DEFAULT 0;
 
         -- Entity table
         DEFINE TABLE IF NOT EXISTS entity SCHEMALESS;
@@ -34,12 +35,16 @@ async def init_schema(db: AsyncSurreal) -> None:  # pyright: ignore[reportGenera
         DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
         DEFINE FIELD IF NOT EXISTS description ON entity TYPE option<string>;
         DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE option<array<float>>;
+        DEFINE FIELD IF NOT EXISTS dream_age ON entity TYPE int DEFAULT 0;
 
         -- Edge tables
         DEFINE TABLE IF NOT EXISTS references SCHEMALESS;
+        DEFINE FIELD IF NOT EXISTS dream_age ON references TYPE int DEFAULT 0;
         DEFINE TABLE IF NOT EXISTS relates_to SCHEMALESS;
         DEFINE FIELD IF NOT EXISTS context ON relates_to TYPE option<string>;
+        DEFINE FIELD IF NOT EXISTS dream_age ON relates_to TYPE int DEFAULT 0;
         DEFINE TABLE IF NOT EXISTS derived_from SCHEMALESS;
+        DEFINE FIELD IF NOT EXISTS dream_age ON derived_from TYPE int DEFAULT 0;
 
         -- Full-text indexes
         DEFINE INDEX IF NOT EXISTS note_content_fts ON note FIELDS content

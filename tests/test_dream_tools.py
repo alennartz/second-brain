@@ -152,3 +152,54 @@ async def test_merge_nodes_edge_dream_age_takes_max(merge_db):
         "SELECT dream_age FROM references WHERE out = entity:py"
     )
     assert refs[0]["dream_age"] == 5
+
+
+@pytest.fixture
+async def edge_merge_db(db):
+    """DB with duplicate edges between same nodes."""
+    await init_schema(db)
+    await db.query("""
+        CREATE entity:a SET name = 'A', type = 'concept';
+        CREATE entity:b SET name = 'B', type = 'concept';
+        RELATE entity:a->relates_to->entity:b SET context = 'first relationship', dream_age = 2;
+        RELATE entity:a->relates_to->entity:b SET context = 'second relationship', dream_age = 5;
+    """)
+    return db
+
+
+async def test_merge_edges_fuses(edge_merge_db):
+    from second_brain.tools.dream_tools import merge_edges
+
+    edges = await edge_merge_db.query(
+        "SELECT * FROM relates_to WHERE in = entity:a AND out = entity:b"
+    )
+    edge_ids = [str(e["id"]) for e in edges]
+    assert len(edge_ids) == 2
+
+    await merge_edges(
+        edge_merge_db,
+        ids=edge_ids,
+        new_context="combined relationship",
+    )
+
+    remaining = await edge_merge_db.query(
+        "SELECT * FROM relates_to WHERE in = entity:a AND out = entity:b"
+    )
+    assert len(remaining) == 1
+    assert remaining[0]["context"] == "combined relationship"
+
+
+async def test_merge_edges_dream_age_takes_max(edge_merge_db):
+    from second_brain.tools.dream_tools import merge_edges
+
+    edges = await edge_merge_db.query(
+        "SELECT * FROM relates_to WHERE in = entity:a AND out = entity:b"
+    )
+    edge_ids = [str(e["id"]) for e in edges]
+
+    await merge_edges(edge_merge_db, ids=edge_ids, new_context="merged")
+
+    remaining = await edge_merge_db.query(
+        "SELECT * FROM relates_to WHERE in = entity:a AND out = entity:b"
+    )
+    assert remaining[0]["dream_age"] == 5

@@ -205,3 +205,48 @@ async def merge_nodes(
         else {},
         "touched_ids": list(set(touched_ids)),
     }
+
+
+async def merge_edges(
+    db: AsyncSurreal,
+    ids: list[str],
+    new_context: str | None = None,
+) -> dict:
+    """Fuse N edges into one. First ID is the survivor.
+
+    - Survivor gets new_context and dream_age = max(all inputs)
+    - Losers are deleted
+    - Returns {"survivor": {...}, "deleted_ids": [...]}
+    """
+    if len(ids) < 2:
+        raise ValueError("merge_edges requires at least 2 IDs")
+
+    survivor_id = ids[0]
+    loser_ids = ids[1:]
+
+    # Get max dream_age
+    all_ages: list[int] = []
+    for eid in ids:
+        rec = await db.query(f"SELECT dream_age FROM {eid}")
+        if rec:
+            all_ages.append(rec[0].get("dream_age", 0))
+    max_age = max(all_ages) if all_ages else 0
+
+    # Update survivor
+    if new_context is not None:
+        await db.query(
+            f"UPDATE {survivor_id} SET context = $ctx, dream_age = $age",
+            {"ctx": new_context, "age": max_age},
+        )
+    else:
+        await db.query(f"UPDATE {survivor_id} SET dream_age = {max_age}")
+
+    # Delete losers
+    for lid in loser_ids:
+        await db.query(f"DELETE {lid}")
+
+    survivor = await db.query(f"SELECT * FROM {survivor_id}")
+    return {
+        "survivor": make_serializable(survivor[0]) if survivor else {},
+        "deleted_ids": loser_ids,
+    }

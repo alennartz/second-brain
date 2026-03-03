@@ -38,7 +38,7 @@ func TestConverseRequestJSON(t *testing.T) {
 					Response: "previous answer",
 					Context: &types.Context{
 						Nodes: []types.Node{{ID: "note:1", Table: "note"}},
-						Edges: []types.Edge{{ID: "relates_to:1", Table: "relates_to", From: "entity:1", To: "entity:2"}},
+						Edges: []types.Edge{{ID: "relates_to:1", Table: "relates_to", Out: "entity:1", In: "entity:2"}},
 					},
 				},
 			},

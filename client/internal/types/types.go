@@ -12,11 +12,12 @@ type Node struct {
 }
 
 // Edge represents a relationship between two nodes.
+// SurrealDB RELATE creates edges with "in" (target) and "out" (source) fields.
 type Edge struct {
 	ID      string `json:"id"`
 	Table   string `json:"table"`
-	From    string `json:"from"`
-	To      string `json:"to"`
+	In      string `json:"in"`
+	Out     string `json:"out"`
 	Context string `json:"context,omitempty"`
 }
 

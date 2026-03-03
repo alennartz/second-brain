@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from surrealdb import AsyncSurreal
@@ -243,6 +248,75 @@ async def recall(req: RecallRequest):
 async def converse(req: ConverseRequest):
     logger.info("POST /converse")
     return await run_converse_agent(req.message, req.history)
+
+
+@app.post("/converse/stream")
+async def converse_stream(req: ConverseRequest):
+    logger.info("POST /converse/stream")
+    queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+    deps = ConverseDeps(
+        db=_db,
+        embed_fn=_embed,
+        model_setting=_model,
+        progress_queue=queue,
+    )
+
+    # Build PydanticAI message history
+    pydantic_history: list = []
+    for turn in req.history:
+        pydantic_history.append(ModelRequest(parts=[UserPromptPart(content=turn.user)]))
+        pydantic_history.append(
+            ModelResponse(parts=[TextPart(content=turn.assistant.response)])
+        )
+
+    async def _run_agent() -> None:
+        try:
+            result = await _converse_agent.run(
+                req.message,
+                deps=deps,
+                model=_model,
+                message_history=pydantic_history,
+            )
+            ctx = deps.context if (deps.context.nodes or deps.context.edges) else None
+            resp = ConverseResponse(response=result.output, context=ctx)
+            await queue.put(
+                {"type": "done", "data": json.loads(resp.model_dump_json())}
+            )
+        except Exception as exc:
+            logger.exception("Converse stream agent error")
+            await queue.put({"type": "error", "message": str(exc)})
+        finally:
+            await queue.put(None)  # sentinel
+
+    async def _event_generator() -> AsyncGenerator[str]:
+        task = asyncio.create_task(_run_agent())
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                event_type = event.get("type", "status")
+                if event_type == "done":
+                    yield f"event: done\ndata: {json.dumps(event['data'])}\n\n"
+                elif event_type == "error":
+                    yield f"event: error\ndata: {json.dumps({'message': event['message']})}\n\n"
+                else:
+                    yield f"event: status\ndata: {json.dumps({'message': event['message']})}\n\n"
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        finally:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await task
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/graph/{record_id:path}", response_model=GraphResponse)

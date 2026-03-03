@@ -9,20 +9,24 @@ import (
 )
 
 var (
-	userStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	brainStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
+	userStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	brainStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Bold(true)
+	loadingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Italic(true)
 )
 
 type chatPanel struct {
-	messages []chatMessage
-	viewport viewport.Model
-	loading  bool
-	width    int
-	height   int
+	messages    []chatMessage
+	viewport    viewport.Model
+	loading     bool
+	loadingText string
+	width       int
+	height      int
 }
 
 func newChatPanel(width, height int) chatPanel {
 	vp := viewport.New(width, height)
+	vp.MouseWheelEnabled = true
+	vp.MouseWheelDelta = 3
 	return chatPanel{
 		messages: []chatMessage{},
 		viewport: vp,
@@ -62,7 +66,11 @@ func (c chatPanel) renderMessages() string {
 		fmt.Fprintf(&b, "\n%s\n%s\n", label, wrapped)
 	}
 	if c.loading {
-		fmt.Fprintf(&b, "\n%s\n", brainStyle.Render("Thinking..."))
+		text := c.loadingText
+		if text == "" {
+			text = "Thinking..."
+		}
+		fmt.Fprintf(&b, "\n%s %s\n", brainStyle.Render("Brain:"), loadingStyle.Render("⟳ "+text))
 	}
 	return b.String()
 }

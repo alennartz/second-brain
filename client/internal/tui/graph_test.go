@@ -23,7 +23,7 @@ func TestGraphPanelWithNodes(t *testing.T) {
 			{ID: "entity:2", Table: "entity", Name: "Agile"},
 		},
 		Edges: []types.Edge{
-			{ID: "relates_to:1", Table: "relates_to", From: "entity:1", To: "entity:2"},
+			{ID: "relates_to:1", Table: "relates_to", Out: "entity:1", In: "entity:2"},
 		},
 	})
 	view := g.View()

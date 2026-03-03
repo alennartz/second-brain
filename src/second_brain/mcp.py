@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -60,3 +61,19 @@ async def recall(question: str, hints: list[str] | None = None) -> str:
         ids = [n.get("id", "") for n in result.context.nodes]
         parts.append(f"\nCited nodes: {', '.join(ids)}")
     return "\n".join(parts)
+
+
+@mcp.tool
+async def graph_lookup(record_id: str) -> str:
+    """Look up a node and its connections in the knowledge graph.
+
+    Use this to explore connections from node IDs returned by recall.
+    Returns the node's data and all its relationships to other nodes.
+
+    Args:
+        record_id: A node ID like 'entity:abc123' or 'note:xyz789'
+    """
+    result = await _get_graph(record_id)
+    if not result:
+        return f"Node '{record_id}' not found."
+    return json.dumps(result.model_dump(), indent=2, default=str)

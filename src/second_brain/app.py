@@ -102,10 +102,19 @@ async def lifespan(app: FastAPI):
     configure_mcp(
         run_recall=run_recall_agent,
         run_ingest=run_ingest_agent,
-        get_graph=lambda x: None,  # placeholder until Task 4
+        get_graph=get_graph_data,
     )
 
-    async with _mcp_app.router.lifespan_context(app):
+    # Create a fresh MCP ASGI app each startup so the session manager
+    # is never reused (it is single-use by design).
+    mcp_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
+    # Remove any stale /mcp mount from a previous lifespan cycle (e.g. tests)
+    app.router.routes = [
+        r for r in app.router.routes if getattr(r, "path", None) != "/mcp"
+    ]
+    app.mount("/mcp", mcp_app)
+
+    async with mcp_app.router.lifespan_context(app):
         yield
 
     if _scheduler:
@@ -117,8 +126,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Second Brain", lifespan=lifespan)
-_mcp_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
-app.mount("/mcp", _mcp_app)
 
 
 class IngestRequest(BaseModel):
@@ -295,17 +302,15 @@ async def _get_raw_connections(db: Any, record_id: str) -> list[dict]:
     return out + inc
 
 
-@app.get("/graph/{record_id:path}", response_model=GraphResponse)
-async def get_graph(record_id: str):
+async def get_graph_data(record_id: str) -> GraphResponse | None:
+    """Fetch a node and its connections. Returns None if not found."""
     node = await get_node(_db, record_id)
     if not node:
-        raise HTTPException(status_code=404, detail=f"Node {record_id} not found")
-
+        return None
     raw_edges = await _get_raw_connections(_db, record_id)
     connections = []
     for edge in raw_edges:
         edge_s = make_serializable(edge)
-        # Determine "other" node: if out matches record_id, other is in; else out
         other_id = (
             str(edge_s.get("in"))
             if str(edge_s.get("out")) == record_id
@@ -323,3 +328,11 @@ async def get_graph(record_id: str):
     return GraphResponse(
         node=normalize_node(make_serializable(node)), connections=connections
     )
+
+
+@app.get("/graph/{record_id:path}", response_model=GraphResponse)
+async def get_graph(record_id: str):
+    result = await get_graph_data(record_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Node {record_id} not found")
+    return result

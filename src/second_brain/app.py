@@ -14,6 +14,8 @@ from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.config import settings
 from second_brain.db import init_schema, init_vector_indexes
+from second_brain.mcp import configure as configure_mcp
+from second_brain.mcp import mcp
 from second_brain.models import (
     Context,
     make_serializable,
@@ -97,7 +99,14 @@ async def lifespan(app: FastAPI):
         _scheduler.start()
         logger.info("Dream scheduler started")
 
-    yield
+    configure_mcp(
+        run_recall=run_recall_agent,
+        run_ingest=run_ingest_agent,
+        get_graph=lambda x: None,  # placeholder until Task 4
+    )
+
+    async with _mcp_app.router.lifespan_context(app):
+        yield
 
     if _scheduler:
         _scheduler.stop()
@@ -108,6 +117,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Second Brain", lifespan=lifespan)
+_mcp_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
+app.mount("/mcp", _mcp_app)
 
 
 class IngestRequest(BaseModel):

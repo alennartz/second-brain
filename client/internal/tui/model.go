@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"second-brain-client/internal/api"
@@ -21,18 +25,20 @@ type chatMessage struct {
 
 // Model is the top-level Bubble Tea model for the TUI.
 type Model struct {
-	client     *api.Client
-	history    []types.Exchange
-	context    *types.Context
-	graph      types.Context
-	focus      int
-	loading    bool
-	err        error
-	width      int
-	height     int
-	chat       chatPanel
-	graphPanel graphPanel
-	input      inputBar
+	client       *api.Client
+	history      []types.Exchange
+	context      *types.Context
+	graph        types.Context
+	focus        int
+	loading      bool
+	err          error
+	width        int
+	height       int
+	chat         chatPanel
+	graphPanel   graphPanel
+	input        inputBar
+	statusText   string
+	cancelStream context.CancelFunc
 }
 
 // NewModel creates a new TUI model connected to the given server URL.
@@ -66,7 +72,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.input.textArea.SetWidth(msg.Width - 2)
+		// Set textarea width immediately so it wraps correctly from the start
+		if msg.Width > 4 {
+			m.input.textArea.SetWidth(msg.Width - 2)
+		}
 
 		// Compute panel dimensions (same formula as renderView)
 		panelHeight := m.height - 1 - 3 - 1 - 2
@@ -87,9 +96,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.graphPanel.setSize(graphInner, panelHeight)
 		return m, nil
 
+	case tea.MouseMsg:
+		// Forward mouse events to chat viewport for scroll support
+		var cmd tea.Cmd
+		m.chat.viewport, cmd = m.chat.viewport.Update(msg)
+		return m, cmd
+
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			if m.cancelStream != nil {
+				m.cancelStream()
+				m.cancelStream = nil
+			}
 			return m, tea.Quit
 
 		case tea.KeyTab:
@@ -175,6 +194,62 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, nil
 
+	case converseStreamEventMsg:
+		m.cancelStream = msg.cancel
+		switch msg.event.Event {
+		case "status":
+			var status struct{ Message string }
+			if err := json.Unmarshal(msg.event.Data, &status); err == nil {
+				m.statusText = status.Message
+				m.chat.loadingText = status.Message
+				m.chat.viewport.SetContent(m.chat.renderMessages())
+				m.chat.viewport.GotoBottom()
+			}
+			return m, waitForNextEvent(msg.events, msg.errc, msg.cancel, msg.userMsg)
+
+		case "done":
+			var resp types.ConverseResponse
+			if err := json.Unmarshal(msg.event.Data, &resp); err != nil {
+				m.loading = false
+				m.chat.loading = false
+				m.statusText = ""
+				m.chat.loadingText = ""
+				m.cancelStream = nil
+				m.err = err
+				m.chat.addMessage("brain", "Error: "+err.Error())
+				return m, nil
+			}
+			m.cancelStream = nil
+			return m.handleConverseResponse(&resp, msg.userMsg), nil
+
+		case "error":
+			var errData struct{ Message string }
+			if err := json.Unmarshal(msg.event.Data, &errData); err == nil {
+				m.err = fmt.Errorf("%s", errData.Message)
+			}
+			m.loading = false
+			m.chat.loading = false
+			m.statusText = ""
+			m.chat.loadingText = ""
+			m.cancelStream = nil
+			if m.err != nil {
+				m.chat.addMessage("brain", "Error: "+m.err.Error())
+			}
+			return m, nil
+		}
+		// Unknown event type — keep reading
+		return m, waitForNextEvent(msg.events, msg.errc, msg.cancel, msg.userMsg)
+
+	case converseStreamErrMsg:
+		m.loading = false
+		m.chat.loading = false
+		m.statusText = ""
+		m.chat.loadingText = ""
+		m.cancelStream = nil
+		m.err = msg.err
+		m.chat.addMessage("brain", "Error: "+msg.err.Error())
+		return m, nil
+
 	case converseResponseMsg:
 		m.loading = false
 		m.chat.loading = false
@@ -185,32 +260,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		if msg.response != nil {
-			// Add the exchange to history
-			exchange := types.Exchange{
-				User: msg.userMsg,
-				Assistant: types.AssistantResponse{
-					Response: msg.response.Response,
-					Context:  msg.response.Context,
-				},
-			}
-			m.history = append(m.history, exchange)
-			if len(m.history) > maxHistory {
-				m.history = m.history[len(m.history)-maxHistory:]
-			}
-
-			// Update context
-			m.context = msg.response.Context
-
-			// Replace graph with new context (per design: context does not stack)
-			if msg.response.Context != nil {
-				m.graph = *msg.response.Context
-			}
-
-			// Add brain response to chat panel
-			m.chat.addMessage("brain", msg.response.Response)
-
-			// Update graph panel with merged graph
-			m.graphPanel.setContext(m.graph)
+			return m.handleConverseResponse(msg.response, msg.userMsg), nil
 		}
 		return m, nil
 
@@ -245,6 +295,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chat = newChatPanel(m.chat.width, m.chat.height)
 		m.graphPanel.setContext(types.Context{})
 		m.err = nil
+		m.statusText = ""
+		m.chat.loadingText = ""
 		return m, nil
 
 	case errorMsg:
@@ -260,6 +312,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.graphPanel.viewport, cmd = m.graphPanel.viewport.Update(msg)
 	}
 	return m, cmd
+}
+
+// handleConverseResponse processes a successful converse response, updating
+// history, context, graph, and chat panel.
+func (m Model) handleConverseResponse(resp *types.ConverseResponse, userMsg string) Model {
+	m.loading = false
+	m.chat.loading = false
+	m.statusText = ""
+	m.chat.loadingText = ""
+
+	exchange := types.Exchange{
+		User: userMsg,
+		Assistant: types.AssistantResponse{
+			Response: resp.Response,
+			Context:  resp.Context,
+		},
+	}
+	m.history = append(m.history, exchange)
+	if len(m.history) > maxHistory {
+		m.history = m.history[len(m.history)-maxHistory:]
+	}
+
+	m.context = resp.Context
+	if resp.Context != nil {
+		m.graph = *resp.Context
+	}
+
+	m.chat.addMessage("brain", resp.Response)
+	m.graphPanel.setContext(m.graph)
+
+	return m
 }
 
 // View implements tea.Model. Returns the full rendered TUI view.

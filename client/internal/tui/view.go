@@ -23,6 +23,10 @@ var (
 	statusStyle = lipgloss.NewStyle().
 			Faint(true).
 			Padding(0, 1)
+
+	statusLoadingStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("3")).
+				Padding(0, 1)
 )
 
 // renderView builds the full TUI layout: header, two side-by-side panels,
@@ -82,15 +86,18 @@ func (m Model) renderView() string {
 	// Status line
 	nodeCount := len(m.graphPanel.nodes)
 	edgeCount := len(m.graphPanel.edges)
-	var statusText string
+	var status string
 	if m.err != nil {
-		statusText = fmt.Sprintf("Error: %s | Tab: switch panel | /exit: exit", m.err)
+		status = statusStyle.Render(fmt.Sprintf("Error: %s | Tab: switch panel | /exit: exit", m.err))
 	} else if m.loading {
-		statusText = fmt.Sprintf("Thinking... | Nodes: %d | Edges: %d", nodeCount, edgeCount)
+		loadingLabel := m.statusText
+		if loadingLabel == "" {
+			loadingLabel = "Thinking..."
+		}
+		status = statusLoadingStyle.Render(fmt.Sprintf("⟳ %s | Nodes: %d | Edges: %d", loadingLabel, nodeCount, edgeCount))
 	} else {
-		statusText = fmt.Sprintf("Enter: send | Alt+Enter: newline | Tab: switch panel | PgUp/PgDn: scroll | /exit | /clear | Nodes: %d | Edges: %d", nodeCount, edgeCount)
+		status = statusStyle.Render(fmt.Sprintf("Enter: send | Alt+Enter: newline | Tab: switch panel | PgUp/PgDn: scroll | /exit | /clear | Nodes: %d | Edges: %d", nodeCount, edgeCount))
 	}
-	status := statusStyle.Render(statusText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, panels, inputView, status)
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/lipgloss"
 
 	"second-brain-client/internal/types"
 )
@@ -26,6 +27,17 @@ func newInputBar() inputBar {
 	ta.ShowLineNumbers = false
 	ta.SetHeight(3)
 	ta.CharLimit = 0
+
+	// Remove default background color and simplify styling
+	noBase := lipgloss.NewStyle()
+	ta.FocusedStyle.Base = noBase
+	ta.BlurredStyle.Base = noBase
+	ta.FocusedStyle.CursorLine = noBase
+	ta.BlurredStyle.CursorLine = noBase
+	ta.Prompt = "│ "
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	ta.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+
 	return inputBar{textArea: ta}
 }
 

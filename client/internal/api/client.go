@@ -1,28 +1,38 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"second-brain-client/internal/types"
 )
 
+// SSEEvent represents a single Server-Sent Event.
+type SSEEvent struct {
+	Event string
+	Data  json.RawMessage
+}
+
 // Client is an HTTP client for the second-brain API server.
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL      string
+	httpClient   *http.Client
+	streamClient *http.Client
 }
 
 // New creates a new API client targeting the given base URL.
 func New(baseURL string) *Client {
 	return &Client{
-		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		baseURL:      baseURL,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		streamClient: &http.Client{}, // no timeout for streaming
 	}
 }
 
@@ -58,6 +68,105 @@ func (c *Client) Converse(message string, history []types.Exchange) (*types.Conv
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// ConverseStream opens an SSE stream to /converse/stream and returns channels
+// for events and errors. The caller's context controls cancellation.
+func (c *Client) ConverseStream(ctx context.Context, message string, history []types.Exchange) (<-chan SSEEvent, <-chan error) {
+	events := make(chan SSEEvent, 16)
+	errc := make(chan error, 1)
+
+	if history == nil {
+		history = []types.Exchange{}
+	}
+
+	go func() {
+		defer close(events)
+		defer close(errc)
+
+		body := types.ConverseRequest{Message: message, History: history}
+		data, err := json.Marshal(body)
+		if err != nil {
+			errc <- fmt.Errorf("encode request: %w", err)
+			return
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			fmt.Sprintf("%s/converse/stream", c.baseURL), bytes.NewReader(data))
+		if err != nil {
+			errc <- fmt.Errorf("create request: %w", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := c.streamClient.Do(req)
+		if err != nil {
+			errc <- fmt.Errorf("request failed: %w", err)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			respBody, _ := io.ReadAll(resp.Body)
+			errc <- fmt.Errorf("server returned %d: %s", resp.StatusCode, respBody)
+			return
+		}
+
+		parseSSE(ctx, resp.Body, events, errc)
+	}()
+
+	return events, errc
+}
+
+// parseSSE reads an SSE stream from r and emits events on the channel.
+func parseSSE(ctx context.Context, r io.Reader, events chan<- SSEEvent, errc chan<- error) {
+	scanner := bufio.NewScanner(r)
+	var eventType string
+	var dataBuf strings.Builder
+
+	for scanner.Scan() {
+		if ctx.Err() != nil {
+			return
+		}
+
+		line := scanner.Text()
+
+		if line == "" {
+			// Blank line = dispatch event
+			if dataBuf.Len() > 0 {
+				evt := SSEEvent{
+					Event: eventType,
+					Data:  json.RawMessage(dataBuf.String()),
+				}
+				if evt.Event == "" {
+					evt.Event = "message"
+				}
+				select {
+				case events <- evt:
+				case <-ctx.Done():
+					return
+				}
+			}
+			eventType = ""
+			dataBuf.Reset()
+			continue
+		}
+
+		if strings.HasPrefix(line, "event:") {
+			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		} else if strings.HasPrefix(line, "data:") {
+			if dataBuf.Len() > 0 {
+				dataBuf.WriteByte('\n')
+			}
+			dataBuf.WriteString(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+		// Ignore comment lines (starting with ':') and unknown fields
+	}
+
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		errc <- fmt.Errorf("read SSE stream: %w", err)
+	}
 }
 
 // Graph fetches a node and its connections from the knowledge graph.

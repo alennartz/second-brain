@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import FunctionToolCallEvent
 from pydantic_ai.models import Model
 from surrealdb import AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
 
@@ -20,6 +22,23 @@ from second_brain.tools.recall_tools import fetch_records_by_ids
 
 logger = logging.getLogger(__name__)
 
+# Status messages for recall sub-agent tool calls
+_RECALL_STATUS: dict[str, str] = {
+    "search_knowledge": "Running hybrid search...",
+    "get_node": "Fetching node...",
+    "get_connections": "Following connections...",
+    "graph_traverse": "Traversing graph...",
+}
+
+# Status messages for ingest sub-agent tool calls
+_INGEST_STATUS: dict[str, str] = {
+    "create_note": "Creating note...",
+    "create_entity": "Extracting entity...",
+    "create_edge": "Linking knowledge...",
+    "update_node": "Updating node...",
+    "search_knowledge": "Checking existing knowledge...",
+}
+
 
 @dataclass
 class ConverseDeps:
@@ -27,6 +46,28 @@ class ConverseDeps:
     embed_fn: Callable[[str], Awaitable[list[float]]]
     model_setting: Model | str  # model string or TestModel for sub-agent calls
     context: Context = field(default_factory=Context)  # mutable accumulator
+    progress_queue: asyncio.Queue[dict | None] | None = None
+
+
+async def _push(queue: asyncio.Queue[dict | None] | None, msg: str) -> None:
+    """Push a status event to the queue if it exists."""
+    if queue is not None:
+        await queue.put({"type": "status", "message": msg})
+
+
+def _make_stream_handler(
+    queue: asyncio.Queue[dict | None],
+    status_map: dict[str, str],
+):  # type: ignore[type-arg]
+    """Create an event_stream_handler that forwards tool call events to the queue."""
+
+    async def handler(ctx: object, events):  # type: ignore[type-arg]
+        async for event in events:
+            if isinstance(event, FunctionToolCallEvent):
+                msg = status_map.get(event.part.tool_name, event.part.tool_name)
+                await queue.put({"type": "status", "message": msg})
+
+    return handler
 
 
 def create_converse_agent() -> Agent[ConverseDeps, str]:
@@ -57,14 +98,21 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         """Delegate a question to the recall agent, which will search the knowledge
         base, follow graph connections, and synthesize an answer. Pass the user's
         question as-is — the recall agent handles all reasoning internally."""
+        queue = ctx.deps.progress_queue
         logger.info("Converse → recall sub-agent starting")
-        result = await _recall_agent.run(
-            question,
+        await _push(queue, "Searching knowledge base...")
+
+        kwargs: dict = dict(
             deps=RecallDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
             model=ctx.deps.model_setting,
         )
+        if queue is not None:
+            kwargs["event_stream_handler"] = _make_stream_handler(queue, _RECALL_STATUS)
+
+        result = await _recall_agent.run(question, **kwargs)
         output: RecallOutput = result.output
         logger.info("Converse → recall sub-agent completed")
+        await _push(queue, "Search complete")
 
         # Fetch actual records and accumulate onto deps.context
         nodes = await fetch_records_by_ids(ctx.deps.db, output.cited_node_ids)
@@ -83,13 +131,20 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         """Delegate new knowledge to the ingest agent, which will parse it into
         notes and entities, find connections, and store everything. Pass the user's
         input as-is — the ingest agent handles all structuring internally."""
+        queue = ctx.deps.progress_queue
         logger.info("Converse → ingest sub-agent starting")
-        result = await _ingest_agent.run(
-            text,
+        await _push(queue, "Storing new knowledge...")
+
+        kwargs: dict = dict(
             deps=IngestDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
             model=ctx.deps.model_setting,
         )
+        if queue is not None:
+            kwargs["event_stream_handler"] = _make_stream_handler(queue, _INGEST_STATUS)
+
+        result = await _ingest_agent.run(text, **kwargs)
         logger.info("Converse → ingest sub-agent completed")
+        await _push(queue, "Knowledge stored")
         return result.output
 
     return agent

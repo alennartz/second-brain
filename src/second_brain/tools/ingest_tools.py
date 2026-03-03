@@ -58,13 +58,50 @@ async def create_edges(
     db: AsyncSurreal,
     edges: list[dict],
 ) -> list[dict]:
-    """Create multiple relationship edges. Each dict needs 'from_id', 'edge_table', 'to_id', optional 'context'."""
+    """Create multiple relationship edges. Each dict needs 'from_id', 'edge_table', 'to_id', optional 'context'.
+
+    Skips self-edges (from_id == to_id) and duplicate edges (same from/table/to already exists).
+    """
     results = []
     for edge in edges:
         from_id = edge["from_id"]
         edge_table = edge["edge_table"]
         to_id = edge["to_id"]
         context = edge.get("context")
+
+        # Reject self-edges
+        if from_id == to_id:
+            logger.warning(
+                "db: skipping self-edge %s -[%s]-> %s", from_id, edge_table, to_id
+            )
+            results.append(
+                {
+                    "skipped": True,
+                    "reason": "self-edge",
+                    "from_id": from_id,
+                    "to_id": to_id,
+                }
+            )
+            continue
+
+        # Reject duplicate edges (same from, table, to already exists)
+        existing = await db.query(
+            f"SELECT id FROM {from_id}->{edge_table} WHERE out = {to_id}"
+        )
+        if existing:
+            logger.warning(
+                "db: skipping duplicate edge %s -[%s]-> %s", from_id, edge_table, to_id
+            )
+            results.append(
+                {
+                    "skipped": True,
+                    "reason": "duplicate",
+                    "from_id": from_id,
+                    "to_id": to_id,
+                }
+            )
+            continue
+
         ctx_clause = " SET context = $context" if context else ""
         query = f"RELATE {from_id}->{edge_table}->{to_id}{ctx_clause}"
         result = await db.query(query, {"context": context} if context else None)

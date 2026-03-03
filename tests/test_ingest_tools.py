@@ -75,6 +75,61 @@ async def test_create_edges_bulk(schema_db):
     assert all("id" in r for r in results)
 
 
+async def test_create_edges_rejects_self_edges(schema_db):
+    await schema_db.query("CREATE entity:a SET name = 'Alpha', type = 'concept'")
+    edges = [{"from_id": "entity:a", "edge_table": "relates_to", "to_id": "entity:a"}]
+    results = await create_edges(schema_db, edges)
+    assert len(results) == 1
+    assert results[0]["skipped"] is True
+    assert results[0]["reason"] == "self-edge"
+
+    # Verify nothing was created in the DB
+    db_edges = await schema_db.query("SELECT * FROM entity:a->relates_to")
+    assert db_edges == [] or not db_edges
+
+
+async def test_create_edges_rejects_duplicates(schema_db):
+    await schema_db.query("""
+        CREATE entity:a SET name = 'Alpha', type = 'concept';
+        CREATE entity:b SET name = 'Beta', type = 'concept';
+    """)
+    edge = {"from_id": "entity:a", "edge_table": "relates_to", "to_id": "entity:b"}
+
+    # First creation should succeed
+    results1 = await create_edges(schema_db, [edge])
+    assert len(results1) == 1
+    assert "id" in results1[0]
+
+    # Second creation of same edge should be skipped
+    results2 = await create_edges(schema_db, [edge])
+    assert len(results2) == 1
+    assert results2[0]["skipped"] is True
+    assert results2[0]["reason"] == "duplicate"
+
+
+async def test_create_edges_mixed_valid_and_invalid(schema_db):
+    await schema_db.query("""
+        CREATE entity:a SET name = 'Alpha', type = 'concept';
+        CREATE entity:b SET name = 'Beta', type = 'concept';
+    """)
+    edges = [
+        {
+            "from_id": "entity:a",
+            "edge_table": "relates_to",
+            "to_id": "entity:a",
+        },  # self-edge
+        {
+            "from_id": "entity:a",
+            "edge_table": "built_with",
+            "to_id": "entity:b",
+        },  # valid
+    ]
+    results = await create_edges(schema_db, edges)
+    assert len(results) == 2
+    assert results[0]["skipped"] is True
+    assert "id" in results[1]
+
+
 async def test_update_node(schema_db):
     await schema_db.query("CREATE note:1 SET content = 'old', source = 'cli'")
     updated = await update_node(

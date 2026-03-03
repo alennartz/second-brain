@@ -20,6 +20,7 @@ from second_brain.models import (
     normalize_edge,
     normalize_node,
 )
+from second_brain.scheduler import DreamScheduler
 from second_brain.tools.recall_tools import get_node
 
 logging.basicConfig(
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 _db: Any = None
 _model: Any = None
 _embed: Any = None
+_scheduler: DreamScheduler | None = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()
@@ -82,7 +84,24 @@ async def lifespan(app: FastAPI):
     await init_schema(_db)
     await init_vector_indexes(_db)
     logger.info("Database schema initialized")
+
+    global _scheduler
+    if not settings.test_mode and settings.dream_enabled:
+        _scheduler = DreamScheduler(
+            db=_db,
+            embed_fn=_embed,
+            model=_model,
+            idle_timeout=settings.dream_idle_timeout * 60,  # convert minutes to seconds
+            batch_size=settings.dream_batch_size,
+        )
+        _scheduler.start()
+        logger.info("Dream scheduler started")
+
     yield
+
+    if _scheduler:
+        _scheduler.stop()
+        _scheduler = None
     if _db:
         await _db.close()
         _db = None
@@ -233,6 +252,8 @@ async def health():
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest):
+    if _scheduler:
+        _scheduler.touch_activity()
     logger.info("POST /ingest")
     summary = await run_ingest_agent(req.text, req.hints if req.hints else None)
     return IngestResponse(summary=summary)
@@ -240,12 +261,16 @@ async def ingest(req: IngestRequest):
 
 @app.post("/recall", response_model=RecallResponse)
 async def recall(req: RecallRequest):
+    if _scheduler:
+        _scheduler.touch_activity()
     logger.info("POST /recall")
     return await run_recall_agent(req.question, req.hints if req.hints else None)
 
 
 @app.post("/converse", response_model=ConverseResponse)
 async def converse(req: ConverseRequest):
+    if _scheduler:
+        _scheduler.touch_activity()
     logger.info("POST /converse")
     return await run_converse_agent(req.message, req.history)
 

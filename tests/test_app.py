@@ -129,6 +129,13 @@ async def test_converse_endpoint(client):
     assert resp.json()["response"] == "Hello!"
 
 
+async def test_dream_scheduler_not_started_in_test_mode():
+    """In test mode, the dream scheduler should not be running."""
+    from second_brain.app import _scheduler
+
+    assert _scheduler is None
+
+
 async def test_converse_with_history(client):
     with patch("second_brain.app.run_converse_agent", new_callable=AsyncMock) as mock:
         mock.return_value = ConverseResponse(response="I remember that")

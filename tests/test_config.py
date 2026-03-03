@@ -37,3 +37,11 @@ def test_auth_from_env(monkeypatch):
     s = Settings(_env_file=None, db_path="data/brain.db")  # pyright: ignore[reportCallIssue]
     assert s.reasoning_auth == "aad"
     assert s.embedding_auth == "aad"
+
+
+def test_dream_defaults():
+    """Dream settings have sensible defaults."""
+    s = Settings(_env_file=None, db_path="data/brain.db")  # pyright: ignore[reportCallIssue]
+    assert s.dream_enabled is True
+    assert s.dream_idle_timeout == 10
+    assert s.dream_batch_size == 10

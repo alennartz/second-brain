@@ -36,6 +36,17 @@ def configure(
 
 
 @mcp.tool
+async def ingest(text: str, hints: list[str] | None = None) -> str:
+    """Store new knowledge in the brain.
+
+    Notes, entities, and relationships are extracted automatically.
+    The brain deduplicates against existing knowledge and creates
+    semantic connections between concepts.
+    """
+    return await _run_ingest(text, hints)
+
+
+@mcp.tool
 async def recall(question: str, hints: list[str] | None = None) -> str:
     """Search the knowledge base and get a synthesized answer with citations.
 

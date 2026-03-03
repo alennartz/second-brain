@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "azure-identity>=1.25.2",
     "anthropic>=0.82.0",
+    "fastmcp>=2.0.0",
 ]
 
 [project.optional-dependencies]

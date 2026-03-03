@@ -51,8 +51,19 @@ class DreamScheduler:
             if isinstance(result, list):
                 nodes.extend(result)
 
-        # Sort combined results by dream_age ASC
-        nodes.sort(key=lambda n: n.get("dream_age", 0))
+        # Sort combined results by dream_age ASC, created_at DESC (newest first
+        # within same dream_age). created_at may be datetime or string.
+        nodes.sort(
+            key=lambda n: (
+                n.get("dream_age", 0),
+                # Negate timestamp for DESC sort; fallback to 0 for missing created_at
+                -(
+                    n["created_at"].timestamp()
+                    if hasattr(n.get("created_at"), "timestamp")
+                    else 0
+                ),
+            )
+        )
         return nodes[: self.batch_size]
 
     async def _increment_dream_age(self, record_ids: list[str]) -> None:
@@ -74,6 +85,9 @@ class DreamScheduler:
 
         batch_ids = [_to_str(n["id"]) for n in batch]
         logger.info("dream: starting cycle with %d nodes", len(batch_ids))
+
+        # Cancellation is checked between phases, not between individual tool calls,
+        # because PydanticAI does not expose a mid-run interruption hook.
 
         # Phase 1: Dedup
         if self._cancel.is_set():

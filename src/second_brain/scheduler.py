@@ -114,7 +114,13 @@ class DreamScheduler:
 
         logger.info("dream: dedup complete, result set has %d IDs", len(result_set_ids))
 
-        # Phase 2: Connect
+        # Phase 2: Connect — only pass node IDs, not edge IDs from merges
+        node_ids = [
+            rid
+            for rid in result_set_ids
+            if rid.startswith("entity:") or rid.startswith("note:")
+        ]
+
         if self._cancel.is_set():
             logger.info("dream: woke up before connect phase")
             await self._increment_dream_age(result_set_ids)
@@ -124,7 +130,7 @@ class DreamScheduler:
         connect_deps = ConnectDeps(
             db=self.db, embed_fn=self.embed_fn, cancel=self._cancel
         )
-        prompt = f"Explore connections for these nodes: {', '.join(result_set_ids)}"
+        prompt = f"Explore connections for these nodes: {', '.join(node_ids)}"
         try:
             await connect_agent.run(prompt, deps=connect_deps, model=self.model)
         except Exception:

@@ -97,7 +97,7 @@ async def merge_nodes(
     for nid in ids:
         rec = await db.query(f"SELECT dream_age FROM {nid}")
         if rec:
-            all_ages.append(rec[0].get("dream_age", 0))
+            all_ages.append(rec[0].get("dream_age") or 0)
     max_age = max(all_ages) if all_ages else 0
 
     # Re-embed based on new fields
@@ -126,7 +126,7 @@ async def merge_nodes(
                 edge_id = _to_str(edge["id"])
                 edge_table = edge_id.split(":")[0]
                 target_id = _to_str(edge["out"])
-                edge_age = edge.get("dream_age", 0)
+                edge_age = edge.get("dream_age") or 0
                 context = edge.get("context")
                 touched_ids.append(edge_id)
 
@@ -136,7 +136,7 @@ async def merge_nodes(
                 )
                 if existing:
                     # Duplicate: merge dream_age, delete the loser edge
-                    existing_age = existing[0].get("dream_age", 0)
+                    existing_age = existing[0].get("dream_age") or 0
                     existing_eid = _to_str(existing[0]["id"])
                     new_age = max(edge_age, existing_age)
                     await db.query(f"UPDATE {existing_eid} SET dream_age = {new_age}")
@@ -165,7 +165,7 @@ async def merge_nodes(
                 edge_id = _to_str(edge["id"])
                 edge_table = edge_id.split(":")[0]
                 source_id = _to_str(edge["in"])
-                edge_age = edge.get("dream_age", 0)
+                edge_age = edge.get("dream_age") or 0
                 context = edge.get("context")
                 touched_ids.append(edge_id)
 
@@ -174,7 +174,7 @@ async def merge_nodes(
                     f"SELECT * FROM {source_id}->{edge_table} WHERE out = {survivor_id}"
                 )
                 if existing:
-                    existing_age = existing[0].get("dream_age", 0)
+                    existing_age = existing[0].get("dream_age") or 0
                     existing_eid = _to_str(existing[0]["id"])
                     new_age = max(edge_age, existing_age)
                     await db.query(f"UPDATE {existing_eid} SET dream_age = {new_age}")
@@ -373,7 +373,7 @@ async def merge_edges(
     for eid in ids:
         rec = await db.query(f"SELECT dream_age FROM {eid}")
         if rec:
-            all_ages.append(rec[0].get("dream_age", 0))
+            all_ages.append(rec[0].get("dream_age") or 0)
     max_age = max(all_ages) if all_ages else 0
 
     # Update survivor

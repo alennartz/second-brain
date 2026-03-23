@@ -18,6 +18,16 @@ def _to_str(val) -> str:
     return str(val)
 
 
+def _validate_record_id(record_id: str) -> str:
+    """Ensure record_id is in 'table:id' format. Raises ValueError if bare."""
+    if ":" not in record_id:
+        raise ValueError(
+            f"Invalid record ID '{record_id}': must be in 'table:id' format "
+            f"(e.g. 'entity:abc123'). Got a bare ID without table prefix."
+        )
+    return record_id
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
     dot = sum(x * y for x, y in zip(a, b, strict=False))
@@ -38,6 +48,7 @@ async def find_similar(
     Returns results with similarity scores, embeddings stripped.
     Excludes the source node itself.
     """
+    _validate_record_id(record_id)
     table = record_id.split(":")[0]
 
     # Fetch the source node's embedding
@@ -86,6 +97,8 @@ async def merge_nodes(
     - Deletes loser nodes
     - Returns {"survivor": {...}, "touched_ids": [...]}
     """
+    for rid in ids:
+        _validate_record_id(rid)
     if len(ids) < 2:
         raise ValueError("merge_nodes requires at least 2 IDs")
 
@@ -227,6 +240,7 @@ async def explore(
         Target nodes have full content (embeddings stripped).
         Paths show intermediate node IDs and edge labels.
     """
+    _validate_record_id(record_id)
     depth = min(depth, 3)
     node_types = node_types or ["entity", "note"]
 
@@ -294,6 +308,7 @@ async def find_unlinked_cooccurrences(
 
     Returns: [{"entity": {...}, "shared_notes": ["note:x", ...]}, ...]
     """
+    _validate_record_id(record_id)
     table = record_id.split(":")[0]
     if table != "entity":
         return []
@@ -362,6 +377,8 @@ async def merge_edges(
     - Losers are deleted
     - Returns {"survivor": {...}, "deleted_ids": [...]}
     """
+    for rid in ids:
+        _validate_record_id(rid)
     if len(ids) < 2:
         raise ValueError("merge_edges requires at least 2 IDs")
 

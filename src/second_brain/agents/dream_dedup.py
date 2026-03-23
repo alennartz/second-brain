@@ -53,7 +53,8 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
     async def find_similar(
         ctx: RunContext[DedupDeps], record_id: str, k: int = 5
     ) -> list[dict]:
-        """Find the k most similar nodes to the given node (same table). Returns content + similarity score."""
+        """Find the k most similar nodes to the given node (same table). Returns content + similarity score.
+        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
         logger.info("dedup: find_similar id=%s k=%d", record_id, k)
         try:
             if record_id not in ctx.deps.touched_ids:
@@ -103,8 +104,13 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
 
     @agent.tool
     async def get_node(ctx: RunContext[DedupDeps], record_id: str) -> dict:
-        """Get a single node by ID for closer inspection."""
+        """Get a single node by ID for closer inspection.
+        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
         logger.info("dedup: get_node id=%s", record_id)
+        if ":" not in record_id:
+            return {
+                "error": f"Invalid record_id '{record_id}': must be 'table:id' format (e.g. 'entity:abc123')"
+            }
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         node = await recall_tools.get_node(ctx.deps.db, record_id)

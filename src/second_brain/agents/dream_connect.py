@@ -9,6 +9,15 @@ from surrealdb import AsyncSurreal
 from second_brain.models import make_serializable, strip_embeddings
 from second_brain.tools import dream_tools, ingest_tools, recall_tools
 
+_ID_FMT_ERROR = (
+    "Invalid record_id '{rid}': must be 'table:id' format (e.g. 'entity:abc123')"
+)
+
+
+def _bad_id(rid: str) -> bool:
+    return ":" not in rid
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,8 +67,11 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         ctx: RunContext[ConnectDeps], record_id: str
     ) -> list[dict]:
         """Find entities that share notes with this entity but have no direct edge.
+        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'.
         Returns entities with their shared note IDs. High-signal source of missing connections."""
         logger.info("connect: find_unlinked_cooccurrences id=%s", record_id)
+        if _bad_id(record_id):
+            return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         return await dream_tools.find_unlinked_cooccurrences(ctx.deps.db, record_id)
@@ -73,6 +85,7 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         depth: int = 2,
     ) -> dict:
         """Explore the graph neighborhood from a node.
+        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123' or 'note:xyz789'. Never pass a bare ID without the table prefix.
         direction: 'out', 'in', or 'both'.
         node_types: filter targets by table, e.g. ['entity'], ['note'], ['entity', 'note'].
         depth: max hops (1-3).
@@ -84,6 +97,8 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
             node_types,
             depth,
         )
+        if _bad_id(record_id):
+            return {"error": _ID_FMT_ERROR.format(rid=record_id)}
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         return await dream_tools.explore(
@@ -92,8 +107,11 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
 
     @agent.tool
     async def get_node(ctx: RunContext[ConnectDeps], record_id: str) -> dict:
-        """Get a single node by ID for closer inspection."""
+        """Get a single node by ID for closer inspection.
+        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
         logger.info("connect: get_node id=%s", record_id)
+        if _bad_id(record_id):
+            return {"error": _ID_FMT_ERROR.format(rid=record_id)}
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         node = await recall_tools.get_node(ctx.deps.db, record_id)
@@ -105,8 +123,11 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
     async def find_similar(
         ctx: RunContext[ConnectDeps], record_id: str, k: int = 5
     ) -> list[dict]:
-        """Find semantically similar nodes by embedding. Fallback for structurally isolated nodes."""
+        """Find semantically similar nodes by embedding. Fallback for structurally isolated nodes.
+        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
         logger.info("connect: find_similar id=%s k=%d", record_id, k)
+        if _bad_id(record_id):
+            return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         return await dream_tools.find_similar(ctx.deps.db, record_id, k)

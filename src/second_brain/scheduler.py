@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -103,6 +104,8 @@ class DreamScheduler:
             await dedup_agent.run(prompt, deps=dedup_deps, model=self.model)
         except Exception:
             logger.exception("dream: dedup agent failed")
+            if dedup_deps.touched_ids:
+                await self._increment_dream_age(list(set(dedup_deps.touched_ids)))
             return
 
         # Result set = everything dedup touched (minus deleted nodes which are gone)
@@ -168,9 +171,11 @@ class DreamScheduler:
         self._task = asyncio.create_task(self.run_forever())
         logger.info("dream: background task started")
 
-    def stop(self) -> None:
-        """Cancel the background task."""
+    async def stop(self) -> None:
+        """Cancel the background task and await its completion."""
         if self._task:
             self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
             self._task = None
             logger.info("dream: background task stopped")

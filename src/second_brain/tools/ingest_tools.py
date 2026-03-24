@@ -5,6 +5,12 @@ from collections.abc import Awaitable, Callable
 
 from surrealdb import AsyncSurreal
 
+from second_brain.validation import (
+    check_query_result,
+    validate_identifier,
+    validate_record_id,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,9 +70,9 @@ async def create_edges(
     """
     results = []
     for edge in edges:
-        from_id = edge["from_id"]
-        edge_table = edge["edge_table"]
-        to_id = edge["to_id"]
+        from_id = validate_record_id(edge["from_id"])
+        edge_table = validate_identifier(edge["edge_table"])
+        to_id = validate_record_id(edge["to_id"])
         context = edge.get("context")
 
         # Reject self-edges
@@ -88,6 +94,9 @@ async def create_edges(
         existing = await db.query(
             f"SELECT id FROM {from_id}->{edge_table} WHERE out = {to_id}"
         )
+        existing = check_query_result(
+            existing, f"duplicate check {from_id}->{edge_table}->{to_id}"
+        )
         if existing:
             logger.warning(
                 "db: skipping duplicate edge %s -[%s]-> %s", from_id, edge_table, to_id
@@ -105,6 +114,7 @@ async def create_edges(
         ctx_clause = " SET context = $context" if context else ""
         query = f"RELATE {from_id}->{edge_table}->{to_id}{ctx_clause}"
         result = await db.query(query, {"context": context} if context else None)
+        result = check_query_result(result, f"RELATE {from_id}->{edge_table}->{to_id}")
         rec = result[0] if result else {}
         logger.info(
             "db: created edge %s -[%s]-> %s id=%s",
@@ -119,11 +129,17 @@ async def create_edges(
 
 async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:
     """Update fields on an existing node."""
+    if not fields:
+        return {"error": "No fields to update"}
+    record_id = validate_record_id(record_id)
+    for k in fields:
+        validate_identifier(k)
     set_clauses = ", ".join(f"{k} = ${k}" for k in fields)
     result = await db.query(
         f"UPDATE {record_id} SET {set_clauses}, updated_at = time::now()",
         fields,
     )
+    result = check_query_result(result, f"UPDATE {record_id}")
     rec = result[0] if result else {}
     logger.info("db: updated node id=%s fields=%s", record_id, list(fields.keys()))
     return rec

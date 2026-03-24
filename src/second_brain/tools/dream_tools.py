@@ -1,5 +1,6 @@
 # pyright: reportGeneralTypeIssues=false
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
+import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
@@ -7,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from surrealdb import AsyncSurreal, RecordID
 
 from second_brain.models import make_serializable, strip_embeddings
+from second_brain.validation import check_query_result, validate_record_id
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +18,6 @@ def _to_str(val) -> str:
     if isinstance(val, RecordID):
         return f"{val.table_name}:{val.id}"
     return str(val)
-
-
-def _validate_record_id(record_id: str) -> str:
-    """Ensure record_id is in 'table:id' format. Raises ValueError if bare."""
-    if ":" not in record_id:
-        raise ValueError(
-            f"Invalid record ID '{record_id}': must be in 'table:id' format "
-            f"(e.g. 'entity:abc123'). Got a bare ID without table prefix."
-        )
-    return record_id
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -48,23 +40,27 @@ async def find_similar(
     Returns results with similarity scores, embeddings stripped.
     Excludes the source node itself.
     """
-    _validate_record_id(record_id)
+    validate_record_id(record_id)
     table = record_id.split(":")[0]
 
     # Fetch the source node's embedding
-    source = await db.query(f"SELECT embedding FROM {record_id}")
+    source = check_query_result(
+        await db.query(f"SELECT embedding FROM {record_id}"),
+        f"fetch embedding for {record_id}",
+    )
     if not source or not source[0].get("embedding"):
         logger.warning("find_similar: no embedding for %s", record_id)
         return []
     source_embedding = source[0]["embedding"]
 
     # Vector search for nearest neighbors (fetch k+1 to account for self-match)
-    results = await db.query(
-        f"SELECT * FROM {table} WHERE embedding <|{k + 1},100|> $vec",
-        {"vec": source_embedding},
+    results = check_query_result(
+        await db.query(
+            f"SELECT * FROM {table} WHERE embedding <|{k + 1},100|> $vec",
+            {"vec": source_embedding},
+        ),
+        f"vector search on {table}",
     )
-    if isinstance(results, str):
-        raise RuntimeError(f"Vector search on {table} failed: {results}")
 
     # Filter out the source node, compute similarity, strip embeddings
     filtered = []
@@ -86,6 +82,7 @@ async def merge_nodes(
     ids: list[str],
     new_fields: dict,
     embed_fn: Callable[[str], Awaitable[list[float]]],
+    cancel: asyncio.Event | None = None,
 ) -> dict:
     """Fuse N nodes into one. First ID is the survivor.
 
@@ -97,8 +94,10 @@ async def merge_nodes(
     - Deletes loser nodes
     - Returns {"survivor": {...}, "touched_ids": [...]}
     """
+    if cancel is not None and cancel.is_set():
+        return {"cancelled": True}
     for rid in ids:
-        _validate_record_id(rid)
+        validate_record_id(rid)
     if len(ids) < 2:
         raise ValueError("merge_nodes requires at least 2 IDs")
 
@@ -108,7 +107,10 @@ async def merge_nodes(
     # Compute max dream_age across all input nodes
     all_ages: list[int] = []
     for nid in ids:
-        rec = await db.query(f"SELECT dream_age FROM {nid}")
+        rec = check_query_result(
+            await db.query(f"SELECT dream_age FROM {nid}"),
+            f"fetch dream_age for {nid}",
+        )
         if rec:
             all_ages.append(rec[0].get("dream_age") or 0)
     max_age = max(all_ages) if all_ages else 0
@@ -123,9 +125,12 @@ async def merge_nodes(
 
     # Update survivor with new fields + embedding + dream_age
     set_clauses = ", ".join(f"{k} = ${k}" for k in new_fields)
-    await db.query(
-        f"UPDATE {survivor_id} SET {set_clauses}, embedding = $emb, dream_age = $age, updated_at = time::now()",
-        {**new_fields, "emb": new_embedding, "age": max_age},
+    check_query_result(
+        await db.query(
+            f"UPDATE {survivor_id} SET {set_clauses}, embedding = $emb, dream_age = $age, updated_at = time::now()",
+            {**new_fields, "emb": new_embedding, "age": max_age},
+        ),
+        f"update survivor {survivor_id}",
     )
 
     touched_ids = list(ids)
@@ -133,85 +138,132 @@ async def merge_nodes(
     # Re-point edges from each loser to survivor
     for loser_id in loser_ids:
         # Outgoing edges: loser->X becomes survivor->X
-        out_edges = await db.query(f"SELECT * FROM {loser_id}->?")
-        if isinstance(out_edges, list):
-            for edge in out_edges:
-                edge_id = _to_str(edge["id"])
-                edge_table = edge_id.split(":")[0]
-                target_id = _to_str(edge["out"])
-                edge_age = edge.get("dream_age") or 0
-                context = edge.get("context")
-                touched_ids.append(edge_id)
+        out_edges = check_query_result(
+            await db.query(f"SELECT * FROM {loser_id}->?"),
+            f"fetch outgoing edges for {loser_id}",
+        )
+        for edge in out_edges:
+            edge_id = _to_str(edge["id"])
+            edge_table = edge_id.split(":")[0]
+            target_id = _to_str(edge["out"])
+            touched_ids.append(edge_id)
 
-                # Check if survivor already has same edge
-                existing = await db.query(
-                    f"SELECT * FROM {survivor_id}->{edge_table} WHERE out = {target_id}"
+            # Bug #3: skip self-edges
+            if target_id == survivor_id:
+                check_query_result(
+                    await db.query(f"DELETE {edge_id}"),
+                    f"delete self-edge {edge_id}",
                 )
-                if existing:
-                    # Duplicate: merge dream_age, delete the loser edge
-                    existing_age = existing[0].get("dream_age") or 0
-                    existing_eid = _to_str(existing[0]["id"])
-                    new_age = max(edge_age, existing_age)
-                    await db.query(f"UPDATE {existing_eid} SET dream_age = {new_age}")
-                    await db.query(f"DELETE {edge_id}")
-                    touched_ids.append(existing_eid)
-                else:
-                    # Re-point: delete old, create new
-                    ctx_clause = (
-                        " SET context = $ctx, dream_age = $age"
-                        if context
-                        else " SET dream_age = $age"
-                    )
-                    params: dict = {"age": edge_age}
-                    if context:
-                        params["ctx"] = context
-                    await db.query(f"DELETE {edge_id}")
-                    await db.query(
-                        f"RELATE {survivor_id}->{edge_table}->{target_id}{ctx_clause}",
-                        params,
-                    )
+                continue
+
+            # Preserve all edge fields except id/in/out
+            preserved = {k: v for k, v in edge.items() if k not in ("id", "in", "out")}
+
+            # Check if survivor already has same edge
+            existing = check_query_result(
+                await db.query(
+                    f"SELECT * FROM {survivor_id}->{edge_table} WHERE out = {target_id}"
+                ),
+                f"check existing outgoing edge {survivor_id}->{edge_table}->{target_id}",
+            )
+            if existing:
+                # Duplicate: merge dream_age, delete the loser edge
+                existing_age = existing[0].get("dream_age") or 0
+                existing_eid = _to_str(existing[0]["id"])
+                edge_age = preserved.get("dream_age") or 0
+                new_age = max(edge_age, existing_age)
+                check_query_result(
+                    await db.query(f"UPDATE {existing_eid} SET dream_age = {new_age}"),
+                    f"update dream_age on {existing_eid}",
+                )
+                check_query_result(
+                    await db.query(f"DELETE {edge_id}"),
+                    f"delete duplicate edge {edge_id}",
+                )
+                touched_ids.append(existing_eid)
+            else:
+                # Re-point: delete old, create new with all preserved fields
+                set_clause = ", ".join(f"{k} = ${k}" for k in preserved)
+                relate_stmt = f"RELATE {survivor_id}->{edge_table}->{target_id}"
+                if set_clause:
+                    relate_stmt += f" SET {set_clause}"
+                check_query_result(
+                    await db.query(f"DELETE {edge_id}"),
+                    f"delete edge {edge_id}",
+                )
+                check_query_result(
+                    await db.query(relate_stmt, preserved),
+                    f"re-point outgoing edge to {survivor_id}->{edge_table}->{target_id}",
+                )
 
         # Incoming edges: X->loser becomes X->survivor
-        in_edges = await db.query(f"SELECT * FROM {loser_id}<-?")
-        if isinstance(in_edges, list):
-            for edge in in_edges:
-                edge_id = _to_str(edge["id"])
-                edge_table = edge_id.split(":")[0]
-                source_id = _to_str(edge["in"])
-                edge_age = edge.get("dream_age") or 0
-                context = edge.get("context")
-                touched_ids.append(edge_id)
+        in_edges = check_query_result(
+            await db.query(f"SELECT * FROM {loser_id}<-?"),
+            f"fetch incoming edges for {loser_id}",
+        )
+        for edge in in_edges:
+            edge_id = _to_str(edge["id"])
+            edge_table = edge_id.split(":")[0]
+            source_id = _to_str(edge["in"])
+            touched_ids.append(edge_id)
 
-                # Check if survivor already has same incoming edge
-                existing = await db.query(
-                    f"SELECT * FROM {source_id}->{edge_table} WHERE out = {survivor_id}"
+            # Bug #3: skip self-edges
+            if source_id == survivor_id:
+                check_query_result(
+                    await db.query(f"DELETE {edge_id}"),
+                    f"delete self-edge {edge_id}",
                 )
-                if existing:
-                    existing_age = existing[0].get("dream_age") or 0
-                    existing_eid = _to_str(existing[0]["id"])
-                    new_age = max(edge_age, existing_age)
-                    await db.query(f"UPDATE {existing_eid} SET dream_age = {new_age}")
-                    await db.query(f"DELETE {edge_id}")
-                    touched_ids.append(existing_eid)
-                else:
-                    ctx_clause = (
-                        " SET context = $ctx, dream_age = $age"
-                        if context
-                        else " SET dream_age = $age"
-                    )
-                    params = {"age": edge_age}
-                    if context:
-                        params["ctx"] = context
-                    await db.query(f"DELETE {edge_id}")
-                    await db.query(
-                        f"RELATE {source_id}->{edge_table}->{survivor_id}{ctx_clause}",
-                        params,
-                    )
+                continue
+
+            # Preserve all edge fields except id/in/out
+            preserved = {k: v for k, v in edge.items() if k not in ("id", "in", "out")}
+
+            # Check if survivor already has same incoming edge
+            existing = check_query_result(
+                await db.query(
+                    f"SELECT * FROM {source_id}->{edge_table} WHERE out = {survivor_id}"
+                ),
+                f"check existing incoming edge {source_id}->{edge_table}->{survivor_id}",
+            )
+            if existing:
+                existing_age = existing[0].get("dream_age") or 0
+                existing_eid = _to_str(existing[0]["id"])
+                edge_age = preserved.get("dream_age") or 0
+                new_age = max(edge_age, existing_age)
+                check_query_result(
+                    await db.query(f"UPDATE {existing_eid} SET dream_age = {new_age}"),
+                    f"update dream_age on {existing_eid}",
+                )
+                check_query_result(
+                    await db.query(f"DELETE {edge_id}"),
+                    f"delete duplicate edge {edge_id}",
+                )
+                touched_ids.append(existing_eid)
+            else:
+                # Re-point: delete old, create new with all preserved fields
+                set_clause = ", ".join(f"{k} = ${k}" for k in preserved)
+                relate_stmt = f"RELATE {source_id}->{edge_table}->{survivor_id}"
+                if set_clause:
+                    relate_stmt += f" SET {set_clause}"
+                check_query_result(
+                    await db.query(f"DELETE {edge_id}"),
+                    f"delete edge {edge_id}",
+                )
+                check_query_result(
+                    await db.query(relate_stmt, preserved),
+                    f"re-point incoming edge to {source_id}->{edge_table}->{survivor_id}",
+                )
 
         # Delete the loser node
-        await db.query(f"DELETE {loser_id}")
+        check_query_result(
+            await db.query(f"DELETE {loser_id}"),
+            f"delete loser node {loser_id}",
+        )
 
-    survivor = await db.query(f"SELECT * FROM {survivor_id}")
+    survivor = check_query_result(
+        await db.query(f"SELECT * FROM {survivor_id}"),
+        f"fetch survivor {survivor_id}",
+    )
     return {
         "survivor": strip_embeddings(make_serializable(survivor[0]))
         if survivor
@@ -226,6 +278,7 @@ async def explore(
     direction: str = "both",
     node_types: list[str] | None = None,
     depth: int = 2,
+    cancel: asyncio.Event | None = None,
 ) -> dict:
     """Explore graph neighborhood from a node.
 
@@ -234,13 +287,16 @@ async def explore(
         direction: "out", "in", or "both".
         node_types: Filter target nodes by table (e.g., ["entity", "note"]).
         depth: Max hops (bounded to 3).
+        cancel: Optional cancellation event.
 
     Returns:
         {"targets": [{"node": {...}, "path": [{"edge_label": ..., "node_id": ...}, ...]}]}
         Target nodes have full content (embeddings stripped).
         Paths show intermediate node IDs and edge labels.
     """
-    _validate_record_id(record_id)
+    if cancel is not None and cancel.is_set():
+        return {"cancelled": True}
+    validate_record_id(record_id)
     depth = min(depth, 3)
     node_types = node_types or ["entity", "note"]
 
@@ -255,22 +311,26 @@ async def explore(
             neighbors: list[tuple[str, str]] = []
 
             if direction in ("out", "both"):
-                out_edges = await db.query(f"SELECT * FROM {current_id}->?")
-                if isinstance(out_edges, list):
-                    for edge in out_edges:
-                        eid = _to_str(edge["id"])
-                        label = eid.split(":")[0]
-                        neighbor_id = _to_str(edge["out"])
-                        neighbors.append((neighbor_id, label))
+                out_edges = check_query_result(
+                    await db.query(f"SELECT * FROM {current_id}->?"),
+                    f"fetch outgoing edges for {current_id}",
+                )
+                for edge in out_edges:
+                    eid = _to_str(edge["id"])
+                    label = eid.split(":")[0]
+                    neighbor_id = _to_str(edge["out"])
+                    neighbors.append((neighbor_id, label))
 
             if direction in ("in", "both"):
-                in_edges = await db.query(f"SELECT * FROM {current_id}<-?")
-                if isinstance(in_edges, list):
-                    for edge in in_edges:
-                        eid = _to_str(edge["id"])
-                        label = eid.split(":")[0]
-                        neighbor_id = _to_str(edge["in"])
-                        neighbors.append((neighbor_id, label))
+                in_edges = check_query_result(
+                    await db.query(f"SELECT * FROM {current_id}<-?"),
+                    f"fetch incoming edges for {current_id}",
+                )
+                for edge in in_edges:
+                    eid = _to_str(edge["id"])
+                    label = eid.split(":")[0]
+                    neighbor_id = _to_str(edge["in"])
+                    neighbors.append((neighbor_id, label))
 
             for neighbor_id, label in neighbors:
                 if neighbor_id in visited:
@@ -280,7 +340,10 @@ async def explore(
                 neighbor_table = neighbor_id.split(":")[0]
 
                 if neighbor_table in node_types:
-                    node = await db.query(f"SELECT * FROM {neighbor_id}")
+                    node = check_query_result(
+                        await db.query(f"SELECT * FROM {neighbor_id}"),
+                        f"fetch node {neighbor_id}",
+                    )
                     if node:
                         targets.append(
                             {
@@ -300,7 +363,8 @@ async def explore(
 async def find_unlinked_cooccurrences(
     db: AsyncSurreal,
     record_id: str,
-) -> list[dict]:
+    cancel: asyncio.Event | None = None,
+) -> list[dict] | dict:
     """Find entities that share notes with this entity but have no direct edge.
 
     Follows: entity <-references- note -references-> other_entity
@@ -308,7 +372,9 @@ async def find_unlinked_cooccurrences(
 
     Returns: [{"entity": {...}, "shared_notes": ["note:x", ...]}, ...]
     """
-    _validate_record_id(record_id)
+    if cancel is not None and cancel.is_set():
+        return {"cancelled": True}
+    validate_record_id(record_id)
     table = record_id.split(":")[0]
     if table != "entity":
         return []
@@ -316,8 +382,11 @@ async def find_unlinked_cooccurrences(
     # Find all notes that reference this entity.
     # RELATE note->references->entity creates in=note, out=entity.
     # So entity<-references gives edges where out=entity; in=note.
-    notes = await db.query(f"SELECT * FROM {record_id}<-references")
-    if not isinstance(notes, list) or not notes:
+    notes = check_query_result(
+        await db.query(f"SELECT * FROM {record_id}<-references"),
+        f"fetch references for {record_id}",
+    )
+    if not notes:
         return []
 
     note_ids = [_to_str(n["in"]) for n in notes]
@@ -326,9 +395,10 @@ async def find_unlinked_cooccurrences(
     cooccurrences: dict[str, list[str]] = {}  # other_entity_id -> [note_ids]
     for note_id in note_ids:
         # note->references gives edges where in=note; out=entity
-        refs = await db.query(f"SELECT * FROM {note_id}->references")
-        if not isinstance(refs, list):
-            continue
+        refs = check_query_result(
+            await db.query(f"SELECT * FROM {note_id}->references"),
+            f"fetch references from {note_id}",
+        )
         for ref in refs:
             other_id = _to_str(ref["out"])
             if other_id == record_id:
@@ -342,19 +412,22 @@ async def find_unlinked_cooccurrences(
     results = []
     for other_id, shared_notes in cooccurrences.items():
         # Check for any direct edge in either direction
-        out_edges = await db.query(
-            f"SELECT * FROM {record_id}->? WHERE out = {other_id}"
+        out_edges = check_query_result(
+            await db.query(f"SELECT * FROM {record_id}->? WHERE out = {other_id}"),
+            f"check outgoing edges from {record_id} to {other_id}",
         )
-        in_edges = await db.query(
-            f"SELECT * FROM {other_id}->? WHERE out = {record_id}"
+        in_edges = check_query_result(
+            await db.query(f"SELECT * FROM {other_id}->? WHERE out = {record_id}"),
+            f"check outgoing edges from {other_id} to {record_id}",
         )
-        has_out = isinstance(out_edges, list) and len(out_edges) > 0
-        has_in = isinstance(in_edges, list) and len(in_edges) > 0
-        if has_out or has_in:
+        if out_edges or in_edges:
             continue
 
         # Fetch the other entity's content
-        other = await db.query(f"SELECT * FROM {other_id}")
+        other = check_query_result(
+            await db.query(f"SELECT * FROM {other_id}"),
+            f"fetch entity {other_id}",
+        )
         if other:
             results.append(
                 {
@@ -370,6 +443,7 @@ async def merge_edges(
     db: AsyncSurreal,
     ids: list[str],
     new_context: str | None = None,
+    cancel: asyncio.Event | None = None,
 ) -> dict:
     """Fuse N edges into one. First ID is the survivor.
 
@@ -377,36 +451,70 @@ async def merge_edges(
     - Losers are deleted
     - Returns {"survivor": {...}, "deleted_ids": [...]}
     """
+    if cancel is not None and cancel.is_set():
+        return {"cancelled": True}
     for rid in ids:
-        _validate_record_id(rid)
+        validate_record_id(rid)
     if len(ids) < 2:
         raise ValueError("merge_edges requires at least 2 IDs")
 
     survivor_id = ids[0]
     loser_ids = ids[1:]
 
-    # Get max dream_age
+    # Fetch all edge records and validate they connect the same node pair
     all_ages: list[int] = []
+    expected_in = None
+    expected_out = None
     for eid in ids:
-        rec = await db.query(f"SELECT dream_age FROM {eid}")
-        if rec:
-            all_ages.append(rec[0].get("dream_age") or 0)
+        rec = check_query_result(
+            await db.query(f"SELECT * FROM {eid}"),
+            f"fetch edge {eid}",
+        )
+        if not rec:
+            raise ValueError(f"Edge {eid} not found")
+        edge_rec = rec[0]
+        all_ages.append(edge_rec.get("dream_age") or 0)
+        edge_in = _to_str(edge_rec["in"])
+        edge_out = _to_str(edge_rec["out"])
+        if expected_in is None:
+            expected_in = edge_in
+            expected_out = edge_out
+        elif edge_in != expected_in or edge_out != expected_out:
+            return {
+                "error": (
+                    f"Cannot merge edges with different node pairs: "
+                    f"expected {expected_in}->{expected_out} but "
+                    f"{eid} connects {edge_in}->{edge_out}"
+                )
+            }
     max_age = max(all_ages) if all_ages else 0
 
     # Update survivor
     if new_context is not None:
-        await db.query(
-            f"UPDATE {survivor_id} SET context = $ctx, dream_age = $age",
-            {"ctx": new_context, "age": max_age},
+        check_query_result(
+            await db.query(
+                f"UPDATE {survivor_id} SET context = $ctx, dream_age = $age",
+                {"ctx": new_context, "age": max_age},
+            ),
+            f"update survivor edge {survivor_id}",
         )
     else:
-        await db.query(f"UPDATE {survivor_id} SET dream_age = {max_age}")
+        check_query_result(
+            await db.query(f"UPDATE {survivor_id} SET dream_age = {max_age}"),
+            f"update survivor edge {survivor_id}",
+        )
 
     # Delete losers
     for lid in loser_ids:
-        await db.query(f"DELETE {lid}")
+        check_query_result(
+            await db.query(f"DELETE {lid}"),
+            f"delete loser edge {lid}",
+        )
 
-    survivor = await db.query(f"SELECT * FROM {survivor_id}")
+    survivor = check_query_result(
+        await db.query(f"SELECT * FROM {survivor_id}"),
+        f"fetch survivor edge {survivor_id}",
+    )
     return {
         "survivor": make_serializable(survivor[0]) if survivor else {},
         "deleted_ids": loser_ids,

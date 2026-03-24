@@ -114,14 +114,20 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         logger.info("Converse → recall sub-agent completed")
         await _push(queue, "Search complete")
 
-        # Fetch actual records and accumulate onto deps.context
+        # Fetch actual records and accumulate onto deps.context (deduplicated)
         nodes = await fetch_records_by_ids(ctx.deps.db, output.cited_node_ids)
         edges = await fetch_records_by_ids(ctx.deps.db, output.cited_edge_ids)
+        existing_node_ids = {str(n["id"]) for n in ctx.deps.context.nodes}
+        existing_edge_ids = {str(e["id"]) for e in ctx.deps.context.edges}
         ctx.deps.context.nodes.extend(
-            [normalize_node(make_serializable(n)) for n in nodes]
+            normalize_node(make_serializable(n))
+            for n in nodes
+            if str(n.get("id")) not in existing_node_ids
         )
         ctx.deps.context.edges.extend(
-            [normalize_edge(make_serializable(e)) for e in edges]
+            normalize_edge(make_serializable(e))
+            for e in edges
+            if str(e.get("id")) not in existing_edge_ids
         )
 
         return output.answer

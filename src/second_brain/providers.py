@@ -210,6 +210,8 @@ def create_embed_fn(
             "…" if len(text) > 60 else "",
         )
         result = await embedder.embed_query(text)
+        if not result or not result[0]:
+            raise RuntimeError("Embedding API returned empty result")
         dims = len(result[0])
         logger.info("Embedding response: %d dimensions", dims)
         return list(result[0])

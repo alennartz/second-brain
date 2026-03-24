@@ -29,6 +29,7 @@ from second_brain.models import (
 )
 from second_brain.scheduler import DreamScheduler
 from second_brain.tools.recall_tools import get_node
+from second_brain.validation import validate_record_id
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,43 +88,49 @@ async def lifespan(app: FastAPI):
             settings.embedding_key,
             settings.embedding_dimensions,
         )
-    await _db.use("brain", "brain")
-    await init_schema(_db)
-    await init_vector_indexes(_db)
-    logger.info("Database schema initialized")
+    try:
+        await _db.use("brain", "brain")
+        await init_schema(_db)
+        await init_vector_indexes(_db)
+        logger.info("Database schema initialized")
 
-    global _scheduler
-    if not settings.test_mode and settings.dream_enabled:
-        _scheduler = DreamScheduler(
-            db=_db,
-            embed_fn=_embed,
-            model=_model,
-            idle_timeout=settings.dream_idle_timeout * 60,  # convert minutes to seconds
-            batch_size=settings.dream_batch_size,
+        global _scheduler
+        if not settings.test_mode and settings.dream_enabled:
+            _scheduler = DreamScheduler(
+                db=_db,
+                embed_fn=_embed,
+                model=_model,
+                idle_timeout=settings.dream_idle_timeout
+                * 60,  # convert minutes to seconds
+                batch_size=settings.dream_batch_size,
+            )
+            _scheduler.start()
+            logger.info("Dream scheduler started")
+
+        configure_mcp(
+            run_recall=run_recall_agent,
+            run_ingest=run_ingest_agent,
+            get_graph=get_graph_data,
         )
-        _scheduler.start()
-        logger.info("Dream scheduler started")
 
-    configure_mcp(
-        run_recall=run_recall_agent,
-        run_ingest=run_ingest_agent,
-        get_graph=get_graph_data,
-    )
-
-    # Create a fresh MCP ASGI app each startup so the session manager
-    # is never reused (it is single-use by design).
-    mcp_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
-    # Remove any stale /mcp mount from a previous lifespan cycle (e.g. tests)
-    app.router.routes = [
-        r for r in app.router.routes if getattr(r, "path", None) != "/mcp"
-    ]
-    app.mount("/mcp", mcp_app)
+        # Create a fresh MCP ASGI app each startup so the session manager
+        # is never reused (it is single-use by design).
+        mcp_app = mcp.http_app(path="/", stateless_http=True, json_response=True)
+        # Remove any stale /mcp mount from a previous lifespan cycle (e.g. tests)
+        app.router.routes = [
+            r for r in app.router.routes if getattr(r, "path", None) != "/mcp"
+        ]
+        app.mount("/mcp", mcp_app)
+    except Exception:
+        await _db.close()
+        _db = None
+        raise
 
     async with mcp_app.router.lifespan_context(app):
         yield
 
     if _scheduler:
-        _scheduler.stop()
+        await _scheduler.stop()
         _scheduler = None
     if _db:
         await _db.close()
@@ -309,6 +316,7 @@ async def _get_raw_connections(db: Any, record_id: str) -> list[dict]:
 
 async def get_graph_data(record_id: str) -> GraphResponse | None:
     """Fetch a node and its connections. Returns None if not found."""
+    validate_record_id(record_id)
     node = await get_node(_db, record_id)
     if not node:
         return None
@@ -316,11 +324,11 @@ async def get_graph_data(record_id: str) -> GraphResponse | None:
     connections = []
     for edge in raw_edges:
         edge_s = make_serializable(edge)
-        other_id = (
-            str(edge_s.get("in"))
-            if str(edge_s.get("out")) == record_id
-            else str(edge_s.get("out"))
-        )
+        raw_in = edge_s.get("in")
+        raw_out = edge_s.get("out")
+        if raw_in is None or raw_out is None:
+            continue
+        other_id = str(raw_in) if str(raw_out) == record_id else str(raw_out)
         if other_id:
             other_node = await get_node(_db, str(other_id))
             if other_node:

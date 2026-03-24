@@ -74,7 +74,12 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
             return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
-        return await dream_tools.find_unlinked_cooccurrences(ctx.deps.db, record_id)
+        result = await dream_tools.find_unlinked_cooccurrences(
+            ctx.deps.db, record_id, cancel=ctx.deps.cancel
+        )
+        if isinstance(result, dict):
+            return [result]
+        return result
 
     @agent.tool
     async def explore(

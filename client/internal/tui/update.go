@@ -15,6 +15,10 @@ import (
 // dispatches converse requests. Returns the updated model and an optional
 // tea.Cmd for async work.
 func (m Model) submitInput() (Model, tea.Cmd) {
+	if m.loading {
+		return m, nil
+	}
+
 	value := strings.TrimSpace(m.input.textArea.Value())
 	if value == "" {
 		return m, nil

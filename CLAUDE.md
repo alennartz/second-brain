@@ -99,7 +99,7 @@ GET  /graph/{record_id}             →  node + connections lookup
 
 ### Client (`client/`)
 
-Go terminal app built with Cobra (CLI) and Bubble Tea (TUI).
+Go terminal app built with Cobra (CLI) and Bubble Tea (TUI). Reference docs for the TUI framework stack are in `docs/reference/bubbletea/` — architecture, full API, Bubbles components, and Lip Gloss styling.
 
 - **`cmd/brain/`** — CLI entry points: `root.go` (TUI launcher), `ingest.go`, `recall.go`, `graph.go` (one-shot commands).
 - **`internal/api/`** — HTTP client wrapping all server endpoints.

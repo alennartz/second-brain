@@ -84,11 +84,15 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         """Get a single node by ID, e.g. 'note:abc123' or 'entity:sr'.
         Result includes a 'connections' list showing edges with labels and adjacent node IDs."""
         logger.info("ingest: get_node id=%s", record_id)
-        node = await recall_tools.get_node(ctx.deps.db, record_id)
-        if not node:
-            return {"error": f"Node {record_id} not found"}
-        enriched = await recall_tools.enrich_with_connections(ctx.deps.db, node)
-        return strip_embeddings(make_serializable(enriched))
+        try:
+            node = await recall_tools.get_node(ctx.deps.db, record_id)
+            if not node:
+                return {"error": f"Node {record_id} not found"}
+            enriched = await recall_tools.enrich_with_connections(ctx.deps.db, node)
+            return strip_embeddings(make_serializable(enriched))
+        except Exception as e:
+            logger.error("ingest: get_node failed: %s", e)
+            return {"error": str(e)}
 
     @agent.tool
     async def create_notes(

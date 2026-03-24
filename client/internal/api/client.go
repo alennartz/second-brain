@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -171,7 +172,7 @@ func parseSSE(ctx context.Context, r io.Reader, events chan<- SSEEvent, errc cha
 
 // Graph fetches a node and its connections from the knowledge graph.
 func (c *Client) Graph(id string) (*types.GraphResponse, error) {
-	url := fmt.Sprintf("%s/graph/%s", c.baseURL, id)
+	url := fmt.Sprintf("%s/graph/%s", c.baseURL, url.PathEscape(id))
 	httpResp, err := c.httpClient.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
@@ -205,13 +206,20 @@ func (c *Client) post(path string, reqBody any, respBody any, timeout time.Durat
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// Choose the appropriate HTTP client. When the caller requests a timeout
+	// longer than the httpClient's default (30s), use streamClient (no
+	// built-in timeout) so the context deadline actually governs.
+	client := c.httpClient
 	if timeout > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		req = req.WithContext(ctx)
+		if timeout > c.httpClient.Timeout {
+			client = c.streamClient
+		}
 	}
 
-	httpResp, err := c.httpClient.Do(req)
+	httpResp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

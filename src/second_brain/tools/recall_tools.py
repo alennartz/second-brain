@@ -4,6 +4,8 @@ import logging
 
 from surrealdb import AsyncSurreal, RecordID
 
+from second_brain.validation import check_query_result, validate_record_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,7 +113,9 @@ async def hybrid_search(
 
 async def get_node(db: AsyncSurreal, record_id: str) -> dict:
     """Get a single node by its record ID (e.g., 'note:1' or 'entity:sr')."""
+    record_id = validate_record_id(record_id)
     result = await db.query(f"SELECT * FROM {record_id}")
+    result = check_query_result(result, f"SELECT FROM {record_id}")
     if not result:
         return {}
     return result[0]
@@ -123,7 +127,9 @@ async def fetch_records_by_ids(db: AsyncSurreal, record_ids: list[str]) -> list[
         return []
     results = []
     for rid in record_ids:
+        rid = validate_record_id(rid)
         result = await db.query(f"SELECT * FROM {rid}")
+        result = check_query_result(result, f"SELECT FROM {rid}")
         if result:
             results.append(result[0])
     return results

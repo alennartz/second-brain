@@ -214,11 +214,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chat.loading = false
 				m.statusText = ""
 				m.chat.loadingText = ""
+				msg.cancel()
 				m.cancelStream = nil
 				m.err = err
 				m.chat.addMessage("brain", "Error: "+err.Error())
 				return m, nil
 			}
+			msg.cancel()
 			m.cancelStream = nil
 			return m.handleConverseResponse(&resp, msg.userMsg), nil
 
@@ -231,6 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chat.loading = false
 			m.statusText = ""
 			m.chat.loadingText = ""
+			msg.cancel()
 			m.cancelStream = nil
 			if m.err != nil {
 				m.chat.addMessage("brain", "Error: "+m.err.Error())
@@ -336,7 +339,16 @@ func (m Model) handleConverseResponse(resp *types.ConverseResponse, userMsg stri
 
 	m.context = resp.Context
 	if resp.Context != nil {
-		m.graph = *resp.Context
+		for _, n := range resp.Context.Nodes {
+			if !containsNode(m.graph.Nodes, n.ID) {
+				m.graph.Nodes = append(m.graph.Nodes, n)
+			}
+		}
+		for _, e := range resp.Context.Edges {
+			if !containsEdge(m.graph.Edges, e.ID) {
+				m.graph.Edges = append(m.graph.Edges, e)
+			}
+		}
 	}
 
 	m.chat.addMessage("brain", resp.Response)

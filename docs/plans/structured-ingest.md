@@ -188,7 +188,7 @@ async def store_knowledge(
 3. **Update the system prompt** — replace the numbered instructions that tell the LLM to create notes, entities, and edges in separate calls. The new workflow is: (1) parse input, (2) search broadly for dedup, (3) call `store_knowledge` once with all entities, notes, and edges. Keep the guidance about deduplication, entity-entity edges being most valuable, and descriptive edge names.
 
 **Verify:** `uv run pytest -v tests/test_ingest_agent.py` — both tests pass (tool surface check and agent run).
-**Status:** not started
+**Status:** done
 
 ### Step 3: Run full test suite to confirm no regressions
 

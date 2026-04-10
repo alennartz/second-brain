@@ -32,16 +32,17 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             "You are a personal knowledge ingest agent. The user provides raw input — notes, "
             "ideas, rambling thoughts — and you process them into structured knowledge.\n\n"
             "Your job:\n"
-            "1. Parse the input into discrete ideas. One note per distinct idea.\n"
-            "2. Extract entities (people, projects, organizations, places, events, concepts, "
-            "technologies) mentioned.\n"
-            "3. **Deduplicate entities**: Before creating any entity, search the existing "
-            "knowledge base first. Do ONE broad search covering the main topic of the input "
-            "rather than searching for each entity individually — this is much faster. "
-            "If a matching entity already exists (same name or clearly the "
+            "1. Parse the input into discrete ideas and extract entities (people, projects, "
+            "organizations, places, events, concepts, technologies).\n"
+            "2. **Deduplicate entities**: Before creating anything, do ONE broad search covering "
+            "the main topic of the input rather than searching for each entity individually — "
+            "this is much faster. If a matching entity already exists (same name or clearly the "
             "same concept), DO NOT create a duplicate — use the existing entity's ID when creating "
             "edges. Only create a new entity when it is genuinely absent from the knowledge base.\n"
-            "4. Create notes, entities, and edges. Build a rich relationship graph:\n"
+            "3. Call `store_knowledge` ONCE with all entities, notes, and edges together. "
+            "Use 'new_entity:N' / 'new_note:N' refs (0-indexed) to link edges to items in "
+            "the same call, or existing record IDs like 'entity:abc123' for deduped entities.\n"
+            "   Build a rich relationship graph:\n"
             "   - **Entity→entity edges are the most valuable.** Always create direct relationships "
             "between entities: person→designed→artifact, mission→part_of→program, "
             "person→recruited_via→operation, launch_vehicle→launched→mission, etc.\n"
@@ -53,8 +54,8 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             "   Good: designed_by, led, part_of, member_of, launched_from, launched, "
             "recruited_via, triggered, caused, preceded, succeeded, crewed_by, built_by, located_in\n"
             "   Bad: references, relates_to, linked_to, associated_with, about, mentions\n"
-            "   Embeddings are generated automatically when you create notes and entities.\n"
-            "5. Surface any interesting connections you found to existing knowledge.\n\n"
+            "   Embeddings are generated automatically.\n"
+            "4. Surface any interesting connections you found to existing knowledge.\n\n"
             "Return a summary of what you stored and any connections you discovered."
         ),
     )
@@ -103,53 +104,38 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             return {"error": str(e)}
 
     @agent.tool
-    async def create_notes(
-        ctx: RunContext[IngestDeps],
-        notes: list[dict],
-    ) -> list[dict]:
-        """Create multiple notes in bulk. Each dict needs 'content', optional 'source' (default 'api') and 'summary'.
-        Embeddings are generated automatically."""
-        logger.info("ingest: create_notes (%d notes)", len(notes))
-        try:
-            results = await ingest_tools.create_notes(
-                ctx.deps.db, notes, ctx.deps.embed_fn
-            )
-            return [make_serializable(r) for r in results]
-        except Exception as e:
-            logger.error("ingest: create_notes failed: %s", e)
-            return [{"error": str(e)}]
-
-    @agent.tool
-    async def create_entities(
+    async def store_knowledge(
         ctx: RunContext[IngestDeps],
         entities: list[dict],
-    ) -> list[dict]:
-        """Create multiple entities in bulk. Each dict needs 'name', 'type', optional 'description'.
-        Embeddings are generated automatically."""
-        logger.info("ingest: create_entities (%d entities)", len(entities))
-        try:
-            results = await ingest_tools.create_entities(
-                ctx.deps.db, entities, ctx.deps.embed_fn
-            )
-            return [make_serializable(r) for r in results]
-        except Exception as e:
-            logger.error("ingest: create_entities failed: %s", e)
-            return [{"error": str(e)}]
-
-    @agent.tool
-    async def create_edges(
-        ctx: RunContext[IngestDeps],
+        notes: list[dict],
         edges: list[dict],
-    ) -> list[dict]:
-        """Create multiple relationship edges in bulk. Each dict needs 'from_id', 'edge_table', 'to_id', optional 'context'.
-        edge_table should be a descriptive, semantically meaningful name (e.g. authored_by, inspired_by, depends_on, part_of, builds_upon)."""
-        logger.info("ingest: create_edges (%d edges)", len(edges))
+    ) -> dict:
+        """Store entities, notes, and edges in one call.
+
+        entities: [{name, type, description?}]
+        notes: [{content, source?, summary?}]
+        edges: [{from_ref, edge_table, to_ref, context?}]
+          from_ref/to_ref: "new_entity:N" or "new_note:N" for items in this call,
+          or an existing record ID like "entity:abc123".
+        """
+        logger.info(
+            "ingest: store_knowledge (%d entities, %d notes, %d edges)",
+            len(entities),
+            len(notes),
+            len(edges),
+        )
         try:
-            results = await ingest_tools.create_edges(ctx.deps.db, edges)
-            return [make_serializable(r) for r in results]
+            result = await ingest_tools.store_knowledge(
+                ctx.deps.db,
+                entities,
+                notes,
+                edges,
+                ctx.deps.embed_fn,
+            )
+            return make_serializable(result)
         except Exception as e:
-            logger.error("ingest: create_edges failed: %s", e)
-            return [{"error": str(e)}]
+            logger.error("ingest: store_knowledge failed: %s", e)
+            return {"error": str(e)}
 
     @agent.tool
     async def update_node(

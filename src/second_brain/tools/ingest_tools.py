@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from surrealdb import AsyncSurreal
 
+from second_brain.models import make_serializable
 from second_brain.validation import (
     check_query_result,
     validate_identifier,
@@ -145,6 +146,22 @@ async def create_edges(
     return results
 
 
+def _resolve_ref(ref: str, ref_map: dict[str, str]) -> str:
+    """Resolve a reference string to a record ID.
+
+    - 'new_entity:N' / 'new_note:N' → look up in ref_map
+    - Otherwise validate as an existing record ID
+
+    Raises ValueError if the ref is invalid or out of bounds.
+    """
+    if ref.startswith("new_entity:") or ref.startswith("new_note:"):
+        if ref not in ref_map:
+            raise ValueError(f"Reference {ref!r} not found (out of bounds)")
+        return ref_map[ref]
+    # Must be an existing record ID
+    return validate_record_id(ref)
+
+
 async def store_knowledge(
     db: AsyncSurreal,
     entities: list[dict],
@@ -160,7 +177,79 @@ async def store_knowledge(
     Returns a summary dict with entities_created, notes_created,
     edges_created, edges_skipped, and errors.
     """
-    raise NotImplementedError("store_knowledge not yet implemented")
+    errors: list[str] = []
+
+    # 1. Create entities and collect IDs
+    entity_records = await create_entities(db, entities, embed_fn) if entities else []
+    entities_created = []
+    for i, rec in enumerate(entity_records):
+        ref = f"new_entity:{i}"
+        serialized_id = make_serializable(rec["id"])
+        entities_created.append(
+            {"ref": ref, "id": serialized_id, "name": entities[i]["name"]}
+        )
+
+    # 2. Create notes and collect IDs
+    note_records = await create_notes(db, notes, embed_fn) if notes else []
+    notes_created = []
+    for i, rec in enumerate(note_records):
+        ref = f"new_note:{i}"
+        serialized_id = make_serializable(rec["id"])
+        notes_created.append({"ref": ref, "id": serialized_id})
+
+    # 3. Build ref map
+    ref_map: dict[str, str] = {}
+    for item in entities_created:
+        ref_map[item["ref"]] = item["id"]
+    for item in notes_created:
+        ref_map[item["ref"]] = item["id"]
+
+    # 4. Resolve and filter edges
+    resolved_edges: list[dict] = []
+    edges_skipped = 0
+    for edge in edges:
+        from_ref = edge["from_ref"]
+        to_ref = edge["to_ref"]
+        try:
+            from_id = _resolve_ref(from_ref, ref_map)
+            to_id = _resolve_ref(to_ref, ref_map)
+        except ValueError as e:
+            errors.append(str(e))
+            edges_skipped += 1
+            continue
+
+        # Check for self-edges
+        if from_id == to_id:
+            edges_skipped += 1
+            continue
+
+        resolved_edge: dict = {
+            "from_id": from_id,
+            "edge_table": edge["edge_table"],
+            "to_id": to_id,
+        }
+        if edge.get("context"):
+            resolved_edge["context"] = edge["context"]
+        resolved_edges.append(resolved_edge)
+
+    # 5. Create edges
+    edges_created = 0
+    if resolved_edges:
+        edge_results = await create_edges(db, resolved_edges)
+        for r in edge_results:
+            if r.get("skipped"):
+                edges_skipped += 1
+            else:
+                edges_created += 1
+
+    # 6. Return summary
+    return {
+        "entities_created": entities_created,
+        "notes_created": notes_created,
+        "edges_created": edges_created,
+        "edges_skipped": edges_skipped,
+        "errors": errors,
+    }
 
 
 async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:

@@ -119,6 +119,8 @@ Passes through to `ingest_tools.store_knowledge`. Returns the summary dict direc
 
 ## Steps
 
+**Pre-implementation commit:** `4202ca8999ae344c93065d6ddfa35de6ff1f0f44`
+
 ### Step 1: Implement `store_knowledge` in `ingest_tools.py`
 
 Replace the `NotImplementedError` stub in `src/second_brain/tools/ingest_tools.py` with the full implementation. The function already has the correct signature. Implementation:
@@ -142,8 +144,8 @@ Import `make_serializable` from `second_brain.models` at the top of the file.
 
 The `new_entity:N` / `new_note:N` pattern matching should use a simple prefix check and integer parse — no regex needed. A helper like `_resolve_ref(ref: str, ref_map: dict[str, str]) -> str` that returns the resolved ID or raises `ValueError` keeps the edge loop clean.
 
-**Verify:** `uv run pytest -v tests/test_store_knowledge.py` — all 14 tests pass.
-**Status:** not started
+**Verify:** `uv run pytest -v tests/test_store_knowledge.py` — all 15 tests pass.
+**Status:** done
 
 ### Step 2: Add `store_knowledge` agent tool wrapper and remove old create tools in `ingest.py`
 

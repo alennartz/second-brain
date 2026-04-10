@@ -114,3 +114,5 @@ Passes through to `ingest_tools.store_knowledge`. Returns the summary dict direc
 
 - Agent tool surface includes `store_knowledge`, `search_knowledge`, `get_node`, `update_node`
 - Old granular create tools (`create_notes`, `create_entities`, `create_edges`) are absent
+
+**Review status:** approved

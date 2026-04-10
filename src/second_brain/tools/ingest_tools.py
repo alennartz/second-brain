@@ -190,12 +190,15 @@ async def store_knowledge(
         )
 
     # 2. Create notes and collect IDs
-    note_records = await create_notes(db, notes, embed_fn) if notes else []
     notes_created = []
-    for i, rec in enumerate(note_records):
-        ref = f"new_note:{i}"
-        serialized_id = make_serializable(rec["id"])
-        notes_created.append({"ref": ref, "id": serialized_id})
+    try:
+        note_records = await create_notes(db, notes, embed_fn) if notes else []
+        for i, rec in enumerate(note_records):
+            ref = f"new_note:{i}"
+            serialized_id = make_serializable(rec["id"])
+            notes_created.append({"ref": ref, "id": serialized_id})
+    except Exception as e:
+        errors.append(f"Note creation failed: {e}")
 
     # 3. Build ref map
     ref_map: dict[str, str] = {}
@@ -213,6 +216,7 @@ async def store_knowledge(
         try:
             from_id = _resolve_ref(from_ref, ref_map)
             to_id = _resolve_ref(to_ref, ref_map)
+            validate_identifier(edge["edge_table"])
         except ValueError as e:
             errors.append(str(e))
             edges_skipped += 1
@@ -234,13 +238,16 @@ async def store_knowledge(
 
     # 5. Create edges
     edges_created = 0
-    if resolved_edges:
-        edge_results = await create_edges(db, resolved_edges)
-        for r in edge_results:
-            if r.get("skipped"):
-                edges_skipped += 1
-            else:
-                edges_created += 1
+    try:
+        if resolved_edges:
+            edge_results = await create_edges(db, resolved_edges)
+            for r in edge_results:
+                if r.get("skipped"):
+                    edges_skipped += 1
+                else:
+                    edges_created += 1
+    except Exception as e:
+        errors.append(f"Edge creation failed: {e}")
 
     # 6. Return summary
     return {

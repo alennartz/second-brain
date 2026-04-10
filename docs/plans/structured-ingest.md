@@ -194,5 +194,5 @@ async def store_knowledge(
 
 Run the complete Python test suite to verify nothing else broke — particularly `test_ingest_tools.py` (existing create functions still work), `test_dream_connect_agent.py` (still uses `create_edges` via `ingest_tools`), and `test_converse_agent.py` (delegates to ingest agent).
 
-**Verify:** `uv run pytest -v` — all tests pass. No new test failures beyond the targeted changes.
-**Status:** not started
+**Verify:** `uv run pytest -v` — all 151 tests pass. No regressions.
+**Status:** done

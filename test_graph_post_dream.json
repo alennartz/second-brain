@@ -1,0 +1,959 @@
+[
+  {
+    "node": {
+      "description": "German rocket engineer; led V-2 development at Peenem\u00fcnde during WWII.",
+      "dream_age": 0,
+      "id": "entity:ghyww6xadt8xexsosjzw",
+      "name": "Wernher von Braun",
+      "type": "person",
+      "table": "entity"
+    },
+    "connections": [
+      {
+        "edge": {
+          "context": "Von Braun served as first director of Marshall Space Flight Center (1960\u20131970) (note:inohpq22fi4qudmcv9dq).",
+          "id": "directed:3t8i3wrwbm4s5dgypnri",
+          "from": "entity:ghyww6xadt8xexsosjzw",
+          "to": "entity:ceak1y3y25vdt3jb4sgf",
+          "table": "directed"
+        },
+        "node": {
+          "description": "NASA center in Huntsville, Alabama; home of von Braun's team that designed the Saturn V.",
+          "dream_age": 0,
+          "id": "entity:ceak1y3y25vdt3jb4sgf",
+          "name": "Marshall Space Flight Center",
+          "type": "organization",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "First director, 1960\u20131970.",
+          "id": "served_as_first_director_of:e3o3rswh2xukx2n9a4ab",
+          "from": "entity:ghyww6xadt8xexsosjzw",
+          "to": "entity:ceak1y3y25vdt3jb4sgf",
+          "table": "served_as_first_director_of"
+        },
+        "node": {
+          "description": "NASA center in Huntsville, Alabama; home of von Braun's team that designed the Saturn V.",
+          "dream_age": 0,
+          "id": "entity:ceak1y3y25vdt3jb4sgf",
+          "name": "Marshall Space Flight Center",
+          "type": "organization",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Later worked on Redstone and Jupiter rockets for the U.S. Army.",
+          "id": "worked_for:97ob0ia742i8n6elojyh",
+          "from": "entity:ghyww6xadt8xexsosjzw",
+          "to": "entity:nfs45kzobyup1idtm78m",
+          "table": "worked_for"
+        },
+        "node": {
+          "description": "Primary land warfare service branch of the United States Armed Forces.",
+          "dream_age": 0,
+          "id": "entity:nfs45kzobyup1idtm78m",
+          "name": "United States Army",
+          "type": "organization",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Worked on Jupiter for the U.S. Army.",
+          "id": "worked_on:4yezegsb50a6en3qa3uq",
+          "from": "entity:ghyww6xadt8xexsosjzw",
+          "to": "entity:aic0ebynzkh599q5ekj5",
+          "table": "worked_on"
+        },
+        "node": {
+          "description": "U.S. Army intermediate-range ballistic missile developed in the 1950s; related to early U.S. rocket development.",
+          "dream_age": 0,
+          "id": "entity:aic0ebynzkh599q5ekj5",
+          "name": "PGM-19 Jupiter",
+          "type": "launch_vehicle",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Worked on the German V-2 program.",
+          "id": "worked_on:7ggbluv2o4qhreumadzl",
+          "from": "entity:ghyww6xadt8xexsosjzw",
+          "to": "entity:czipn3h7lvbly1pwxrtg",
+          "table": "worked_on"
+        },
+        "node": {
+          "description": "German long-range guided ballistic missile developed during WWII; first human-made object to reach space (crossed the K\u00e1rm\u00e1n line in 1944).",
+          "dream_age": 0,
+          "id": "entity:czipn3h7lvbly1pwxrtg",
+          "name": "V-2 rocket",
+          "type": "technology",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Worked on Redstone for the U.S. Army.",
+          "id": "worked_on:ghdd3ckyq9tdj1k54gpj",
+          "from": "entity:ghyww6xadt8xexsosjzw",
+          "to": "entity:rrlq4rzj5r6sy5os1num",
+          "table": "worked_on"
+        },
+        "node": {
+          "description": "U.S. Army short-range ballistic missile/rocket developed in the 1950s; used for early U.S. space launches (e.g., Mercury-Redstone).",
+          "dream_age": 0,
+          "id": "entity:rrlq4rzj5r6sy5os1num",
+          "name": "Redstone (rocket)",
+          "type": "launch_vehicle",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Von Braun led development.",
+          "id": "describes:rmzripq8q3b0xx23hyl2",
+          "from": "note:h4qvmdrotbv8cqbrpkls",
+          "to": "entity:ghyww6xadt8xexsosjzw",
+          "table": "describes"
+        },
+        "node": {
+          "content": "During World War II, Wernher von Braun led development of the V-2 rocket at Peenem\u00fcnde in Nazi Germany.",
+          "created_at": "2026-04-10T17:01:34.507177+00:00",
+          "dream_age": 0,
+          "id": "note:h4qvmdrotbv8cqbrpkls",
+          "source": "api",
+          "summary": "Von Braun led WWII V-2 rocket development at Peenem\u00fcnde under Nazi Germany.",
+          "updated_at": "2026-04-10T17:01:34.507992+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note centers on von Braun and his postwar relocation.",
+          "id": "describes:tdlntsz2de32dxf6aq6a",
+          "from": "note:tfzes1cxo7j1rt5l4ofm",
+          "to": "entity:ghyww6xadt8xexsosjzw",
+          "table": "describes"
+        },
+        "node": {
+          "content": "After World War II, the United States recruited German rocket scientists through Operation Paperclip; Wernher von Braun and his team surrendered to American forces and were brought to Fort Bliss, Texas, where they continued rocket research for the U.S. Army.",
+          "created_at": "2026-04-10T17:02:02.490361+00:00",
+          "dream_age": 0,
+          "id": "note:tfzes1cxo7j1rt5l4ofm",
+          "source": "api",
+          "summary": "Operation Paperclip brought von Braun\u2019s surrendered rocket team to Fort Bliss, Texas to continue U.S. Army rocket research.",
+          "updated_at": "2026-04-10T17:02:02.491161+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note describes von Braun's roles and prior rocket work.",
+          "id": "describes:wwbj7mtx154jobrztl3g",
+          "from": "note:inohpq22fi4qudmcv9dq",
+          "to": "entity:ghyww6xadt8xexsosjzw",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Dr. Wernher von Braun served as the first director of NASA's Marshall Space Flight Center from 1960 to 1970. Before joining NASA, he had worked on the V-2 program in Germany and later on the Redstone and Jupiter rockets for the U.S. Army.",
+          "created_at": "2026-04-10T17:08:37.119680+00:00",
+          "dream_age": 1,
+          "id": "note:inohpq22fi4qudmcv9dq",
+          "source": "api",
+          "summary": "Von Braun led Marshall Space Flight Center (1960\u20131970) and previously worked on V-2, Redstone, and Jupiter rockets.",
+          "updated_at": "2026-04-10T17:08:37.120864+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Von Braun's team is led by Wernher von Braun.",
+          "id": "led_by:2t322gqn9fyzaxz7eof7",
+          "from": "entity:keeo6ddfde20p4mbksyi",
+          "to": "entity:ghyww6xadt8xexsosjzw",
+          "table": "led_by"
+        },
+        "node": {
+          "description": "Group of German rocket scientists and engineers led by Wernher von Braun, involved in V-2 development and later U.S. rocket programs.",
+          "dream_age": 0,
+          "id": "entity:keeo6ddfde20p4mbksyi",
+          "name": "Von Braun rocket team",
+          "type": "group",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Von Braun led development.",
+          "id": "led_by:6sww1fa1fwdb9ba5cfm7",
+          "from": "entity:czipn3h7lvbly1pwxrtg",
+          "to": "entity:ghyww6xadt8xexsosjzw",
+          "table": "led_by"
+        },
+        "node": {
+          "description": "German long-range guided ballistic missile developed during WWII; first human-made object to reach space (crossed the K\u00e1rm\u00e1n line in 1944).",
+          "dream_age": 0,
+          "id": "entity:czipn3h7lvbly1pwxrtg",
+          "name": "V-2 rocket",
+          "type": "technology",
+          "table": "entity"
+        }
+      }
+    ]
+  },
+  {
+    "node": {
+      "description": "First crewed mission to land humans on the Moon (July 1969).",
+      "dream_age": 0,
+      "id": "entity:gizm21nlm41r45095stf",
+      "name": "Apollo 11",
+      "type": "mission",
+      "table": "entity"
+    },
+    "connections": [
+      {
+        "edge": {
+          "context": "Apollo 11 launched from Kennedy Space Center in Florida.",
+          "id": "launched_from:baod8knqfqhm40umauh0",
+          "from": "entity:gizm21nlm41r45095stf",
+          "to": "entity:ggy3sv2gr4dxc1wdzoly",
+          "table": "launched_from"
+        },
+        "node": {
+          "description": "NASA launch facility in Florida.",
+          "dream_age": 0,
+          "id": "entity:ggy3sv2gr4dxc1wdzoly",
+          "name": "Kennedy Space Center",
+          "type": "place",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Launch date: July 16, 1969 (captured in note)",
+          "id": "launched_on:jmfiivo3gy8gkl1swiz3",
+          "from": "entity:gizm21nlm41r45095stf",
+          "to": "note:tyuvis2fis6lm4d17rbo",
+          "table": "launched_on"
+        },
+        "node": {
+          "content": "Apollo 11 launched atop a Saturn V rocket on July 16, 1969.",
+          "created_at": "2026-04-10T17:10:16.812514+00:00",
+          "dream_age": 1,
+          "id": "note:tyuvis2fis6lm4d17rbo",
+          "source": "api",
+          "summary": "Apollo 11 launch date and vehicle",
+          "updated_at": "2026-04-10T17:10:16.814886+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Neil Armstrong was part of Apollo 11 crew.",
+          "id": "crew_member_of:bvwal5d4un70lmt374yv",
+          "from": "entity:15vfu3r9bhn9i0w701kg",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "crew_member_of"
+        },
+        "node": {
+          "description": "NASA astronaut; first person to walk on the Moon (Apollo 11).",
+          "dream_age": 0,
+          "id": "entity:15vfu3r9bhn9i0w701kg",
+          "name": "Neil Armstrong",
+          "type": "person",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Michael Collins was part of Apollo 11 crew.",
+          "id": "crew_member_of:g9ryo18wbb5f431lk1j5",
+          "from": "entity:k4mz687ljwv89x9tkfm0",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "crew_member_of"
+        },
+        "node": {
+          "description": "NASA astronaut; command module pilot on Apollo 11; orbited the Moon in Columbia.",
+          "dream_age": 0,
+          "id": "entity:k4mz687ljwv89x9tkfm0",
+          "name": "Michael Collins",
+          "type": "person",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Buzz Aldrin was part of Apollo 11 crew.",
+          "id": "crew_member_of:vxct20ol8y2bs3wbopt2",
+          "from": "entity:fibtrqh8635t4x7fsily",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "crew_member_of"
+        },
+        "node": {
+          "description": "NASA astronaut; lunar module pilot on Apollo 11; walked on the Moon.",
+          "dream_age": 0,
+          "id": "entity:fibtrqh8635t4x7fsily",
+          "name": "Buzz Aldrin",
+          "type": "person",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "id": "describes:8osykuehyn1s7z7tvjny",
+          "from": "note:tyuvis2fis6lm4d17rbo",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Apollo 11 launched atop a Saturn V rocket on July 16, 1969.",
+          "created_at": "2026-04-10T17:10:16.812514+00:00",
+          "dream_age": 1,
+          "id": "note:tyuvis2fis6lm4d17rbo",
+          "source": "api",
+          "summary": "Apollo 11 launch date and vehicle",
+          "updated_at": "2026-04-10T17:10:16.814886+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "The note summarizes key facts about the Apollo 11 mission.",
+          "id": "describes:pe1wfkp7a93on1f59imu",
+          "from": "note:eokurh8zgvhnyj1d9gch",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Apollo 11: Neil Armstrong became the first person to walk on the Moon on July 20, 1969. Buzz Aldrin joined him on the lunar surface while Michael Collins orbited above in the command module Columbia. The mission launched from Kennedy Space Center in Florida.",
+          "created_at": "2026-04-10T17:01:10.874669+00:00",
+          "dream_age": 0,
+          "id": "note:eokurh8zgvhnyj1d9gch",
+          "source": "api",
+          "summary": "Key Apollo 11 roles and timeline: Armstrong first moonwalk (July 20, 1969), Aldrin on surface, Collins in Columbia; launch from Kennedy Space Center, Florida.",
+          "updated_at": "2026-04-10T17:01:10.875500+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Apollo 11 launched atop a Saturn V (note:tyuvis2fis6lm4d17rbo).",
+          "id": "launched_mission:ddjqvcirq38ujxtrp6nn",
+          "from": "entity:s3joz2vhabd9qfw22xsb",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "launched_mission"
+        },
+        "node": {
+          "description": "NASA heavy-lift launch vehicle (363 ft tall) designed by von Braun's team at Marshall Space Flight Center; launched Apollo lunar missions and Skylab; most powerful rocket ever successfully flown.",
+          "dream_age": 0,
+          "id": "entity:s3joz2vhabd9qfw22xsb",
+          "name": "Saturn V",
+          "type": "launch_vehicle",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Columbia was Apollo 11's command module.",
+          "id": "part_of_mission:jlh4upgnweuu8w6zrz1x",
+          "from": "entity:s1byp1crvj1yrxki4yg0",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "part_of_mission"
+        },
+        "node": {
+          "description": "Apollo 11 command module piloted by Michael Collins.",
+          "dream_age": 0,
+          "id": "entity:s1byp1crvj1yrxki4yg0",
+          "name": "Command Module Columbia",
+          "type": "spacecraft",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "id": "part_of_mission:sdjpldrwm7b0b8v6ti1r",
+          "from": "entity:e5wu27chtv31j6k0aib6",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "part_of_mission"
+        },
+        "node": {
+          "description": "Apollo 11 lunar module (LM-5) nicknamed 'Eagle' used for the Moon landing.",
+          "dream_age": 0,
+          "id": "entity:e5wu27chtv31j6k0aib6",
+          "name": "Lunar Module Eagle",
+          "type": "spacecraft",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Apollo 8 preceded Apollo 11 in the Apollo mission sequence and enabled subsequent lunar landing efforts.",
+          "id": "preceded:l2yvud7nmw31rr9um19x",
+          "from": "entity:jp4kghq08su193pefrjo",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "preceded"
+        },
+        "node": {
+          "description": "NASA crewed Apollo mission (Dec 1968); first crewed spacecraft to leave low Earth orbit, reach the Moon, orbit it, and return safely.",
+          "dream_age": 0,
+          "id": "entity:jp4kghq08su193pefrjo",
+          "name": "Apollo 8",
+          "type": "mission",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "id": "spoken_during:lsu3zb0ypgeunvbjpmcz",
+          "from": "entity:qffkot1p9gwfg3qeeaxy",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "spoken_during"
+        },
+        "node": {
+          "description": "Words spoken by Neil Armstrong during Apollo 11 as he first stepped onto the lunar surface.",
+          "dream_age": 0,
+          "id": "entity:qffkot1p9gwfg3qeeaxy",
+          "name": "\"That's one small step for man, one giant leap for mankind.\"",
+          "type": "quote",
+          "table": "entity"
+        }
+      }
+    ]
+  },
+  {
+    "node": {
+      "description": "First artificial Earth satellite, launched by the Soviet Union on 1957-10-04.",
+      "dream_age": 0,
+      "id": "entity:31531x6kjkaoekky5s27",
+      "name": "Sputnik 1",
+      "type": "satellite",
+      "table": "entity"
+    },
+    "connections": [
+      {
+        "edge": {
+          "context": "Sputnik 1 was launched by the USSR on 1957-10-04.",
+          "id": "launched_by:xnpy36c412uexe83rqly",
+          "from": "entity:31531x6kjkaoekky5s27",
+          "to": "entity:ft8oy2nguoglv0ya9b21",
+          "table": "launched_by"
+        },
+        "node": {
+          "description": "Union of Soviet Socialist Republics; launched Sputnik 1 and competed in the Space Race.",
+          "dream_age": 0,
+          "id": "entity:ft8oy2nguoglv0ya9b21",
+          "name": "Soviet Union (USSR)",
+          "type": "country",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "User note: Sputnik launched from Baikonur.",
+          "id": "launched_from:1jlgncim648bvrjhth4x",
+          "from": "entity:31531x6kjkaoekky5s27",
+          "to": "entity:zc93ze2n4gs094jde10b",
+          "table": "launched_from"
+        },
+        "node": {
+          "description": "Spaceport in Kazakhstan used by the Soviet space program; mission control/launch site for early Soviet missions including Vostok.",
+          "dream_age": 0,
+          "id": "entity:zc93ze2n4gs094jde10b",
+          "name": "Baikonur Cosmodrome",
+          "type": "place",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Sputnik 1 mission overseen by the USSR's Chief Designer (public alias).",
+          "id": "overseen_by:llsle8d9cdqc7hhzro02",
+          "from": "entity:31531x6kjkaoekky5s27",
+          "to": "entity:6a4yuf1dceptnaxofy0d",
+          "table": "overseen_by"
+        },
+        "node": {
+          "description": "Public alias/title used by the USSR to refer to Sergei Korolev during his lifetime to keep his identity secret.",
+          "dream_age": 0,
+          "id": "entity:6a4yuf1dceptnaxofy0d",
+          "name": "Chief Designer",
+          "type": "title",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Sputnik was a Soviet space program mission.",
+          "id": "part_of:sto3w3z0ar1bdiu2tvri",
+          "from": "entity:31531x6kjkaoekky5s27",
+          "to": "entity:y2eh7iexauwxm2mcnqet",
+          "table": "part_of"
+        },
+        "node": {
+          "description": "Soviet Union's space exploration program during the Space Race era.",
+          "dream_age": 0,
+          "id": "entity:y2eh7iexauwxm2mcnqet",
+          "name": "Soviet space program",
+          "type": "program",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Sputnik 1 launch shocked the United States.",
+          "id": "shocked:afgqf5jhrndrve70yxn8",
+          "from": "entity:31531x6kjkaoekky5s27",
+          "to": "entity:uzedihsdnp0hg9r5o56f",
+          "table": "shocked"
+        },
+        "node": {
+          "description": "Country whose reaction to Sputnik helped intensify the Space Race.",
+          "dream_age": 0,
+          "id": "entity:uzedihsdnp0hg9r5o56f",
+          "name": "United States",
+          "type": "country",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Sputnik 1 launch helped trigger/intensify the Space Race.",
+          "id": "triggered:uq2p9fjk4yuxjhc4afv9",
+          "from": "entity:31531x6kjkaoekky5s27",
+          "to": "entity:d928m21eh3jb6k1qwm54",
+          "table": "triggered"
+        },
+        "node": {
+          "description": "Cold War-era competition in space exploration, intensified after Sputnik 1.",
+          "dream_age": 0,
+          "id": "entity:d928m21eh3jb6k1qwm54",
+          "name": "Space Race",
+          "type": "historical_period",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note states Sputnik 1 was launched and was the first artificial Earth satellite.",
+          "id": "describes:sy8l5prqpte6p1wn5k6g",
+          "from": "note:6id7ay6zvzlls688ihqn",
+          "to": "entity:31531x6kjkaoekky5s27",
+          "table": "describes"
+        },
+        "node": {
+          "content": "On October 4, 1957, the Soviet Union launched Sputnik 1, the first artificial satellite to orbit Earth.",
+          "created_at": "2026-04-10T17:02:55.186217+00:00",
+          "dream_age": 0,
+          "id": "note:6id7ay6zvzlls688ihqn",
+          "source": "api",
+          "summary": "Sputnik 1 launched by the Soviet Union on 1957-10-04; first artificial Earth satellite.",
+          "updated_at": "2026-04-10T17:02:55.187086+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Sputnik mentioned as launching from Baikonur.",
+          "id": "describes:ydnmzc7wzlpmexz35doa",
+          "from": "note:hu2zfent0ksjvekvvu2o",
+          "to": "entity:31531x6kjkaoekky5s27",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Baikonur Cosmodrome (in the desert steppe of Kazakhstan) was the Soviet Union's primary launch facility; major early missions such as Sputnik and Vostok 1 launched from there. The Soviet Union kept Baikonur\u2019s location secret for years by providing misleading coordinates.",
+          "created_at": "2026-04-10T17:09:44.272406+00:00",
+          "dream_age": 1,
+          "id": "note:hu2zfent0ksjvekvvu2o",
+          "source": "api",
+          "summary": "Baikonur Cosmodrome: USSR\u2019s primary launch facility in Kazakhstan; its location was long kept secret using misleading published coordinates.",
+          "updated_at": "2026-04-10T17:16:21.354755+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note says action was in response to Sputnik.",
+          "id": "motivated_by:7ll61n8caqzsv4jc90qq",
+          "from": "note:okim6g9zrzcieiiz1t94",
+          "to": "entity:31531x6kjkaoekky5s27",
+          "table": "motivated_by"
+        },
+        "node": {
+          "content": "In response to Sputnik, President Dwight D. Eisenhower signed the National Aeronautics and Space Act on July 29, 1958, creating NASA. The new agency absorbed NACA (the National Advisory Committee for Aeronautics) and several U.S. military research programs.",
+          "created_at": "2026-04-10T17:03:25.801550+00:00",
+          "dream_age": 0,
+          "id": "note:okim6g9zrzcieiiz1t94",
+          "source": "api",
+          "summary": "Eisenhower signed the National Aeronautics and Space Act (1958), creating NASA in response to Sputnik; NASA absorbed NACA and military research programs.",
+          "updated_at": "2026-04-10T17:03:25.802390+00:00",
+          "table": "note"
+        }
+      }
+    ]
+  },
+  {
+    "node": {
+      "description": "Lead Soviet rocket engineer and spacecraft designer; key architect of the Soviet space program; publicly referred to as 'the Chief Designer' while his identity was kept secret during his lifetime.",
+      "dream_age": 0,
+      "id": "entity:prwpb317iktpkhdv00zi",
+      "name": "Sergei Pavlovich Korolev",
+      "type": "person",
+      "table": "entity"
+    },
+    "connections": [
+      {
+        "edge": {
+          "context": "Korolev was referred to publicly as 'the Chief Designer' during his lifetime.",
+          "id": "known_publicly_as:qhqj4neymdr0vcv5u380",
+          "from": "entity:prwpb317iktpkhdv00zi",
+          "to": "entity:6a4yuf1dceptnaxofy0d",
+          "table": "known_publicly_as"
+        },
+        "node": {
+          "description": "Public alias/title used by the USSR to refer to Sergei Korolev during his lifetime to keep his identity secret.",
+          "dream_age": 0,
+          "id": "entity:6a4yuf1dceptnaxofy0d",
+          "name": "Chief Designer",
+          "type": "title",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Korolev served as the lead rocket engineer and spacecraft designer for the Soviet space program.",
+          "id": "led_engineering_for:jtm8rm9cbeig6mge9v7t",
+          "from": "entity:prwpb317iktpkhdv00zi",
+          "to": "entity:yu49vji9vcxkm80s9oqq",
+          "table": "led_engineering_for"
+        },
+        "node": {
+          "description": "USSR's state-led program for rocketry and space exploration during the Space Race.",
+          "dream_age": 0,
+          "id": "entity:yu49vji9vcxkm80s9oqq",
+          "name": "Soviet space program",
+          "type": "program",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Korolev led Soviet lunar efforts prior to his death (as implied by leadership loss).",
+          "id": "led_engineering_for:tvkuelakhh3v5440r5kh",
+          "from": "entity:prwpb317iktpkhdv00zi",
+          "to": "entity:rdvfn54b42go91hchv7i",
+          "table": "led_engineering_for"
+        },
+        "node": {
+          "description": "Soviet efforts to achieve a crewed lunar landing and related lunar missions during the Space Race; included development of the N1 super-heavy launch vehicle.",
+          "dream_age": 0,
+          "id": "entity:rdvfn54b42go91hchv7i",
+          "name": "Soviet lunar program",
+          "type": "program",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "'Chief Designer' was the public alias/title used for Sergei Korolev.",
+          "id": "alias_for:k8o7hwtpnm6wb9egh6x9",
+          "from": "entity:6a4yuf1dceptnaxofy0d",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "alias_for"
+        },
+        "node": {
+          "description": "Public alias/title used by the USSR to refer to Sergei Korolev during his lifetime to keep his identity secret.",
+          "dream_age": 0,
+          "id": "entity:6a4yuf1dceptnaxofy0d",
+          "name": "Chief Designer",
+          "type": "title",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Korolev death date and circumstances.",
+          "id": "describes:5zdyfof6gslhqwur9d4m",
+          "from": "note:esmx7kdv49orm7638dcw",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Sergei Korolev died on January 14, 1966 during surgery; his death was a devastating blow to the Soviet space program.",
+          "created_at": "2026-04-10T17:07:25.164219+00:00",
+          "dream_age": 0,
+          "id": "note:esmx7kdv49orm7638dcw",
+          "source": "api",
+          "summary": "Korolev died during surgery on 1966-01-14, harming the Soviet space program.",
+          "updated_at": "2026-04-10T17:07:25.165138+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note about Korolev's secret identity during his lifetime.",
+          "id": "describes:gh1bnxsa81lh5iqsiumr",
+          "from": "note:vtzz86srejj92hl9ik6i",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "describes"
+        },
+        "node": {
+          "content": "During his lifetime, Sergei Pavlovich Korolev's identity was kept secret by the USSR and he was referred to publicly only as 'the Chief Designer'.",
+          "created_at": "2026-04-10T17:02:29.053480+00:00",
+          "dream_age": 0,
+          "id": "note:vtzz86srejj92hl9ik6i",
+          "source": "api",
+          "summary": "Korolev was publicly anonymized as 'the Chief Designer' while alive.",
+          "updated_at": "2026-04-10T17:02:29.054316+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note stating Korolev was lead Soviet rocket engineer/spacecraft designer.",
+          "id": "describes:r7wshlvi6q25gz1rojlo",
+          "from": "note:fc1jkxlnk6xdu59dupmt",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Sergei Pavlovich Korolev was the lead Soviet rocket engineer and spacecraft designer and the mastermind behind the Soviet space program.",
+          "created_at": "2026-04-10T17:02:28.857551+00:00",
+          "dream_age": 0,
+          "id": "note:fc1jkxlnk6xdu59dupmt",
+          "source": "api",
+          "summary": "Korolev led Soviet rocketry/spacecraft design and was the central architect of the Soviet space program.",
+          "updated_at": "2026-04-10T17:02:28.858377+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Note states Korolev personally oversaw the mission.",
+          "id": "describes:wy7vq6uuvew61d3q0284",
+          "from": "note:74ugqrjg65sh3z93iph9",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Cosmonaut Yuri Gagarin became the first human in space on April 12, 1961, aboard Vostok 1. The flight lasted 108 minutes and completed one orbit of Earth. Sergei Pavlovich Korolev personally oversaw the mission from the control center at Baikonur Cosmodrome in Kazakhstan.",
+          "created_at": "2026-04-10T17:04:22.140512+00:00",
+          "dream_age": 0,
+          "id": "note:74ugqrjg65sh3z93iph9",
+          "source": "api",
+          "summary": "Gagarin became first human in space on Vostok 1 (1961-04-12); 108-minute one-orbit flight; Korolev oversaw from Baikonur.",
+          "updated_at": "2026-04-10T17:04:22.141389+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Soviet lunar program difficulties described as occurring after Korolev's death.",
+          "id": "follows_after_death_of:6hi5lkyp6w51p56k3o11",
+          "from": "note:kpkdx37up8kyo958ktge",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "follows_after_death_of"
+        },
+        "node": {
+          "content": "After Korolev's death, the Soviet lunar program struggled with the N1 rocket, which failed on all four launch attempts between 1969 and 1972.",
+          "created_at": "2026-04-10T17:07:25.252477+00:00",
+          "dream_age": 0,
+          "id": "note:kpkdx37up8kyo958ktge",
+          "source": "api",
+          "summary": "Post-Korolev Soviet lunar effort: N1 rocket failed four times (1969\u20131972).",
+          "updated_at": "2026-04-10T17:07:25.253433+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "context": "Korolev oversaw the Vostok 1 mission from mission control.",
+          "id": "overseen_by:8mukd0p1zqhvuvkx1w4d",
+          "from": "entity:xak764r3x384aaytm2w3",
+          "to": "entity:prwpb317iktpkhdv00zi",
+          "table": "overseen_by"
+        },
+        "node": {
+          "description": "First human spaceflight mission; carried Yuri Gagarin on 1961-04-12; one orbit; 108 minutes.",
+          "dream_age": 0,
+          "id": "entity:xak764r3x384aaytm2w3",
+          "name": "Vostok 1",
+          "type": "mission",
+          "table": "entity"
+        }
+      }
+    ]
+  },
+  {
+    "node": {
+      "description": "NASA heavy-lift launch vehicle (363 ft tall) designed by von Braun's team at Marshall Space Flight Center; launched Apollo lunar missions and Skylab; most powerful rocket ever successfully flown.",
+      "dream_age": 0,
+      "id": "entity:s3joz2vhabd9qfw22xsb",
+      "name": "Saturn V",
+      "type": "launch_vehicle",
+      "table": "entity"
+    },
+    "connections": [
+      {
+        "edge": {
+          "context": "Saturn V was designed by von Braun's team.",
+          "id": "designed_by:o2yiakc9if3xo8sczrf1",
+          "from": "entity:s3joz2vhabd9qfw22xsb",
+          "to": "entity:keeo6ddfde20p4mbksyi",
+          "table": "designed_by"
+        },
+        "node": {
+          "description": "Group of German rocket scientists and engineers led by Wernher von Braun, involved in V-2 development and later U.S. rocket programs.",
+          "dream_age": 0,
+          "id": "entity:keeo6ddfde20p4mbksyi",
+          "name": "Von Braun rocket team",
+          "type": "group",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Saturn V launched the Skylab space station.",
+          "id": "launched:f6nuwdwu99ix0fzqv45e",
+          "from": "entity:s3joz2vhabd9qfw22xsb",
+          "to": "entity:omhqxptqn1f7nfhebk5i",
+          "table": "launched"
+        },
+        "node": {
+          "description": "NASA space station launched in 1973; its orbital workshop was launched by a Saturn V.",
+          "dream_age": 0,
+          "id": "entity:omhqxptqn1f7nfhebk5i",
+          "name": "Skylab",
+          "type": "space_station",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Apollo 11 launched atop a Saturn V (note:tyuvis2fis6lm4d17rbo).",
+          "id": "launched_mission:ddjqvcirq38ujxtrp6nn",
+          "from": "entity:s3joz2vhabd9qfw22xsb",
+          "to": "entity:gizm21nlm41r45095stf",
+          "table": "launched_mission"
+        },
+        "node": {
+          "description": "First crewed mission to land humans on the Moon (July 1969).",
+          "dream_age": 0,
+          "id": "entity:gizm21nlm41r45095stf",
+          "name": "Apollo 11",
+          "type": "mission",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "context": "Saturn V launched all Apollo lunar missions.",
+          "id": "launched_missions_for:1rva7c30yy3gaz2q77se",
+          "from": "entity:s3joz2vhabd9qfw22xsb",
+          "to": "entity:blnynvrn6d6x83e6z39s",
+          "table": "launched_missions_for"
+        },
+        "node": {
+          "description": "NASA program (1961\u20131972) to land humans on the Moon and return them safely to Earth.",
+          "dream_age": 0,
+          "id": "entity:blnynvrn6d6x83e6z39s",
+          "name": "Apollo program",
+          "type": "program",
+          "table": "entity"
+        }
+      },
+      {
+        "edge": {
+          "id": "describes:0cf80odzi34dzkht55dh",
+          "from": "note:318qb3wpl2temyzsy3bt",
+          "to": "entity:s3joz2vhabd9qfw22xsb",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Saturn V launched all Apollo lunar missions.",
+          "created_at": "2026-04-10T17:06:28.216698+00:00",
+          "dream_age": 0,
+          "id": "note:318qb3wpl2temyzsy3bt",
+          "source": "api",
+          "summary": "Saturn V launched all Apollo lunar missions.",
+          "updated_at": "2026-04-10T17:06:28.217543+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "id": "describes:luwu9ge62z50h2ngw128",
+          "from": "note:wgygof5n3w2hyqqxsku9",
+          "to": "entity:s3joz2vhabd9qfw22xsb",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Saturn V was designed by Wernher von Braun's team at NASA's Marshall Space Flight Center in Huntsville, Alabama.",
+          "created_at": "2026-04-10T17:06:28.047616+00:00",
+          "dream_age": 0,
+          "id": "note:wgygof5n3w2hyqqxsku9",
+          "source": "api",
+          "summary": "Saturn V was designed by von Braun's team at Marshall Space Flight Center in Huntsville.",
+          "updated_at": "2026-04-10T17:06:28.048430+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "id": "describes:qfvjibgshx9ews9cuuht",
+          "from": "note:mbg8feebs7eorqhfi8it",
+          "to": "entity:s3joz2vhabd9qfw22xsb",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Saturn V launched the Skylab space station.",
+          "created_at": "2026-04-10T17:06:28.396897+00:00",
+          "dream_age": 0,
+          "id": "note:mbg8feebs7eorqhfi8it",
+          "source": "api",
+          "summary": "Saturn V launched Skylab.",
+          "updated_at": "2026-04-10T17:06:28.397769+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "id": "describes:uwmhlyec5d6bm0n8g1ej",
+          "from": "note:yajsstux0poqy42l39vw",
+          "to": "entity:s3joz2vhabd9qfw22xsb",
+          "table": "describes"
+        },
+        "node": {
+          "content": "Saturn V stood 363 feet tall and remains the most powerful rocket ever successfully flown.",
+          "created_at": "2026-04-10T17:06:28.133593+00:00",
+          "dream_age": 0,
+          "id": "note:yajsstux0poqy42l39vw",
+          "source": "api",
+          "summary": "Saturn V specs/claim: 363 ft tall; most powerful rocket successfully flown.",
+          "updated_at": "2026-04-10T17:06:28.134436+00:00",
+          "table": "note"
+        }
+      },
+      {
+        "edge": {
+          "id": "mentions_launch_vehicle:hjvkez15wxrbwnf20b8b",
+          "from": "note:tyuvis2fis6lm4d17rbo",
+          "to": "entity:s3joz2vhabd9qfw22xsb",
+          "table": "mentions_launch_vehicle"
+        },
+        "node": {
+          "content": "Apollo 11 launched atop a Saturn V rocket on July 16, 1969.",
+          "created_at": "2026-04-10T17:10:16.812514+00:00",
+          "dream_age": 1,
+          "id": "note:tyuvis2fis6lm4d17rbo",
+          "source": "api",
+          "summary": "Apollo 11 launch date and vehicle",
+          "updated_at": "2026-04-10T17:10:16.814886+00:00",
+          "table": "note"
+        }
+      }
+    ]
+  }
+]

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable, strip_embeddings
+from second_brain.models import make_serializable
 from second_brain.tools import recall_tools
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
             enriched = []
             for r in all_results:
                 e = await recall_tools.enrich_with_connections(ctx.deps.db, r)
-                enriched.append(strip_embeddings(make_serializable(e)))
+                enriched.append(make_serializable(e))
             logger.info("recall: search_knowledge → %d results", len(enriched))
             return enriched
         except Exception as e:
@@ -87,7 +87,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
             if not node:
                 return {"error": f"Node {record_id} not found"}
             enriched = await recall_tools.enrich_with_connections(ctx.deps.db, node)
-            return strip_embeddings(make_serializable(enriched))
+            return make_serializable(enriched)
         except Exception as e:
             logger.error("recall: get_node failed: %s", e)
             return {"error": str(e)}

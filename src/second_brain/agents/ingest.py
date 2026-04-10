@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable, strip_embeddings
+from second_brain.models import make_serializable
 from second_brain.tools import ingest_tools, recall_tools
 
 logger = logging.getLogger(__name__)
@@ -33,18 +33,26 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             "ideas, rambling thoughts — and you process them into structured knowledge.\n\n"
             "Your job:\n"
             "1. Parse the input into discrete ideas. One note per distinct idea.\n"
-            "2. Extract entities (people, projects, concepts, tools) mentioned.\n"
-            "3. **Deduplicate entities**: Before creating any entity, ALWAYS search the existing "
-            "knowledge base first. If a matching entity already exists (same name or clearly the "
+            "2. Extract entities (people, projects, organizations, places, events, concepts, "
+            "technologies) mentioned.\n"
+            "3. **Deduplicate entities**: Before creating any entity, search the existing "
+            "knowledge base first. Do ONE broad search covering the main topic of the input "
+            "rather than searching for each entity individually — this is much faster. "
+            "If a matching entity already exists (same name or clearly the "
             "same concept), DO NOT create a duplicate — use the existing entity's ID when creating "
             "edges. Only create a new entity when it is genuinely absent from the knowledge base.\n"
-            "4. Create notes and edges. When connecting nodes, choose a descriptive, semantically "
-            "meaningful edge name that captures the nature of the relationship. Do NOT use generic "
-            "labels — the edge name should read naturally and convey specific meaning.\n"
-            "   Good edge names: authored_by, inspired_by, depends_on, contradicts, builds_upon, "
-            "implements, learned_from, part_of, used_in, motivated_by, blocked_by, evolved_into, "
-            "critiques, supports, exemplifies.\n"
-            "   Bad edge names: references, relates_to, linked_to, associated_with.\n"
+            "4. Create notes, entities, and edges. Build a rich relationship graph:\n"
+            "   - **Entity→entity edges are the most valuable.** Always create direct relationships "
+            "between entities: person→designed→artifact, mission→part_of→program, "
+            "person→recruited_via→operation, launch_vehicle→launched→mission, etc.\n"
+            "   - Connect notes to the primary entities they describe using 'describes' edges.\n"
+            "   - Create hierarchical edges: missions belong to programs (part_of), "
+            "sub-projects belong to parent projects, people belong to organizations (member_of).\n"
+            "   - Choose descriptive, semantically meaningful edge names. The edge name should "
+            "read naturally and convey specific meaning.\n"
+            "   Good: designed_by, led, part_of, member_of, launched_from, launched, "
+            "recruited_via, triggered, caused, preceded, succeeded, crewed_by, built_by, located_in\n"
+            "   Bad: references, relates_to, linked_to, associated_with, about, mentions\n"
             "   Embeddings are generated automatically when you create notes and entities.\n"
             "5. Surface any interesting connections you found to existing knowledge.\n\n"
             "Return a summary of what you stored and any connections you discovered."
@@ -72,7 +80,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             enriched = []
             for r in all_results:
                 e = await recall_tools.enrich_with_connections(ctx.deps.db, r)
-                enriched.append(strip_embeddings(make_serializable(e)))
+                enriched.append(make_serializable(e))
             logger.info("ingest: search_knowledge → %d results", len(enriched))
             return enriched
         except Exception as e:
@@ -89,7 +97,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             if not node:
                 return {"error": f"Node {record_id} not found"}
             enriched = await recall_tools.enrich_with_connections(ctx.deps.db, node)
-            return strip_embeddings(make_serializable(enriched))
+            return make_serializable(enriched)
         except Exception as e:
             logger.error("ingest: get_node failed: %s", e)
             return {"error": str(e)}
@@ -106,7 +114,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             results = await ingest_tools.create_notes(
                 ctx.deps.db, notes, ctx.deps.embed_fn
             )
-            return [strip_embeddings(make_serializable(r)) for r in results]
+            return [make_serializable(r) for r in results]
         except Exception as e:
             logger.error("ingest: create_notes failed: %s", e)
             return [{"error": str(e)}]
@@ -123,7 +131,7 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             results = await ingest_tools.create_entities(
                 ctx.deps.db, entities, ctx.deps.embed_fn
             )
-            return [strip_embeddings(make_serializable(r)) for r in results]
+            return [make_serializable(r) for r in results]
         except Exception as e:
             logger.error("ingest: create_entities failed: %s", e)
             return [{"error": str(e)}]

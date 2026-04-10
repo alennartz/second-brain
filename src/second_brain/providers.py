@@ -216,4 +216,38 @@ def create_embed_fn(
         logger.info("Embedding response: %d dimensions", dims)
         return list(result[0])
 
+    async def embed_batch(texts: list[str]) -> list[list[float]]:
+        """Embed multiple texts, chunked to avoid rate limits."""
+        import asyncio
+
+        if not texts:
+            return []
+        if len(texts) == 1:
+            return [await embed(texts[0])]
+
+        chunk_size = 5
+        all_vecs: list[list[float]] = []
+        for i in range(0, len(texts), chunk_size):
+            chunk = texts[i : i + chunk_size]
+            logger.info(
+                "Embedding batch chunk %d-%d of %d", i + 1, i + len(chunk), len(texts)
+            )
+            result = await embedder.embed_documents(chunk)
+            vecs = result.embeddings
+            if len(vecs) != len(chunk):
+                raise RuntimeError(
+                    f"Embedding batch returned {len(vecs)} "
+                    f"results for {len(chunk)} inputs"
+                )
+            all_vecs.extend(list(v) for v in vecs)
+            if i + chunk_size < len(texts):
+                await asyncio.sleep(1)  # brief pause between chunks
+        logger.info(
+            "Embedding batch complete: %d embeddings, %d dims",
+            len(all_vecs),
+            len(all_vecs[0]),
+        )
+        return all_vecs
+
+    embed.embed_batch = embed_batch  # type: ignore[attr-defined]
     return embed

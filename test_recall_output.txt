@@ -1,0 +1,107 @@
+Server healthy ✓
+
+████████████████████████████████████████████████████████████
+PHASE: RECALL (pre-dream)
+████████████████████████████████████████████████████████████
+
+============================================================
+RECALL 1/10
+============================================================
+Q: Who was the first person to walk on the Moon?
+A: Neil Armstrong was the first person to walk on the Moon (Apollo 11, July 20, 1969)....
+Context: 3 nodes, 0 edges
+
+============================================================
+RECALL 2/10
+============================================================
+Q: When was NASA created and why?
+A: NASA was created on July 29, 1958, when President Dwight D. Eisenhower signed the National Aeronautics and Space Act.
+
+It was created largely in response to the Soviet Union’s launch of Sputnik (and the resulting Space Race/Cold War pressure), to establish a centralized U.S. civilian space agency—ab...
+Context: 7 nodes, 0 edges
+
+============================================================
+RECALL 3/10
+============================================================
+Q: What is the connection between von Braun's work in Germany and the Apollo program?
+A: Von Braun’s German work (especially leading development of the V-2 rocket program at Peenemünde during WWII) established the engineering expertise and team that the U.S. later leveraged.
+
+After WWII, the U.S. recruited von Braun and his rocket team via Operation Paperclip and brought them to the Uni...
+Context: 9 nodes, 0 edges
+
+============================================================
+RECALL 4/10
+============================================================
+Q: Trace the progression from Mercury to Gemini to Apollo.
+A: **Progression: Mercury → Gemini → Apollo (as a capability build-up)**
+
+- **Project Mercury** (*entity:vy1dwzjuvkxjd1lhouj4*) — NASA’s first human spaceflight program; focused on putting a person in orbit and returning them safely, and it selected the **Mercury Seven** astronauts (*entity:xzmmf479wb8...
+Context: 10 nodes, 0 edges
+
+============================================================
+RECALL 5/10
+============================================================
+Q: What do I know about the Chief Designer of the Soviet space program?
+A: In your notes, the USSR’s “Chief Designer” refers to **Sergei Pavlovich Korolev**.
+
+What you have recorded:
+- **Korolev was the lead Soviet rocket engineer and spacecraft designer**, and the central architect/mastermind behind the Soviet space program. 
+- **His identity was kept secret while he was ...
+Context: 9 nodes, 0 edges
+
+============================================================
+RECALL 6/10
+============================================================
+Q: Which astronauts died in the Apollo 1 fire, and what else do I know about them?
+A: The Apollo 1 fire (1967-01-27) killed three astronauts:
+- Gus Grissom (entity:w8r640qg5tjtb3xsqlhd)
+- Ed White (entity:sz805cmhggtm1ydxokeh)
+- Roger Chaffee (entity:6e8aq8mvqqnhmtnzn4pz)
+
+What your notes say you know about them (beyond their deaths):
+- Grissom: he was one of the “Mercury Seven,” the...
+Context: 6 nodes, 0 edges
+
+============================================================
+RECALL 7/10
+============================================================
+Q: What role did Huntsville, Alabama play in the space program?
+A: Huntsville, Alabama was a major U.S. rocket-development hub for the space program because it hosted NASA’s Marshall Space Flight Center, where Wernher von Braun’s team designed the Saturn V rocket. Saturn V was the heavy-lift launcher that flew all Apollo lunar missions and also launched Skylab—so w...
+Context: 8 nodes, 0 edges
+
+============================================================
+RECALL 8/10
+============================================================
+Q: What were the key events of 1961 in the space race?
+A: Key Space Race events in 1961 (from your knowledge base):
+
+- **Apr 12, 1961 — Yuri Gagarin flies Vostok 1**: first human in space; **one Earth orbit**; **108-minute** flight; overseen from **Baikonur Cosmodrome** (USSR milestone). 
+- **May 5, 1961 — Alan Shepard’s flight**: first American in space (...
+Context: 9 nodes, 0 edges
+
+============================================================
+RECALL 9/10
+============================================================
+Q: How did Sputnik change the course of the American space program?
+A: Sputnik (1957) jolted U.S. leaders and the public into treating spaceflight as an urgent Cold War priority, accelerating and centralizing the American effort.
+
+Key ways it changed the American space program:
+- **Created NASA and unified civilian space efforts:** In direct response, Eisenhower signed...
+Context: 8 nodes, 0 edges
+
+============================================================
+RECALL 10/10
+============================================================
+Q: What do I know about the Saturn V rocket and who built it?
+A: From your notes:
+
+- **What Saturn V is:** a NASA **heavy-lift launch vehicle**.
+- **Key facts you have recorded:**
+  - It was **363 feet tall** and is noted as **the most powerful rocket ever successfully flown**.
+  - It **launched all Apollo lunar missions**.
+  - It also **launched the Skylab space...
+Context: 8 nodes, 0 edges
+
+Recall results saved to test_recall_pre_dream.json
+
+✓ Done.

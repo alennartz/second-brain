@@ -55,15 +55,6 @@ def normalize_edge(edge: dict) -> dict:
     return out
 
 
-def strip_embeddings(obj: Any) -> Any:
-    """Remove ``embedding`` fields from dicts before returning to the LLM."""
-    if isinstance(obj, dict):
-        return {k: strip_embeddings(v) for k, v in obj.items() if k != "embedding"}
-    if isinstance(obj, list):
-        return [strip_embeddings(v) for v in obj]
-    return obj
-
-
 class Context(BaseModel):
     """Curated graph context returned by recall/converse responses."""
 

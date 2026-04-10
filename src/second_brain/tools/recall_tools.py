@@ -69,14 +69,14 @@ async def hybrid_search(
     # When a statement fails (e.g. dimension mismatch), db.query() returns
     # the error string instead of a list of records. We must check for this.
     vs_result = await db.query(
-        f"SELECT * FROM {table} WHERE embedding <|{k},100|> $vec",
+        f"SELECT * OMIT embedding FROM {table} WHERE embedding <|{k},100|> $vec",
         {"vec": query_embedding},
     )
     if isinstance(vs_result, str):
         raise RuntimeError(f"Vector search on {table} failed: {vs_result}")
 
     ft_result = await db.query(
-        f"SELECT *, search::score(1) AS score "
+        f"SELECT *, search::score(1) AS score OMIT embedding "
         f"FROM {table} WHERE {field} @1@ $query "
         f"ORDER BY score DESC LIMIT {k}",
         {"query": query_text},
@@ -114,7 +114,7 @@ async def hybrid_search(
 async def get_node(db: AsyncSurreal, record_id: str) -> dict:
     """Get a single node by its record ID (e.g., 'note:1' or 'entity:sr')."""
     record_id = validate_record_id(record_id)
-    result = await db.query(f"SELECT * FROM {record_id}")
+    result = await db.query(f"SELECT * OMIT embedding FROM {record_id}")
     result = check_query_result(result, f"SELECT FROM {record_id}")
     if not result:
         return {}
@@ -128,7 +128,7 @@ async def fetch_records_by_ids(db: AsyncSurreal, record_ids: list[str]) -> list[
     results = []
     for rid in record_ids:
         rid = validate_record_id(rid)
-        result = await db.query(f"SELECT * FROM {rid}")
+        result = await db.query(f"SELECT * OMIT embedding FROM {rid}")
         result = check_query_result(result, f"SELECT FROM {rid}")
         if result:
             results.append(result[0])

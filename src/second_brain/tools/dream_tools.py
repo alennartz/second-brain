@@ -2,12 +2,11 @@
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
 import asyncio
 import logging
-import math
 from collections.abc import Awaitable, Callable
 
 from surrealdb import AsyncSurreal, RecordID
 
-from second_brain.models import make_serializable, strip_embeddings
+from second_brain.models import make_serializable
 from second_brain.validation import check_query_result, validate_record_id
 
 logger = logging.getLogger(__name__)
@@ -20,16 +19,6 @@ def _to_str(val) -> str:
     return str(val)
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    dot = sum(x * y for x, y in zip(a, b, strict=False))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(x * x for x in b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
 async def find_similar(
     db: AsyncSurreal,
     record_id: str,
@@ -37,8 +26,7 @@ async def find_similar(
 ) -> list[dict]:
     """Find the k nearest same-table neighbors by embedding similarity.
 
-    Returns results with similarity scores, embeddings stripped.
-    Excludes the source node itself.
+    Returns results with similarity scores. Excludes the source node itself.
     """
     validate_record_id(record_id)
     table = record_id.split(":")[0]
@@ -53,27 +41,22 @@ async def find_similar(
         return []
     source_embedding = source[0]["embedding"]
 
-    # Vector search for nearest neighbors (fetch k+1 to account for self-match)
+    # Vector search with DB-computed cosine similarity, embeddings excluded
     results = check_query_result(
         await db.query(
-            f"SELECT * FROM {table} WHERE embedding <|{k + 1},100|> $vec",
+            f"SELECT *, vector::similarity::cosine(embedding, $vec) AS similarity OMIT embedding "
+            f"FROM {table} WHERE embedding <|{k + 1},100|> $vec",
             {"vec": source_embedding},
         ),
         f"vector search on {table}",
     )
 
-    # Filter out the source node, compute similarity, strip embeddings
-    filtered = []
-    for rec in results:
-        rid = _to_str(rec["id"])
-        if rid == record_id:
-            continue
-        sim = _cosine_similarity(source_embedding, rec.get("embedding", []))
-        cleaned = strip_embeddings(make_serializable(rec))
-        cleaned["similarity"] = round(sim, 4)
-        filtered.append(cleaned)
+    # Filter out the source node
+    filtered = [
+        make_serializable(rec) for rec in results if _to_str(rec["id"]) != record_id
+    ]
 
-    filtered.sort(key=lambda r: r["similarity"], reverse=True)
+    filtered.sort(key=lambda r: r.get("similarity", 0), reverse=True)
     return filtered[:k]
 
 
@@ -261,13 +244,11 @@ async def merge_nodes(
         )
 
     survivor = check_query_result(
-        await db.query(f"SELECT * FROM {survivor_id}"),
+        await db.query(f"SELECT * OMIT embedding FROM {survivor_id}"),
         f"fetch survivor {survivor_id}",
     )
     return {
-        "survivor": strip_embeddings(make_serializable(survivor[0]))
-        if survivor
-        else {},
+        "survivor": make_serializable(survivor[0]) if survivor else {},
         "touched_ids": list(set(touched_ids)),
     }
 
@@ -341,13 +322,13 @@ async def explore(
 
                 if neighbor_table in node_types:
                     node = check_query_result(
-                        await db.query(f"SELECT * FROM {neighbor_id}"),
+                        await db.query(f"SELECT * OMIT embedding FROM {neighbor_id}"),
                         f"fetch node {neighbor_id}",
                     )
                     if node:
                         targets.append(
                             {
-                                "node": strip_embeddings(make_serializable(node[0])),
+                                "node": make_serializable(node[0]),
                                 "path": new_path,
                             }
                         )
@@ -425,13 +406,13 @@ async def find_unlinked_cooccurrences(
 
         # Fetch the other entity's content
         other = check_query_result(
-            await db.query(f"SELECT * FROM {other_id}"),
+            await db.query(f"SELECT * OMIT embedding FROM {other_id}"),
             f"fetch entity {other_id}",
         )
         if other:
             results.append(
                 {
-                    "entity": strip_embeddings(make_serializable(other[0])),
+                    "entity": make_serializable(other[0]),
                     "shared_notes": list(set(shared_notes)),
                 }
             )

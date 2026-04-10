@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pydantic_ai import Agent, RunContext
 from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable, strip_embeddings
+from second_brain.models import make_serializable
 from second_brain.tools import dream_tools, recall_tools
 
 logger = logging.getLogger(__name__)
@@ -116,6 +116,6 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
         node = await recall_tools.get_node(ctx.deps.db, record_id)
         if not node:
             return {"error": f"Node {record_id} not found"}
-        return strip_embeddings(make_serializable(node))
+        return make_serializable(node)
 
     return agent

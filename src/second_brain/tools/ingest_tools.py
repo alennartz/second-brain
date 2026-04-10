@@ -2,6 +2,7 @@
 # AsyncSurreal is typed as a factory function in the surrealdb SDK, not a class.
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Protocol, runtime_checkable
 
 from surrealdb import AsyncSurreal
 
@@ -14,17 +15,30 @@ from second_brain.validation import (
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
+class BatchEmbedder(Protocol):
+    """Embedding callable that also supports batch embedding."""
+
+    async def __call__(self, text: str) -> list[float]: ...
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+
+
 async def create_notes(
     db: AsyncSurreal,
     notes: list[dict],
     embed_fn: Callable[[str], Awaitable[list[float]]],
 ) -> list[dict]:
     """Create multiple notes. Each dict needs 'content', optional 'source' and 'summary'."""
+    contents = [n["content"] for n in notes]
+    if isinstance(embed_fn, BatchEmbedder):
+        embeddings = await embed_fn.embed_batch(contents)
+    else:
+        embeddings = [await embed_fn(c) for c in contents]
+
     results = []
-    for note in notes:
+    for note, embedding in zip(notes, embeddings, strict=True):
         content = note["content"]
         source = note.get("source", "api")
-        embedding = await embed_fn(content)
         data: dict = {"content": content, "source": source, "embedding": embedding}
         if note.get("summary"):
             data["summary"] = note["summary"]
@@ -41,13 +55,17 @@ async def create_entities(
     embed_fn: Callable[[str], Awaitable[list[float]]],
 ) -> list[dict]:
     """Create multiple entities. Each dict needs 'name', 'type', optional 'description'."""
+    texts = [e.get("description") or e["name"] for e in entities]
+    if isinstance(embed_fn, BatchEmbedder):
+        embeddings = await embed_fn.embed_batch(texts)
+    else:
+        embeddings = [await embed_fn(t) for t in texts]
+
     results = []
-    for entity in entities:
+    for entity, embedding in zip(entities, embeddings, strict=True):
         name = entity["name"]
         etype = entity["type"]
         description = entity.get("description")
-        text_to_embed = description or name
-        embedding = await embed_fn(text_to_embed)
         data: dict = {"name": name, "type": etype, "embedding": embedding}
         if description:
             data["description"] = description

@@ -1,0 +1,95 @@
+Server healthy ✓
+
+████████████████████████████████████████████████████████████
+PHASE: GRAPH PROBES (post-dream)
+████████████████████████████████████████████████████████████
+
+============================================================
+GRAPH PROBE: Wernher von Braun
+============================================================
+  Found: entity:ghyww6xadt8xexsosjzw
+  Node: Wernher von Braun
+  Connections: 11
+    → [directed] Marshall Space Flight Center
+    → [served_as_first_director_of] Marshall Space Flight Center
+    → [worked_for] United States Army
+    → [worked_on] PGM-19 Jupiter
+    → [worked_on] V-2 rocket
+    → [worked_on] Redstone (rocket)
+    ← [describes] During World War II, Wernher von Braun led develop
+    ← [describes] After World War II, the United States recruited Ge
+    ← [describes] Dr. Wernher von Braun served as the first director
+    ← [led_by] Von Braun rocket team
+    ← [led_by] V-2 rocket
+
+============================================================
+GRAPH PROBE: Apollo 11
+============================================================
+  Found: entity:gizm21nlm41r45095stf
+  Node: Apollo 11
+  Connections: 12
+    → [launched_from] Kennedy Space Center
+    → [launched_on] Apollo 11 launched atop a Saturn V rocket on July 
+    ← [crew_member_of] Neil Armstrong
+    ← [crew_member_of] Michael Collins
+    ← [crew_member_of] Buzz Aldrin
+    ← [describes] Apollo 11 launched atop a Saturn V rocket on July 
+    ← [describes] Apollo 11: Neil Armstrong became the first person 
+    ← [launched_mission] Saturn V
+    ← [part_of_mission] Command Module Columbia
+    ← [part_of_mission] Lunar Module Eagle
+    ← [preceded] Apollo 8
+    ← [spoken_during] "That's one small step for man, one giant leap for mankind."
+
+============================================================
+GRAPH PROBE: Sputnik
+============================================================
+  Found: entity:31531x6kjkaoekky5s27
+  Node: Sputnik 1
+  Connections: 9
+    → [launched_by] Soviet Union (USSR)
+    → [launched_from] Baikonur Cosmodrome
+    → [overseen_by] Chief Designer
+    → [part_of] Soviet space program
+    → [shocked] United States
+    → [triggered] Space Race
+    ← [describes] On October 4, 1957, the Soviet Union launched Sput
+    ← [describes] Baikonur Cosmodrome (in the desert steppe of Kazak
+    ← [motivated_by] In response to Sputnik, President Dwight D. Eisenh
+
+============================================================
+GRAPH PROBE: Korolev
+============================================================
+  Found: entity:prwpb317iktpkhdv00zi
+  Node: Sergei Pavlovich Korolev
+  Connections: 10
+    → [known_publicly_as] Chief Designer
+    → [led_engineering_for] Soviet space program
+    → [led_engineering_for] Soviet lunar program
+    ← [alias_for] Chief Designer
+    ← [describes] Sergei Korolev died on January 14, 1966 during sur
+    ← [describes] During his lifetime, Sergei Pavlovich Korolev's id
+    ← [describes] Sergei Pavlovich Korolev was the lead Soviet rocke
+    ← [describes] Cosmonaut Yuri Gagarin became the first human in s
+    ← [follows_after_death_of] After Korolev's death, the Soviet lunar program st
+    ← [overseen_by] Vostok 1
+
+============================================================
+GRAPH PROBE: Saturn V
+============================================================
+  Found: entity:s3joz2vhabd9qfw22xsb
+  Node: Saturn V
+  Connections: 9
+    → [designed_by] Von Braun rocket team
+    → [launched] Skylab
+    → [launched_mission] Apollo 11
+    → [launched_missions_for] Apollo program
+    ← [describes] Saturn V launched all Apollo lunar missions.
+    ← [describes] Saturn V was designed by Wernher von Braun's team 
+    ← [describes] Saturn V launched the Skylab space station.
+    ← [describes] Saturn V stood 363 feet tall and remains the most 
+    ← [mentions_launch_vehicle] Apollo 11 launched atop a Saturn V rocket on July 
+
+Post-dream graph results saved to test_graph_post_dream.json
+
+✓ Done.

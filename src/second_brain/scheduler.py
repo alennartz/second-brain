@@ -47,7 +47,7 @@ class DreamScheduler:
         nodes: list[dict[str, Any]] = []
         for table in ("entity", "note"):
             result = await self.db.query(
-                f"SELECT * FROM {table} ORDER BY dream_age ASC, created_at DESC LIMIT {self.batch_size}"
+                f"SELECT * OMIT embedding FROM {table} ORDER BY dream_age ASC, created_at DESC LIMIT {self.batch_size}"
             )
             if isinstance(result, list):
                 nodes.extend(result)
@@ -72,7 +72,7 @@ class DreamScheduler:
         for rid in record_ids:
             await self.db.query(f"UPDATE {rid} SET dream_age = dream_age + 1")
 
-    async def _run_cycle(self) -> None:
+    async def run_cycle(self) -> None:
         """Run one dream cycle: dedup then connect."""
         from second_brain.agents.dream_connect import ConnectDeps, create_connect_agent
         from second_brain.agents.dream_dedup import DedupDeps, create_dedup_agent
@@ -164,7 +164,7 @@ class DreamScheduler:
                 continue
 
             logger.info("dream: server idle, starting dream cycle")
-            await self._run_cycle()
+            await self.run_cycle()
 
     def start(self) -> None:
         """Start the scheduler as a background asyncio task."""

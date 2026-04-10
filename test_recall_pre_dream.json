@@ -1,0 +1,772 @@
+[
+  {
+    "question": "Who was the first person to walk on the Moon?",
+    "answer": "Neil Armstrong was the first person to walk on the Moon (Apollo 11, July 20, 1969).",
+    "context": {
+      "nodes": [
+        {
+          "content": "Apollo 11: Neil Armstrong became the first person to walk on the Moon on July 20, 1969. Buzz Aldrin joined him on the lunar surface while Michael Collins orbited above in the command module Columbia. The mission launched from Kennedy Space Center in Florida.",
+          "created_at": "2026-04-10T17:01:10.874669+00:00",
+          "dream_age": 0,
+          "id": "note:eokurh8zgvhnyj1d9gch",
+          "source": "api",
+          "summary": "Key Apollo 11 roles and timeline: Armstrong first moonwalk (July 20, 1969), Aldrin on surface, Collins in Columbia; launch from Kennedy Space Center, Florida.",
+          "updated_at": "2026-04-10T17:01:10.875500+00:00",
+          "table": "note"
+        },
+        {
+          "description": "NASA astronaut; first person to walk on the Moon (Apollo 11).",
+          "dream_age": 0,
+          "id": "entity:15vfu3r9bhn9i0w701kg",
+          "name": "Neil Armstrong",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "First crewed mission to land humans on the Moon (July 1969).",
+          "dream_age": 0,
+          "id": "entity:gizm21nlm41r45095stf",
+          "name": "Apollo 11",
+          "type": "mission",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "When was NASA created and why?",
+    "answer": "NASA was created on July 29, 1958, when President Dwight D. Eisenhower signed the National Aeronautics and Space Act.\n\nIt was created largely in response to the Soviet Union\u2019s launch of Sputnik (and the resulting Space Race/Cold War pressure), to establish a centralized U.S. civilian space agency\u2014absorbing NACA and some U.S. military space/aeronautics research programs into the new organization.",
+    "context": {
+      "nodes": [
+        {
+          "content": "In response to Sputnik, President Dwight D. Eisenhower signed the National Aeronautics and Space Act on July 29, 1958, creating NASA. The new agency absorbed NACA (the National Advisory Committee for Aeronautics) and several U.S. military research programs.",
+          "created_at": "2026-04-10T17:03:25.801550+00:00",
+          "dream_age": 0,
+          "id": "note:okim6g9zrzcieiiz1t94",
+          "source": "api",
+          "summary": "Eisenhower signed the National Aeronautics and Space Act (1958), creating NASA in response to Sputnik; NASA absorbed NACA and military research programs.",
+          "updated_at": "2026-04-10T17:03:25.802390+00:00",
+          "table": "note"
+        },
+        {
+          "description": "U.S. federal law signed July 29, 1958 establishing NASA.",
+          "dream_age": 0,
+          "id": "entity:peh756gwk42vscdrs3m3",
+          "name": "National Aeronautics and Space Act",
+          "type": "law",
+          "table": "entity"
+        },
+        {
+          "description": "34th President of the United States; signed the National Aeronautics and Space Act in 1958.",
+          "dream_age": 0,
+          "id": "entity:4pot2ja2d7977kzlxhji",
+          "name": "Dwight D. Eisenhower",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "U.S. civilian space agency created in 1958 by the National Aeronautics and Space Act.",
+          "dream_age": 0,
+          "id": "entity:8biuwkjeac726d4at6qp",
+          "name": "NASA (National Aeronautics and Space Administration)",
+          "type": "organization",
+          "table": "entity"
+        },
+        {
+          "description": "U.S. aeronautics research organization (1915\u20131958) absorbed into NASA.",
+          "dream_age": 0,
+          "id": "entity:7if1deg1w5akrj1rpefa",
+          "name": "National Advisory Committee for Aeronautics (NACA)",
+          "type": "organization",
+          "table": "entity"
+        },
+        {
+          "description": "Pre-NASA U.S. military research efforts that were absorbed into NASA in 1958.",
+          "dream_age": 0,
+          "id": "entity:ogzg2n7u9tjiuf9ydzsl",
+          "name": "Military space and aeronautics research programs (U.S.)",
+          "type": "program",
+          "table": "entity"
+        },
+        {
+          "content": "On October 4, 1957, the Soviet Union launched Sputnik 1, the first artificial satellite to orbit Earth.",
+          "created_at": "2026-04-10T17:02:55.186217+00:00",
+          "dream_age": 0,
+          "id": "note:6id7ay6zvzlls688ihqn",
+          "source": "api",
+          "summary": "Sputnik 1 launched by the Soviet Union on 1957-10-04; first artificial Earth satellite.",
+          "updated_at": "2026-04-10T17:02:55.187086+00:00",
+          "table": "note"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "What is the connection between von Braun's work in Germany and the Apollo program?",
+    "answer": "Von Braun\u2019s German work (especially leading development of the V-2 rocket program at Peenem\u00fcnde during WWII) established the engineering expertise and team that the U.S. later leveraged.\n\nAfter WWII, the U.S. recruited von Braun and his rocket team via Operation Paperclip and brought them to the United States, where they continued developing rockets for the U.S. Army and then NASA. Von Braun became the first director of NASA\u2019s Marshall Space Flight Center (1960\u20131970), where his team designed the Saturn V heavy-lift rocket. Saturn V was the launch vehicle that flew all Apollo lunar missions\u2014so the Apollo program\u2019s ability to reach the Moon depended directly on the people and rocketry lineage that began with von Braun\u2019s German V-2 work and transitioned to U.S. programs.\n",
+    "context": {
+      "nodes": [
+        {
+          "content": "During World War II, Wernher von Braun led development of the V-2 rocket at Peenem\u00fcnde in Nazi Germany.",
+          "created_at": "2026-04-10T17:01:34.507177+00:00",
+          "dream_age": 0,
+          "id": "note:h4qvmdrotbv8cqbrpkls",
+          "source": "api",
+          "summary": "Von Braun led WWII V-2 rocket development at Peenem\u00fcnde under Nazi Germany.",
+          "updated_at": "2026-04-10T17:01:34.507992+00:00",
+          "table": "note"
+        },
+        {
+          "content": "After World War II, the United States recruited German rocket scientists through Operation Paperclip; Wernher von Braun and his team surrendered to American forces and were brought to Fort Bliss, Texas, where they continued rocket research for the U.S. Army.",
+          "created_at": "2026-04-10T17:02:02.490361+00:00",
+          "dream_age": 0,
+          "id": "note:tfzes1cxo7j1rt5l4ofm",
+          "source": "api",
+          "summary": "Operation Paperclip brought von Braun\u2019s surrendered rocket team to Fort Bliss, Texas to continue U.S. Army rocket research.",
+          "updated_at": "2026-04-10T17:02:02.491161+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Dr. Wernher von Braun served as the first director of NASA's Marshall Space Flight Center from 1960 to 1970. Before joining NASA, he had worked on the V-2 program in Germany and later on the Redstone and Jupiter rockets for the U.S. Army.",
+          "created_at": "2026-04-10T17:08:37.119680+00:00",
+          "dream_age": 0,
+          "id": "note:inohpq22fi4qudmcv9dq",
+          "source": "api",
+          "summary": "Von Braun led Marshall Space Flight Center (1960\u20131970) and previously worked on V-2, Redstone, and Jupiter rockets.",
+          "updated_at": "2026-04-10T17:08:37.120864+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V was designed by Wernher von Braun's team at NASA's Marshall Space Flight Center in Huntsville, Alabama.",
+          "created_at": "2026-04-10T17:06:28.047616+00:00",
+          "dream_age": 0,
+          "id": "note:wgygof5n3w2hyqqxsku9",
+          "source": "api",
+          "summary": "Saturn V was designed by von Braun's team at Marshall Space Flight Center in Huntsville.",
+          "updated_at": "2026-04-10T17:06:28.048430+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V launched all Apollo lunar missions.",
+          "created_at": "2026-04-10T17:06:28.216698+00:00",
+          "dream_age": 0,
+          "id": "note:318qb3wpl2temyzsy3bt",
+          "source": "api",
+          "summary": "Saturn V launched all Apollo lunar missions.",
+          "updated_at": "2026-04-10T17:06:28.217543+00:00",
+          "table": "note"
+        },
+        {
+          "description": "German rocket engineer; led V-2 development at Peenem\u00fcnde during WWII.",
+          "dream_age": 0,
+          "id": "entity:ghyww6xadt8xexsosjzw",
+          "name": "Wernher von Braun",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "Group of German rocket scientists and engineers led by Wernher von Braun, involved in V-2 development and later U.S. rocket programs.",
+          "dream_age": 0,
+          "id": "entity:keeo6ddfde20p4mbksyi",
+          "name": "Von Braun rocket team",
+          "type": "group",
+          "table": "entity"
+        },
+        {
+          "description": "NASA center in Huntsville, Alabama; home of von Braun's team that designed the Saturn V.",
+          "dream_age": 0,
+          "id": "entity:ceak1y3y25vdt3jb4sgf",
+          "name": "Marshall Space Flight Center",
+          "type": "organization",
+          "table": "entity"
+        },
+        {
+          "description": "NASA heavy-lift launch vehicle (363 ft tall) designed by von Braun's team at Marshall Space Flight Center; launched Apollo lunar missions and Skylab; most powerful rocket ever successfully flown.",
+          "dream_age": 0,
+          "id": "entity:s3joz2vhabd9qfw22xsb",
+          "name": "Saturn V",
+          "type": "launch_vehicle",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "Trace the progression from Mercury to Gemini to Apollo.",
+    "answer": "**Progression: Mercury \u2192 Gemini \u2192 Apollo (as a capability build-up)**\n\n- **Project Mercury** (*entity:vy1dwzjuvkxjd1lhouj4*) \u2014 NASA\u2019s first human spaceflight program; focused on putting a person in orbit and returning them safely, and it selected the **Mercury Seven** astronauts (*entity:xzmmf479wb80im3d6nt0*).\n\n- **Gemini program** (*entity:x5to2ezcpmh7c365ldgt*, 1961\u20131966) \u2014 explicitly **bridged** Mercury and Apollo (*edge_label: bridged_between*). Gemini\u2019s job was to develop the operational skills Mercury didn\u2019t cover, notably **spacewalking/EVA** (*entity:bky14tmddea95d3lrah2*) and **orbital rendezvous/docking** (*entity:p7fohknxcv6hdyqrrzeu*), both prerequisites for lunar-mission architecture.\n\n- **Apollo program** (*entity:blnynvrn6d6x83e6z39s*, 1961\u20131972) \u2014 used those Gemini-proven techniques (EVA and rendezvous/docking) to execute its goal: landing humans on the Moon and returning them safely to Earth. Apollo lunar missions were launched by **Saturn V** (*entity:s3joz2vhabd9qfw22xsb*).\n",
+    "context": {
+      "nodes": [
+        {
+          "description": "NASA's first human spaceflight program; selected the Mercury Seven astronauts.",
+          "dream_age": 0,
+          "id": "entity:vy1dwzjuvkxjd1lhouj4",
+          "name": "Project Mercury",
+          "type": "program",
+          "table": "entity"
+        },
+        {
+          "description": "The first group of American astronauts selected by NASA in 1959 for Project Mercury.",
+          "dream_age": 0,
+          "id": "entity:xzmmf479wb80im3d6nt0",
+          "name": "Mercury Seven",
+          "type": "group",
+          "table": "entity"
+        },
+        {
+          "description": "NASA human spaceflight program (1961\u20131966) that bridged Project Mercury and the Apollo program; developed EVA (spacewalking) and orbital rendezvous/docking techniques.",
+          "dream_age": 0,
+          "id": "entity:x5to2ezcpmh7c365ldgt",
+          "name": "Gemini program",
+          "type": "program",
+          "table": "entity"
+        },
+        {
+          "description": "Extravehicular activity; astronauts working outside a spacecraft, developed and practiced during Gemini missions.",
+          "dream_age": 0,
+          "id": "entity:bky14tmddea95d3lrah2",
+          "name": "Spacewalking (EVA)",
+          "type": "concept",
+          "table": "entity"
+        },
+        {
+          "description": "Spaceflight technique where one spacecraft maneuvers to meet another in the same orbit; essential for lunar mission architectures.",
+          "dream_age": 0,
+          "id": "entity:p7fohknxcv6hdyqrrzeu",
+          "name": "Orbital rendezvous",
+          "type": "concept",
+          "table": "entity"
+        },
+        {
+          "description": "NASA program (1961\u20131972) to land humans on the Moon and return them safely to Earth.",
+          "dream_age": 0,
+          "id": "entity:blnynvrn6d6x83e6z39s",
+          "name": "Apollo program",
+          "type": "program",
+          "table": "entity"
+        },
+        {
+          "description": "NASA heavy-lift launch vehicle (363 ft tall) designed by von Braun's team at Marshall Space Flight Center; launched Apollo lunar missions and Skylab; most powerful rocket ever successfully flown.",
+          "dream_age": 0,
+          "id": "entity:s3joz2vhabd9qfw22xsb",
+          "name": "Saturn V",
+          "type": "launch_vehicle",
+          "table": "entity"
+        },
+        {
+          "content": "The Gemini program ran from 1961 to 1966 and served as a bridge between Project Mercury and the Apollo program.",
+          "created_at": "2026-04-10T17:05:57.650773+00:00",
+          "dream_age": 0,
+          "id": "note:670uej7pw9dbrocda46j",
+          "source": "api",
+          "summary": "Gemini program (1961\u20131966) bridged Mercury and Apollo.",
+          "updated_at": "2026-04-10T17:05:57.651595+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Gemini developed techniques for spacewalking (EVA) and orbital rendezvous that were essential for the Moon missions of the Apollo program.",
+          "created_at": "2026-04-10T17:05:58.032141+00:00",
+          "dream_age": 0,
+          "id": "note:vybs7kmad4re30ubohu4",
+          "source": "api",
+          "summary": "Gemini advanced EVA and orbital rendezvous needed for Apollo Moon missions.",
+          "updated_at": "2026-04-10T17:05:58.033000+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V launched all Apollo lunar missions.",
+          "created_at": "2026-04-10T17:06:28.216698+00:00",
+          "dream_age": 0,
+          "id": "note:318qb3wpl2temyzsy3bt",
+          "source": "api",
+          "summary": "Saturn V launched all Apollo lunar missions.",
+          "updated_at": "2026-04-10T17:06:28.217543+00:00",
+          "table": "note"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "What do I know about the Chief Designer of the Soviet space program?",
+    "answer": "In your notes, the USSR\u2019s \u201cChief Designer\u201d refers to **Sergei Pavlovich Korolev**.\n\nWhat you have recorded:\n- **Korolev was the lead Soviet rocket engineer and spacecraft designer**, and the central architect/mastermind behind the Soviet space program. \n- **His identity was kept secret while he was alive**; publicly he was referred to only as **\u201cthe Chief Designer.\u201d**\n- **He personally oversaw Yuri Gagarin\u2019s Vostok 1 mission** (1961-04-12) from the control center at **Baikonur Cosmodrome**.\n- **He died on 1966-01-14 during surgery**, and you note this was a major blow to the Soviet space program.\n- **After his death**, the Soviet lunar effort struggled: the **N1 rocket failed on all four launch attempts (1969\u20131972)**.\n",
+    "context": {
+      "nodes": [
+        {
+          "content": "Sergei Pavlovich Korolev was the lead Soviet rocket engineer and spacecraft designer and the mastermind behind the Soviet space program.",
+          "created_at": "2026-04-10T17:02:28.857551+00:00",
+          "dream_age": 0,
+          "id": "note:fc1jkxlnk6xdu59dupmt",
+          "source": "api",
+          "summary": "Korolev led Soviet rocketry/spacecraft design and was the central architect of the Soviet space program.",
+          "updated_at": "2026-04-10T17:02:28.858377+00:00",
+          "table": "note"
+        },
+        {
+          "content": "During his lifetime, Sergei Pavlovich Korolev's identity was kept secret by the USSR and he was referred to publicly only as 'the Chief Designer'.",
+          "created_at": "2026-04-10T17:02:29.053480+00:00",
+          "dream_age": 0,
+          "id": "note:vtzz86srejj92hl9ik6i",
+          "source": "api",
+          "summary": "Korolev was publicly anonymized as 'the Chief Designer' while alive.",
+          "updated_at": "2026-04-10T17:02:29.054316+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Cosmonaut Yuri Gagarin became the first human in space on April 12, 1961, aboard Vostok 1. The flight lasted 108 minutes and completed one orbit of Earth. Sergei Pavlovich Korolev personally oversaw the mission from the control center at Baikonur Cosmodrome in Kazakhstan.",
+          "created_at": "2026-04-10T17:04:22.140512+00:00",
+          "dream_age": 0,
+          "id": "note:74ugqrjg65sh3z93iph9",
+          "source": "api",
+          "summary": "Gagarin became first human in space on Vostok 1 (1961-04-12); 108-minute one-orbit flight; Korolev oversaw from Baikonur.",
+          "updated_at": "2026-04-10T17:04:22.141389+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Sergei Korolev died on January 14, 1966 during surgery; his death was a devastating blow to the Soviet space program.",
+          "created_at": "2026-04-10T17:07:25.164219+00:00",
+          "dream_age": 0,
+          "id": "note:esmx7kdv49orm7638dcw",
+          "source": "api",
+          "summary": "Korolev died during surgery on 1966-01-14, harming the Soviet space program.",
+          "updated_at": "2026-04-10T17:07:25.165138+00:00",
+          "table": "note"
+        },
+        {
+          "content": "After Korolev's death, the Soviet lunar program struggled with the N1 rocket, which failed on all four launch attempts between 1969 and 1972.",
+          "created_at": "2026-04-10T17:07:25.252477+00:00",
+          "dream_age": 0,
+          "id": "note:kpkdx37up8kyo958ktge",
+          "source": "api",
+          "summary": "Post-Korolev Soviet lunar effort: N1 rocket failed four times (1969\u20131972).",
+          "updated_at": "2026-04-10T17:07:25.253433+00:00",
+          "table": "note"
+        },
+        {
+          "description": "Lead Soviet rocket engineer and spacecraft designer; key architect of the Soviet space program; publicly referred to as 'the Chief Designer' while his identity was kept secret during his lifetime.",
+          "dream_age": 0,
+          "id": "entity:prwpb317iktpkhdv00zi",
+          "name": "Sergei Pavlovich Korolev",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "Public alias/title used by the USSR to refer to Sergei Korolev during his lifetime to keep his identity secret.",
+          "dream_age": 0,
+          "id": "entity:6a4yuf1dceptnaxofy0d",
+          "name": "Chief Designer",
+          "type": "title",
+          "table": "entity"
+        },
+        {
+          "description": "Soviet cosmonaut; first human to travel into outer space (Vostok 1, 1961-04-12).",
+          "dream_age": 0,
+          "id": "entity:zheg6u79s09zjokw41b4",
+          "name": "Yuri Gagarin",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "USSR's state-led program for rocketry and space exploration during the Space Race.",
+          "dream_age": 0,
+          "id": "entity:yu49vji9vcxkm80s9oqq",
+          "name": "Soviet space program",
+          "type": "program",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "Which astronauts died in the Apollo 1 fire, and what else do I know about them?",
+    "answer": "The Apollo 1 fire (1967-01-27) killed three astronauts:\n- Gus Grissom (entity:w8r640qg5tjtb3xsqlhd)\n- Ed White (entity:sz805cmhggtm1ydxokeh)\n- Roger Chaffee (entity:6e8aq8mvqqnhmtnzn4pz)\n\nWhat your notes say you know about them (beyond their deaths):\n- Grissom: he was one of the \u201cMercury Seven,\u201d the first American astronauts selected in 1959 (note:9msnw66180bvgdkf341c).\n- White: he performed the first American spacewalk (EVA) during Gemini 4 in June 1965 (entity:sz805cmhggtm1ydxokeh).\n- Chaffee: your notes currently only identify him as an Apollo 1 crew member who died in the cabin fire (entity:6e8aq8mvqqnhmtnzn4pz).\n\nContext you have about the incident: it happened during a launch rehearsal test at Cape Kennedy inside the Apollo 1 command module, and it led to major spacecraft redesigns and delayed the Apollo program by about 21 months (note:1c7k843vp4dcvds6z0mg; entity:5rk6b5t8l03j32nnt6th).",
+    "context": {
+      "nodes": [
+        {
+          "description": "NASA astronaut; Mercury Seven member.",
+          "dream_age": 0,
+          "id": "entity:w8r640qg5tjtb3xsqlhd",
+          "name": "Gus Grissom",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "NASA astronaut who performed the first American spacewalk (EVA) during Gemini 4 in June 1965.",
+          "dream_age": 0,
+          "id": "entity:sz805cmhggtm1ydxokeh",
+          "name": "Ed White",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "NASA astronaut; member of the Apollo 1 crew; died in the Apollo 1 cabin fire on 1967-01-27.",
+          "dream_age": 0,
+          "id": "entity:6e8aq8mvqqnhmtnzn4pz",
+          "name": "Roger Chaffee",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "content": "The Mercury Seven were the first American astronauts selected in 1959: Scott Carpenter, Gordon Cooper, John Glenn, Gus Grissom, Wally Schirra, Alan Shepard, and Deke Slayton.",
+          "created_at": "2026-04-10T17:05:16.979877+00:00",
+          "dream_age": 0,
+          "id": "note:9msnw66180bvgdkf341c",
+          "source": "api",
+          "summary": "Mercury Seven: first American astronauts selected in 1959.",
+          "updated_at": "2026-04-10T17:05:16.980697+00:00",
+          "table": "note"
+        },
+        {
+          "content": "On 1967-01-27, a cabin fire during a launch rehearsal test killed astronauts Gus Grissom, Ed White, and Roger Chaffee inside the Apollo 1 command module at Cape Kennedy. The disaster led to major redesigns of the spacecraft and delayed the Apollo program by about 21 months.",
+          "created_at": "2026-04-10T17:06:58.257035+00:00",
+          "dream_age": 0,
+          "id": "note:1c7k843vp4dcvds6z0mg",
+          "source": "api",
+          "summary": "Apollo 1 cabin fire (1967-01-27) killed Grissom, White, and Chaffee during a launch rehearsal at Cape Kennedy; prompted major spacecraft redesigns and delayed the Apollo program ~21 months.",
+          "updated_at": "2026-04-10T17:06:58.257997+00:00",
+          "table": "note"
+        },
+        {
+          "description": "Apollo program crewed spacecraft (AS-204) involved in a fatal cabin fire during a launch rehearsal test on 1967-01-27.",
+          "dream_age": 0,
+          "id": "entity:5rk6b5t8l03j32nnt6th",
+          "name": "Apollo 1",
+          "type": "mission",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "What role did Huntsville, Alabama play in the space program?",
+    "answer": "Huntsville, Alabama was a major U.S. rocket-development hub for the space program because it hosted NASA\u2019s Marshall Space Flight Center, where Wernher von Braun\u2019s team designed the Saturn V rocket. Saturn V was the heavy-lift launcher that flew all Apollo lunar missions and also launched Skylab\u2014so work centered in Huntsville directly enabled the Moon landings and early U.S. space-station efforts.\n\nIt also hosted the U.S. Army Ballistic Missile Agency (ABMA), tying Huntsville\u2019s missile work to the early foundations of U.S. space launch technology.",
+    "context": {
+      "nodes": [
+        {
+          "content": "Saturn V was designed by Wernher von Braun's team at NASA's Marshall Space Flight Center in Huntsville, Alabama.",
+          "created_at": "2026-04-10T17:06:28.047616+00:00",
+          "dream_age": 0,
+          "id": "note:wgygof5n3w2hyqqxsku9",
+          "source": "api",
+          "summary": "Saturn V was designed by von Braun's team at Marshall Space Flight Center in Huntsville.",
+          "updated_at": "2026-04-10T17:06:28.048430+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V launched all Apollo lunar missions.",
+          "created_at": "2026-04-10T17:06:28.216698+00:00",
+          "dream_age": 0,
+          "id": "note:318qb3wpl2temyzsy3bt",
+          "source": "api",
+          "summary": "Saturn V launched all Apollo lunar missions.",
+          "updated_at": "2026-04-10T17:06:28.217543+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V launched the Skylab space station.",
+          "created_at": "2026-04-10T17:06:28.396897+00:00",
+          "dream_age": 0,
+          "id": "note:mbg8feebs7eorqhfi8it",
+          "source": "api",
+          "summary": "Saturn V launched Skylab.",
+          "updated_at": "2026-04-10T17:06:28.397769+00:00",
+          "table": "note"
+        },
+        {
+          "description": "NASA center in Huntsville, Alabama; home of von Braun's team that designed the Saturn V.",
+          "dream_age": 0,
+          "id": "entity:ceak1y3y25vdt3jb4sgf",
+          "name": "Marshall Space Flight Center",
+          "type": "organization",
+          "table": "entity"
+        },
+        {
+          "description": "City in Alabama; location of the Army Ballistic Missile Agency (per note).",
+          "dream_age": 0,
+          "id": "entity:a265fdm3pi2v35t2f9kw",
+          "name": "Huntsville, Alabama",
+          "type": "place",
+          "table": "entity"
+        },
+        {
+          "description": "NASA heavy-lift launch vehicle (363 ft tall) designed by von Braun's team at Marshall Space Flight Center; launched Apollo lunar missions and Skylab; most powerful rocket ever successfully flown.",
+          "dream_age": 0,
+          "id": "entity:s3joz2vhabd9qfw22xsb",
+          "name": "Saturn V",
+          "type": "launch_vehicle",
+          "table": "entity"
+        },
+        {
+          "description": "NASA program (1961\u20131972) to land humans on the Moon and return them safely to Earth.",
+          "dream_age": 0,
+          "id": "entity:blnynvrn6d6x83e6z39s",
+          "name": "Apollo program",
+          "type": "program",
+          "table": "entity"
+        },
+        {
+          "description": "U.S. Army agency in Huntsville, Alabama; developed Jupiter-C (per note).",
+          "dream_age": 0,
+          "id": "entity:olelo91eojqwig12btyw",
+          "name": "Army Ballistic Missile Agency (ABMA)",
+          "type": "organization",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "What were the key events of 1961 in the space race?",
+    "answer": "Key Space Race events in 1961 (from your knowledge base):\n\n- **Apr 12, 1961 \u2014 Yuri Gagarin flies Vostok 1**: first human in space; **one Earth orbit**; **108-minute** flight; overseen from **Baikonur Cosmodrome** (USSR milestone). \n- **May 5, 1961 \u2014 Alan Shepard\u2019s flight**: first American in space (weeks after Gagarin).\n- **May 25, 1961 \u2014 JFK\u2019s \u201cUrgent National Needs\u201d message to Congress**: sets the national goal of **landing a man on the Moon before the end of the decade**, shaping the **Apollo program** and increasing NASA funding.\n\nCaveat: your notes don\u2019t currently list other major 1961 milestones (e.g., later Vostok/Mercury flights), so the above is limited to what\u2019s in the KB.",
+    "context": {
+      "nodes": [
+        {
+          "content": "Cosmonaut Yuri Gagarin became the first human in space on April 12, 1961, aboard Vostok 1. The flight lasted 108 minutes and completed one orbit of Earth. Sergei Pavlovich Korolev personally oversaw the mission from the control center at Baikonur Cosmodrome in Kazakhstan.",
+          "created_at": "2026-04-10T17:04:22.140512+00:00",
+          "dream_age": 0,
+          "id": "note:74ugqrjg65sh3z93iph9",
+          "source": "api",
+          "summary": "Gagarin became first human in space on Vostok 1 (1961-04-12); 108-minute one-orbit flight; Korolev oversaw from Baikonur.",
+          "updated_at": "2026-04-10T17:04:22.141389+00:00",
+          "table": "note"
+        },
+        {
+          "description": "Soviet cosmonaut; first human to travel into outer space (Vostok 1, 1961-04-12).",
+          "dream_age": 0,
+          "id": "entity:zheg6u79s09zjokw41b4",
+          "name": "Yuri Gagarin",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "First human spaceflight mission; carried Yuri Gagarin on 1961-04-12; one orbit; 108 minutes.",
+          "dream_age": 0,
+          "id": "entity:xak764r3x384aaytm2w3",
+          "name": "Vostok 1",
+          "type": "mission",
+          "table": "entity"
+        },
+        {
+          "description": "Spaceport in Kazakhstan used by the Soviet space program; mission control/launch site for early Soviet missions including Vostok.",
+          "dream_age": 0,
+          "id": "entity:zc93ze2n4gs094jde10b",
+          "name": "Baikonur Cosmodrome",
+          "type": "place",
+          "table": "entity"
+        },
+        {
+          "content": "Alan Shepard became the first American in space on May 5, 1961, just weeks after Yuri Gagarin's flight.",
+          "created_at": "2026-04-10T17:05:17.181976+00:00",
+          "dream_age": 0,
+          "id": "note:sq9ojmsp21cbg6ljdbyg",
+          "source": "api",
+          "summary": "Alan Shepard first American in space on 1961-05-05, shortly after Gagarin.",
+          "updated_at": "2026-04-10T17:05:17.182821+00:00",
+          "table": "note"
+        },
+        {
+          "description": "NASA astronaut; Mercury Seven member; first American in space (1961-05-05).",
+          "dream_age": 0,
+          "id": "entity:txe60n66za54fr7tm9n4",
+          "name": "Alan Shepard",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "content": "On May 25, 1961, President John F. Kennedy addressed the U.S. Congress and declared the national goal of landing a man on the Moon before the end of the decade. The speech set the direction for the Apollo program and led to a massive increase in NASA\u2019s budget.",
+          "created_at": "2026-04-10T17:04:53.632677+00:00",
+          "dream_age": 0,
+          "id": "note:3nlauytvor6dnufc92fk",
+          "source": "api",
+          "summary": "JFK\u2019s May 25, 1961 address to Congress set the Moon-landing-by-decade\u2019s-end goal, shaping Apollo and boosting NASA funding.",
+          "updated_at": "2026-04-10T17:04:53.633571+00:00",
+          "table": "note"
+        },
+        {
+          "description": "John F. Kennedy\u2019s address to the U.S. Congress proposing major national initiatives, including the goal of a crewed lunar landing before the end of the 1960s.",
+          "dream_age": 0,
+          "id": "entity:7kk7kv0e7u4cv8gsn2ej",
+          "name": "Special Message to the Congress on Urgent National Needs (May 25, 1961)",
+          "type": "speech",
+          "table": "entity"
+        },
+        {
+          "description": "NASA program (1961\u20131972) to land humans on the Moon and return them safely to Earth.",
+          "dream_age": 0,
+          "id": "entity:blnynvrn6d6x83e6z39s",
+          "name": "Apollo program",
+          "type": "program",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "How did Sputnik change the course of the American space program?",
+    "answer": "Sputnik (1957) jolted U.S. leaders and the public into treating spaceflight as an urgent Cold War priority, accelerating and centralizing the American effort.\n\nKey ways it changed the American space program:\n- **Created NASA and unified civilian space efforts:** In direct response, Eisenhower signed the **National Aeronautics and Space Act (1958)**, creating **NASA**, which **absorbed NACA** and folded in several military research programs\u2014shifting from scattered work to a single, high-profile civilian agency.\n- **Intensified the Space Race:** Sputnik\u2019s success helped trigger/intensify the **Space Race**, which in turn drove much larger federal investment and faster timelines for space-related science and engineering.\n\nCited sources from your knowledge base emphasize the shock/Space Race trigger and the 1958 law that created NASA and reorganized U.S. capabilities under it.",
+    "context": {
+      "nodes": [
+        {
+          "content": "In response to Sputnik, President Dwight D. Eisenhower signed the National Aeronautics and Space Act on July 29, 1958, creating NASA. The new agency absorbed NACA (the National Advisory Committee for Aeronautics) and several U.S. military research programs.",
+          "created_at": "2026-04-10T17:03:25.801550+00:00",
+          "dream_age": 0,
+          "id": "note:okim6g9zrzcieiiz1t94",
+          "source": "api",
+          "summary": "Eisenhower signed the National Aeronautics and Space Act (1958), creating NASA in response to Sputnik; NASA absorbed NACA and military research programs.",
+          "updated_at": "2026-04-10T17:03:25.802390+00:00",
+          "table": "note"
+        },
+        {
+          "description": "U.S. civilian space agency created in 1958 by the National Aeronautics and Space Act.",
+          "dream_age": 0,
+          "id": "entity:8biuwkjeac726d4at6qp",
+          "name": "NASA (National Aeronautics and Space Administration)",
+          "type": "organization",
+          "table": "entity"
+        },
+        {
+          "description": "U.S. federal law signed July 29, 1958 establishing NASA.",
+          "dream_age": 0,
+          "id": "entity:peh756gwk42vscdrs3m3",
+          "name": "National Aeronautics and Space Act",
+          "type": "law",
+          "table": "entity"
+        },
+        {
+          "description": "34th President of the United States; signed the National Aeronautics and Space Act in 1958.",
+          "dream_age": 0,
+          "id": "entity:4pot2ja2d7977kzlxhji",
+          "name": "Dwight D. Eisenhower",
+          "type": "person",
+          "table": "entity"
+        },
+        {
+          "description": "First artificial Earth satellite, launched by the Soviet Union on 1957-10-04.",
+          "dream_age": 0,
+          "id": "entity:31531x6kjkaoekky5s27",
+          "name": "Sputnik 1",
+          "type": "satellite",
+          "table": "entity"
+        },
+        {
+          "content": "The Sputnik 1 launch shocked the United States and triggered the Space Race.",
+          "created_at": "2026-04-10T17:02:55.465348+00:00",
+          "dream_age": 0,
+          "id": "note:ei9911gea206gg1cfg9w",
+          "source": "api",
+          "summary": "Sputnik 1 shocked the US and helped trigger/intensify the Space Race.",
+          "updated_at": "2026-04-10T17:02:55.466184+00:00",
+          "table": "note"
+        },
+        {
+          "description": "Cold War-era competition in space exploration, intensified after Sputnik 1.",
+          "dream_age": 0,
+          "id": "entity:d928m21eh3jb6k1qwm54",
+          "name": "Space Race",
+          "type": "historical_period",
+          "table": "entity"
+        },
+        {
+          "content": "The Space Race rivalry drove massive government investment in science and engineering.",
+          "created_at": "2026-04-10T17:09:01.754987+00:00",
+          "dream_age": 0,
+          "id": "note:52hfd2inuhvf7aw6662l",
+          "source": "api",
+          "summary": "Space Race competition spurred major state investment in science and engineering.",
+          "updated_at": "2026-04-10T17:09:01.755805+00:00",
+          "table": "note"
+        }
+      ],
+      "edges": []
+    }
+  },
+  {
+    "question": "What do I know about the Saturn V rocket and who built it?",
+    "answer": "From your notes:\n\n- **What Saturn V is:** a NASA **heavy-lift launch vehicle**.\n- **Key facts you have recorded:**\n  - It was **363 feet tall** and is noted as **the most powerful rocket ever successfully flown**.\n  - It **launched all Apollo lunar missions**.\n  - It also **launched the Skylab space station**.\n  - **Apollo 11** launched atop a **Saturn V** on **July 16, 1969**.\n\n- **Who built/designed it (per your knowledge base):** Saturn V was **designed by Wernher von Braun\u2019s team** (the **Von Braun rocket team**) at NASA\u2019s **Marshall Space Flight Center** in **Huntsville, Alabama**.\n",
+    "context": {
+      "nodes": [
+        {
+          "content": "Saturn V was designed by Wernher von Braun's team at NASA's Marshall Space Flight Center in Huntsville, Alabama.",
+          "created_at": "2026-04-10T17:06:28.047616+00:00",
+          "dream_age": 0,
+          "id": "note:wgygof5n3w2hyqqxsku9",
+          "source": "api",
+          "summary": "Saturn V was designed by von Braun's team at Marshall Space Flight Center in Huntsville.",
+          "updated_at": "2026-04-10T17:06:28.048430+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V stood 363 feet tall and remains the most powerful rocket ever successfully flown.",
+          "created_at": "2026-04-10T17:06:28.133593+00:00",
+          "dream_age": 0,
+          "id": "note:yajsstux0poqy42l39vw",
+          "source": "api",
+          "summary": "Saturn V specs/claim: 363 ft tall; most powerful rocket successfully flown.",
+          "updated_at": "2026-04-10T17:06:28.134436+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V launched all Apollo lunar missions.",
+          "created_at": "2026-04-10T17:06:28.216698+00:00",
+          "dream_age": 0,
+          "id": "note:318qb3wpl2temyzsy3bt",
+          "source": "api",
+          "summary": "Saturn V launched all Apollo lunar missions.",
+          "updated_at": "2026-04-10T17:06:28.217543+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Saturn V launched the Skylab space station.",
+          "created_at": "2026-04-10T17:06:28.396897+00:00",
+          "dream_age": 0,
+          "id": "note:mbg8feebs7eorqhfi8it",
+          "source": "api",
+          "summary": "Saturn V launched Skylab.",
+          "updated_at": "2026-04-10T17:06:28.397769+00:00",
+          "table": "note"
+        },
+        {
+          "content": "Apollo 11 launched atop a Saturn V rocket on July 16, 1969.",
+          "created_at": "2026-04-10T17:10:16.812514+00:00",
+          "dream_age": 0,
+          "id": "note:tyuvis2fis6lm4d17rbo",
+          "source": "api",
+          "summary": "Apollo 11 launch date and vehicle",
+          "updated_at": "2026-04-10T17:10:16.814886+00:00",
+          "table": "note"
+        },
+        {
+          "description": "NASA heavy-lift launch vehicle (363 ft tall) designed by von Braun's team at Marshall Space Flight Center; launched Apollo lunar missions and Skylab; most powerful rocket ever successfully flown.",
+          "dream_age": 0,
+          "id": "entity:s3joz2vhabd9qfw22xsb",
+          "name": "Saturn V",
+          "type": "launch_vehicle",
+          "table": "entity"
+        },
+        {
+          "description": "Group of German rocket scientists and engineers led by Wernher von Braun, involved in V-2 development and later U.S. rocket programs.",
+          "dream_age": 0,
+          "id": "entity:keeo6ddfde20p4mbksyi",
+          "name": "Von Braun rocket team",
+          "type": "group",
+          "table": "entity"
+        },
+        {
+          "description": "NASA center in Huntsville, Alabama; home of von Braun's team that designed the Saturn V.",
+          "dream_age": 0,
+          "id": "entity:ceak1y3y25vdt3jb4sgf",
+          "name": "Marshall Space Flight Center",
+          "type": "organization",
+          "table": "entity"
+        }
+      ],
+      "edges": []
+    }
+  }
+]

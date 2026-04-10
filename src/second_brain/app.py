@@ -31,11 +31,21 @@ from second_brain.scheduler import DreamScheduler
 from second_brain.tools.recall_tools import get_node
 from second_brain.validation import validate_record_id
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+# Console + file logging
+_log_fmt = logging.Formatter(
+    "%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
+_console = logging.StreamHandler()
+_console.setFormatter(_log_fmt)
+_file = logging.FileHandler("server.log", mode="w")
+_file.setFormatter(
+    logging.Formatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
+logging.basicConfig(level=logging.INFO, handlers=[_console, _file])
 logger = logging.getLogger(__name__)
 
 _db: Any = None
@@ -53,6 +63,10 @@ def _dummy_embed(dimensions: int):
     async def _embed_fn(text: str) -> list[float]:
         return [0.0] * dimensions
 
+    async def _embed_batch(texts: list[str]) -> list[list[float]]:
+        return [[0.0] * dimensions for _ in texts]
+
+    _embed_fn.embed_batch = _embed_batch  # type: ignore[attr-defined]
     return _embed_fn
 
 
@@ -278,6 +292,28 @@ async def run_converse_agent(
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/dream")
+async def dream():
+    """Manually trigger one dream cycle as a background task."""
+    logger.info("POST /dream")
+    scheduler = _scheduler
+    if scheduler is None:
+        scheduler = DreamScheduler(
+            db=_db,
+            embed_fn=_embed,
+            model=_model,
+            idle_timeout=0,
+            batch_size=settings.dream_batch_size,
+        )
+    else:
+        scheduler.touch_activity()  # pause any in-progress auto-dream
+    task = asyncio.create_task(scheduler.run_cycle())
+    task.add_done_callback(
+        lambda t: t.result() if not t.cancelled() and not t.exception() else None
+    )
+    return {"status": "started"}
 
 
 @app.post("/ingest", response_model=IngestResponse)

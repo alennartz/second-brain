@@ -116,3 +116,81 @@ Passes through to `ingest_tools.store_knowledge`. Returns the summary dict direc
 - Old granular create tools (`create_notes`, `create_entities`, `create_edges`) are absent
 
 **Review status:** approved
+
+## Steps
+
+### Step 1: Implement `store_knowledge` in `ingest_tools.py`
+
+Replace the `NotImplementedError` stub in `src/second_brain/tools/ingest_tools.py` with the full implementation. The function already has the correct signature. Implementation:
+
+1. **Create entities** — call the existing `create_entities(db, entities, embed_fn)`. Collect the returned list of dicts; each has an `"id"` field (a `RecordID` or string). Build `entities_created` list: `[{"ref": "new_entity:0", "id": <serialized_id>, "name": <name>}, ...]`.
+
+2. **Create notes** — call the existing `create_notes(db, notes, embed_fn)`. Build `notes_created` list: `[{"ref": "new_note:0", "id": <serialized_id>}, ...]`.
+
+3. **Build ref map** — a `dict[str, str]` mapping `"new_entity:0"` → `"entity:abc"`, `"new_note:0"` → `"note:xyz"`, etc. IDs come back as `RecordID` objects from SurrealDB — use `make_serializable` (from `second_brain.models`) to convert each to a `"table:id"` string before storing in the ref map.
+
+4. **Resolve and filter edges** — for each edge in `edges`:
+   - Resolve `from_ref` and `to_ref`: if it matches `new_entity:N` or `new_note:N`, look up in the ref map. If the ref isn't in the map (out-of-bounds index), record an error in `errors` and increment `edges_skipped`. If it doesn't match a `new_*` pattern, validate it as a record ID using `validate_record_id` — if invalid, record an error and skip. If valid, pass through as-is.
+   - After resolving both sides, check for self-edges (resolved `from_id == to_id`) — skip with increment to `edges_skipped`.
+   - Build the resolved edge dict with `from_id`, `edge_table`, `to_id`, and optional `context`.
+
+5. **Create edges** — pass the resolved edge list to the existing `create_edges(db, resolved_edges)`. Count results: edges where `"skipped"` is truthy go to `edges_skipped`, others to `edges_created`.
+
+6. **Return** the summary dict: `{"entities_created": [...], "notes_created": [...], "edges_created": int, "edges_skipped": int, "errors": [...]}`.
+
+Import `make_serializable` from `second_brain.models` at the top of the file.
+
+The `new_entity:N` / `new_note:N` pattern matching should use a simple prefix check and integer parse — no regex needed. A helper like `_resolve_ref(ref: str, ref_map: dict[str, str]) -> str` that returns the resolved ID or raises `ValueError` keeps the edge loop clean.
+
+**Verify:** `uv run pytest -v tests/test_store_knowledge.py` — all 14 tests pass.
+**Status:** not started
+
+### Step 2: Add `store_knowledge` agent tool wrapper and remove old create tools in `ingest.py`
+
+In `src/second_brain/agents/ingest.py`:
+
+1. **Remove** the three `@agent.tool` functions: `create_notes`, `create_entities`, `create_edges`. These are the inner functions defined inside `create_ingest_agent()`, not the `ingest_tools` module-level functions (those stay).
+
+2. **Add** a new `@agent.tool` function `store_knowledge` that wraps `ingest_tools.store_knowledge`:
+
+```python
+@agent.tool
+async def store_knowledge(
+    ctx: RunContext[IngestDeps],
+    entities: list[dict],
+    notes: list[dict],
+    edges: list[dict],
+) -> dict:
+    """Store entities, notes, and edges in one call.
+
+    entities: [{name, type, description?}]
+    notes: [{content, source?, summary?}]
+    edges: [{from_ref, edge_table, to_ref, context?}]
+      from_ref/to_ref: "new_entity:N" or "new_note:N" for items in this call,
+      or an existing record ID like "entity:abc123".
+    """
+    logger.info(
+        "ingest: store_knowledge (%d entities, %d notes, %d edges)",
+        len(entities), len(notes), len(edges),
+    )
+    try:
+        result = await ingest_tools.store_knowledge(
+            ctx.deps.db, entities, notes, edges, ctx.deps.embed_fn,
+        )
+        return make_serializable(result)
+    except Exception as e:
+        logger.error("ingest: store_knowledge failed: %s", e)
+        return {"error": str(e)}
+```
+
+3. **Update the system prompt** — replace the numbered instructions that tell the LLM to create notes, entities, and edges in separate calls. The new workflow is: (1) parse input, (2) search broadly for dedup, (3) call `store_knowledge` once with all entities, notes, and edges. Keep the guidance about deduplication, entity-entity edges being most valuable, and descriptive edge names.
+
+**Verify:** `uv run pytest -v tests/test_ingest_agent.py` — both tests pass (tool surface check and agent run).
+**Status:** not started
+
+### Step 3: Run full test suite to confirm no regressions
+
+Run the complete Python test suite to verify nothing else broke — particularly `test_ingest_tools.py` (existing create functions still work), `test_dream_connect_agent.py` (still uses `create_edges` via `ingest_tools`), and `test_converse_agent.py` (delegates to ingest agent).
+
+**Verify:** `uv run pytest -v` — all tests pass. No new test failures beyond the targeted changes.
+**Status:** not started

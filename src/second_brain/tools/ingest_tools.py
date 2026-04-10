@@ -145,6 +145,24 @@ async def create_edges(
     return results
 
 
+async def store_knowledge(
+    db: AsyncSurreal,
+    entities: list[dict],
+    notes: list[dict],
+    edges: list[dict],
+    embed_fn: Callable[[str], Awaitable[list[float]]],
+) -> dict:
+    """Create entities, notes, and edges in one call with reference resolution.
+
+    Edges can reference items created in this call via 'new_entity:N' or
+    'new_note:N', or existing record IDs.
+
+    Returns a summary dict with entities_created, notes_created,
+    edges_created, edges_skipped, and errors.
+    """
+    raise NotImplementedError("store_knowledge not yet implemented")
+
+
 async def update_node(db: AsyncSurreal, record_id: str, fields: dict) -> dict:
     """Update fields on an existing node."""
     if not fields:

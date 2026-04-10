@@ -77,3 +77,40 @@ async def store_knowledge(
 ```
 
 Passes through to `ingest_tools.store_knowledge`. Returns the summary dict directly — compact enough for LLM context.
+
+## Tests
+
+**Pre-test-write commit:** `430c9b3f892e171136e0ea828c9c7f189515cdfa`
+
+### Interface Files
+
+- `src/second_brain/tools/ingest_tools.py` — Added `store_knowledge` stub (raises `NotImplementedError`)
+
+### Test Files
+
+- `tests/test_store_knowledge.py` — Behavioral tests for `store_knowledge` reference resolution, edge creation, error handling
+- `tests/test_ingest_agent.py` — Updated tool name assertions for new tool surface
+
+### Behaviors Covered
+
+#### store_knowledge (ingest_tools)
+
+- Creates entities and returns refs with assigned IDs
+- Creates notes and returns refs with assigned IDs
+- Resolves `new_entity:N` references in edges to created entity IDs
+- Resolves `new_note:N` references in edges to created note IDs
+- Passes through existing record IDs in edge refs unchanged
+- Handles mixed new and existing refs in the same edge set
+- Full realistic ingest scenario (multiple entities, notes, cross-referencing edges)
+- Empty inputs return empty results with zero counts
+- Entities-only and notes-only inputs work without edges
+- Out-of-bounds entity ref index → edge skipped, error recorded
+- Out-of-bounds note ref index → edge skipped, error recorded
+- Malformed ref (not a valid record ID or new_* ref) → edge skipped, error recorded
+- Valid edges still created when other edges in the same call fail
+- Self-edges (same entity on both sides via refs) are skipped
+
+#### Ingest Agent (agents/ingest)
+
+- Agent tool surface includes `store_knowledge`, `search_knowledge`, `get_node`, `update_node`
+- Old granular create tools (`create_notes`, `create_entities`, `create_edges`) are absent

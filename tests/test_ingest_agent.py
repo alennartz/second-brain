@@ -16,16 +16,16 @@ async def ingest_deps(db):
 async def test_ingest_agent_has_tools():
     agent = create_ingest_agent()
     tool_names = set(agent._function_toolset.tools)
-    assert "create_notes" in tool_names
-    assert "create_entities" in tool_names
-    assert "create_edges" in tool_names
+    # New consolidated tool
+    assert "store_knowledge" in tool_names
+    # Retained tools
     assert "update_node" in tool_names
     assert "search_knowledge" in tool_names
     assert "get_node" in tool_names
-    # Old single-create tools should NOT exist
-    assert "create_note" not in tool_names
-    assert "create_entity" not in tool_names
-    assert "create_edge" not in tool_names
+    # Old granular create tools should NOT exist
+    assert "create_notes" not in tool_names
+    assert "create_entities" not in tool_names
+    assert "create_edges" not in tool_names
 
 
 async def test_ingest_agent_runs(ingest_deps):

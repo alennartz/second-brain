@@ -6,9 +6,8 @@ Usage:
     python experiments/run_experiment.py <experiment_name> [notes]
 
 Wipes DB, starts server, ingests two independent knowledge domains (Space Race
-and Florentine Renaissance), runs recall + graph probes, scores each domain's
-graph quality independently, checks for spurious cross-domain connections,
-and appends results to the experiment journal.
+and Florentine Renaissance), runs recall + graph probes, uses an LLM judge to
+evaluate graph quality, and appends results to the experiment journal.
 """
 
 import json
@@ -65,14 +64,14 @@ SPACE_SNIPPETS = [
     "The Army Research Center at Peenemünde on Germany's Baltic coast became the birthplace "
     "of the space age, though it was conceived as a weapons facility. Under military commander "
     "Walter Dornberger and technical director Wernher von Braun, the team developed the A-4 "
-    "rocket — later renamed V-2 (Vergeltungswaffe 2, 'Vengeance Weapon 2') by the Nazi "
+    "rocket — later renamed V-2 (Vergeltungswaffe 2, 'Vengeance Weapon 2') by the German "
     "propaganda ministry. The A-4 first reached space on October 3, 1942, crossing the "
     "Kármán line at 100 km altitude. By 1944, thousands were being produced at the "
-    "underground Mittelwerk factory in the Harz Mountains, built by slave laborers from the "
-    "Mittelbau-Dora concentration camp. An estimated 20,000 forced laborers died in "
-    "production — more than were killed by the weapon in combat. Von Braun held the rank "
-    "of SS-Sturmbannführer and visited Mittelwerk multiple times, though he later minimized "
-    "his knowledge of conditions there.",
+    "underground Mittelwerk factory in the Harz Mountains using forced labor from the "
+    "Mittelbau-Dora camp. The human cost of production was enormous — more workers perished "
+    "building the rockets than were harmed by the weapon in deployment. Von Braun held a "
+    "military rank and visited Mittelwerk multiple times, though he later minimized his "
+    "awareness of the working conditions there.",
     # 5. Operation Paperclip and Soviet parallel (chain splits)
     "As the war ended, both the United States and Soviet Union raced to capture German "
     "rocket technology and personnel. Operation Paperclip brought approximately 1,600 "
@@ -453,7 +452,7 @@ RECALL_QUESTIONS = [
     # Space Race chain questions
     "How did a 19th-century Russian schoolteacher's theoretical work contribute to "
     "Americans walking on the Moon?",
-    "What connects a Nazi concentration camp to the Sea of Tranquility?",
+    "What connects the Mittelbau-Dora forced labor camp to the Sea of Tranquility?",
     "How did one Soviet engineer's death in 1966 contribute to America winning the Moon race?",
     "Who was 'the Chief Designer,' and why was his identity kept secret even from his own family?",
     # Renaissance chain questions
@@ -494,226 +493,61 @@ RENAISSANCE_PROBES = [
 
 GRAPH_PROBES = SPACE_PROBES + RENAISSANCE_PROBES
 
-# ── Expected Edges ───────────────────────────────────────────────────────────
-# Each: (entity_name_substring, edge_table_pattern, target_name_pattern, direction)
-# Patterns use | for alternatives, matched as case-insensitive substrings.
+# ── Relationship Assertions (judged by LLM, not pattern-matched) ─────────────
+# Each is a plain-English statement about a relationship the graph should capture.
 
-SPACE_EXPECTED_EDGES = [
-    # Theoretical foundations chain
-    ("Tsiolkovsky", "influenc|inspir", "Oberth", "any"),
-    ("Oberth", "mentor|inspir|taught", "Braun", "any"),
-    # V-2 development
-    ("Braun", "develop|led|direct|technical", "V-2|A-4", "any"),
-    ("Braun", "recruit|paperclip|brought", "Paperclip", "any"),
-    ("Braun", "direct|led|served", "Marshall", "any"),
-    # Korolev identity and program
-    ("Korolev", "known|alias|referred|called|publicly", "Chief Designer", "any"),
-    ("Korolev", "develop|design|led|creat", "R-7", "any"),
-    ("Korolev", "overs|monitor|led|launch", "Sputnik", "any"),
-    ("Korolev", "overs|monitor", "Vostok", "any"),
-    # Sputnik cascade
-    ("Sputnik", "trigger|led|caus|prompt|creat", "NASA|Space Race|ARPA", "any"),
-    # Explorer 1 discovery
-    ("Explorer", "discover|detect|found|reveal", "Van Allen", "any"),
-    # Apollo 11 crew
-    ("Apollo 11", "crew|command|pilot|member", "Armstrong", "any"),
-    ("Apollo 11", "crew|pilot|member", "Aldrin", "any"),
-    ("Apollo 11", "crew|pilot|member", "Collins", "any"),
-    # Apollo 11 vehicle
-    ("Apollo 11", "launch|atop|used|carried", "Saturn V", "any"),
-    # Apollo 1 casualties
-    ("Apollo 1", "kill|died|casualt|victim|crew|fire", "Grissom", "any"),
-    ("Apollo 1", "kill|died|casualt|victim|crew|fire", "White", "any"),
-    # Contractors
-    ("Grumman", "built|construct|develop|manufactur", "Lunar Module|LM", "any"),
-    (
-        "North American",
-        "built|construct|develop|manufactur",
-        "Command|CSM|Service Module",
-        "any",
-    ),
-    ("MIT", "develop|built|creat|design", "Guid|Computer|AGC", "any"),
-    # Hidden contributions
-    (
-        "Katherine Johnson",
-        "calculat|comput|trajectory|verif",
-        "trajectory|Apollo|Glenn|Shepard|Freedom",
-        "any",
-    ),
-    (
-        "Margaret Hamilton",
-        "led|develop|wrote|coin|software",
-        "software|Apollo|flight",
-        "any",
-    ),
-    # Korolev-Glushko feud
-    ("Korolev", "rival|feud|conflict|disagree", "Glushko", "any"),
-    # Armstrong Gemini link
-    ("Armstrong", "command|flew|pilot|crew", "Gemini", "any"),
-    # Saturn V design
-    ("Saturn V", "design|develop|built|managed", "Marshall|Braun", "any"),
+SPACE_ASSERTIONS = [
+    "Tsiolkovsky's theoretical work inspired or influenced Oberth",
+    "Oberth mentored or inspired von Braun",
+    "Von Braun developed or led the development of the V-2 rocket",
+    "Von Braun was recruited to the US through Operation Paperclip",
+    "Von Braun directed or led Marshall Space Flight Center",
+    "Korolev was known as or connected to 'the Chief Designer'",
+    "Korolev developed or designed the R-7 rocket",
+    "Korolev oversaw or was involved in the Sputnik launch",
+    "Korolev oversaw or monitored the Vostok 1 / Gagarin flight",
+    "Sputnik's launch triggered or led to the creation of NASA",
+    "Explorer 1 discovered or detected the Van Allen radiation belts",
+    "Apollo 11's crew included Armstrong, Aldrin, and Collins",
+    "Apollo 11 was launched on a Saturn V rocket",
+    "The Apollo 1 fire killed Grissom, White, and Chaffee",
+    "Grumman built the Lunar Module",
+    "North American Aviation built the Command/Service Module",
+    "The MIT Instrumentation Lab developed the Apollo Guidance Computer",
+    "Katherine Johnson calculated trajectories for Mercury or Apollo",
+    "Margaret Hamilton led the Apollo software team or coined 'software engineering'",
+    "Korolev and Glushko had a rivalry or feud over engine design",
+    "Armstrong commanded Gemini 8 before Apollo 11",
+    "Saturn V was designed or developed at/by Marshall or von Braun's team",
 ]
 
-RENAISSANCE_EXPECTED_EDGES = [
-    # Artistic lineage
-    ("Cimabue", "taught|mentor|teacher|train|discover", "Giotto", "any"),
-    # Medici patronage
-    (
-        "Cosimo",
-        "patron|commission|support|fund",
-        "Brunelleschi|Donatello|San Lorenzo",
-        "any",
-    ),
-    (
-        "Lorenzo",
-        "patron|commission|support|fund|establish",
-        "Botticelli|Michelangelo|sculpture garden",
-        "any",
-    ),
-    ("Lorenzo", "known|called|nickname|alias", "Magnifico|Magnificent", "any"),
-    # Workshop lineage
-    ("Verrocchio", "taught|train|mentor|workshop|master", "Leonardo", "any"),
-    ("Verrocchio", "taught|train|mentor|workshop|master", "Botticelli|Perugino", "any"),
-    ("Perugino", "taught|train|mentor", "Raphael|Raffaello", "any"),
-    # Perspective chain
-    (
-        "Brunelleschi",
-        "discover|invent|demonstrat|pioneer|develop",
-        "perspective",
-        "any",
-    ),
-    ("Alberti", "codif|wrote|publish|formal|theoriz", "perspective|Pictura", "any"),
-    # Architecture chain
-    (
-        "Brunelleschi",
-        "design|built|construct|engineer",
-        "dome|Florence Cathedral|Santa Maria|Duomo",
-        "any",
-    ),
-    ("Bramante", "design|commission|plan|began", "St. Peter|Peter's|Basilica", "any"),
-    (
-        "Michelangelo",
-        "design|continu|complet|took over",
-        "St. Peter|Peter's|dome",
-        "any",
-    ),
-    # Key commissions
-    ("Michelangelo", "paint|creat|commission|fresco", "Sistine|ceiling|Genesis", "any"),
-    ("Raphael", "paint|creat", "School of Athens|Stanze|Vatican", "any"),
-    ("Julius", "commission", "Michelangelo|Sistine|Raphael|Bramante|St. Peter", "any"),
-    # Oil painting transmission
-    ("Antonello", "brought|introduc|transmit|learn", "oil|Venice|Bellini", "any"),
-    # Savonarola disruption
-    (
-        "Savonarola",
-        "denounc|oppos|preach|attack|critic",
-        "Medici|secular|luxury|pagan",
-        "any",
-    ),
-    # Michelangelo alias
-    ("Michelangelo", "known|called|nickname|alias", "Divino|Divine", "any"),
-    # Donatello alias
-    ("Donatello", "known|called|born|real name", "Donato|Bardi", "any"),
+RENAISSANCE_ASSERTIONS = [
+    "Cimabue discovered or taught Giotto",
+    "Cosimo de' Medici patronized or commissioned Brunelleschi or Donatello",
+    "Lorenzo de' Medici (Il Magnifico) patronized Botticelli or Michelangelo",
+    "Lorenzo de' Medici was known as 'Il Magnifico'",
+    "Verrocchio's workshop trained Leonardo",
+    "Verrocchio's workshop trained Botticelli or Perugino",
+    "Perugino trained or mentored Raphael",
+    "Brunelleschi discovered or demonstrated linear perspective",
+    "Alberti codified or wrote about perspective (De Pictura)",
+    "Brunelleschi designed or built the dome of Florence Cathedral",
+    "Bramante designed or began rebuilding St. Peter's Basilica",
+    "Michelangelo designed or continued the dome of St. Peter's",
+    "Michelangelo painted the Sistine Chapel ceiling",
+    "Raphael painted the School of Athens or the Vatican Stanze",
+    "Pope Julius II commissioned Michelangelo, Raphael, or Bramante",
+    "Antonello da Messina brought oil painting to Italy or Venice",
+    "Savonarola denounced or opposed the Medici",
+    "Michelangelo was known as 'Il Divino'",
+    "Donatello's real name was Donato di Niccolò di Betto Bardi",
 ]
 
-EXPECTED_EDGES = SPACE_EXPECTED_EDGES + RENAISSANCE_EXPECTED_EDGES
-
-# ── Anti-Patterns ────────────────────────────────────────────────────────────
-
-INTRA_DOMAIN_ANTI_PATTERNS = [
-    # Space
-    (
-        "unlinked_alias",
-        "Korolev",
-        "Chief Designer",
-        "SPACE: Korolev and 'Chief Designer' exist as separate entities with no connecting edge",
-    ),
-    (
-        "unlinked_alias",
-        "Baikonur",
-        "Tyuratam",
-        "SPACE: Baikonur and Tyuratam exist as separate entities with no connecting edge",
-    ),
-    (
-        "duplicate_edge",
-        "von Braun",
-        "Marshall",
-        "SPACE: Multiple edges between von Braun and Marshall with synonymous labels",
-    ),
-    # Renaissance
-    (
-        "unlinked_alias",
-        "Donatello",
-        "Donato",
-        "RENAISSANCE: Donatello and 'Donato di Niccolò' exist as separate entities with no connecting edge",
-    ),
-    (
-        "unlinked_alias",
-        "Lorenzo",
-        "Magnifico",
-        "RENAISSANCE: Lorenzo and 'Il Magnifico' exist as separate entities with no connecting edge",
-    ),
-    (
-        "duplicate_edge",
-        "Michelangelo",
-        "Sistine",
-        "RENAISSANCE: Multiple edges between Michelangelo and Sistine Chapel with synonymous labels",
-    ),
+CROSS_DOMAIN_ASSERTIONS = [
+    "There should be NO direct edge between any Space Race entity (von Braun, Korolev, "
+    "Apollo, Saturn V, Sputnik, NASA) and any Renaissance entity (Michelangelo, Leonardo, "
+    "Raphael, Bramante, Medici, Brunelleschi, Botticelli, Savonarola)",
 ]
-
-# Cross-domain: entities from one domain should never connect to the other
-CROSS_DOMAIN_ANTI_PATTERNS = [
-    (
-        "cross_connection",
-        "von Braun",
-        "Michelangelo",
-        "CROSS: Spurious edge between von Braun and Michelangelo",
-    ),
-    (
-        "cross_connection",
-        "Apollo 11",
-        "Florence|Medici|Sistine",
-        "CROSS: Spurious edge between Apollo 11 and Renaissance entity",
-    ),
-    (
-        "cross_connection",
-        "Saturn V",
-        "Medici|Botticelli|Raphael",
-        "CROSS: Spurious edge between Saturn V and Renaissance entity",
-    ),
-    (
-        "cross_connection",
-        "Korolev",
-        "Leonardo|Michelangelo|Raphael",
-        "CROSS: Spurious edge between Korolev and Renaissance artist",
-    ),
-    (
-        "cross_connection",
-        "Sputnik",
-        "Florence|Medici|Brunelleschi",
-        "CROSS: Spurious edge between Sputnik and Renaissance entity",
-    ),
-    (
-        "cross_connection",
-        "Bramante",
-        "NASA|Apollo|Saturn|Sputnik",
-        "CROSS: Spurious edge between Bramante and Space Race entity",
-    ),
-    (
-        "cross_connection",
-        "Verrocchio",
-        "NASA|Apollo|Korolev|von Braun",
-        "CROSS: Spurious edge between Verrocchio and Space Race entity",
-    ),
-    (
-        "cross_connection",
-        "Botticelli",
-        "NASA|Apollo|Saturn|Korolev",
-        "CROSS: Spurious edge between Botticelli and Space Race entity",
-    ),
-]
-
-ANTI_PATTERNS = INTRA_DOMAIN_ANTI_PATTERNS + CROSS_DOMAIN_ANTI_PATTERNS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -890,135 +724,155 @@ def graph_probe_all(client, base, label=""):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SCORING
+# LLM-JUDGED SCORING
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def _matches(pattern: str, text: str) -> bool:
-    """Check if any alternative in a |-separated pattern is a substring of text."""
-    return any(alt.lower() in text.lower() for alt in pattern.split("|"))
-
-
-def score_expected_edges(graph_results, expected_edges):
-    """Score a set of expected edges against graph probe results."""
-    entity_graphs = {}
+def _format_graph_neighborhood(graph_results: list[dict]) -> str:
+    """Format all graph probe results into a readable text block for the LLM judge."""
+    lines = []
     for g in graph_results:
-        if g.get("node"):
-            entity_graphs[g["node"].get("name", "")] = g
+        name = g.get("name", "?")
+        domain = g.get("domain", "?")
+        node = g.get("node")
+        conns = g.get("connections", [])
+        eid = g.get("id", "")
 
-    found = 0
-    detail = []
-    for entity_sub, edge_sub, target_sub, direction in expected_edges:
-        matched = False
-        for name, g in entity_graphs.items():
-            if entity_sub.lower() not in name.lower():
-                continue
-            eid = g.get("id", "")
-            for conn in g.get("connections", []):
-                edge = conn["edge"]
-                node = conn["node"]
-                edge_table = edge.get("table", "")
-                node_label = node.get("name", node.get("content", ""))
+        if not node:
+            lines.append(f"**{name}** [{domain}] — NOT FOUND IN GRAPH")
+            lines.append("")
+            continue
 
-                if direction == "out" and edge.get("from") != eid:
-                    continue
-                if direction == "in" and edge.get("to") != eid:
-                    continue
-
-                if _matches(edge_sub, edge_table) and _matches(target_sub, node_label):
-                    matched = True
-                    break
-            if matched:
-                break
-        status = "✓" if matched else "✗"
-        detail.append(f"{status} {entity_sub} --[*{edge_sub}*]--> {target_sub}")
-        if matched:
-            found += 1
-
-    return found, len(expected_edges), detail
+        node_type = node.get("type", "")
+        node_desc = node.get("description", "")
+        lines.append(f"**{name}** [{domain}] (type: {node_type})")
+        if node_desc:
+            lines.append(f"  Description: {node_desc}")
+        lines.append(f"  Connections ({len(conns)}):")
+        for conn in conns:
+            edge = conn["edge"]
+            other = conn["node"]
+            direction = "→" if edge.get("from") == eid else "←"
+            other_name = other.get("name", other.get("content", "?")[:60])
+            other_table = other.get("table", "?")
+            lines.append(
+                f"    {direction} [{edge['table']}] {other_name} ({other_table})"
+            )
+        lines.append("")
+    return "\n".join(lines)
 
 
-def score_anti_patterns(graph_results, anti_patterns):
-    """Score anti-patterns (lower = better)."""
-    entity_graphs = {}
-    for g in graph_results:
-        if g.get("node"):
-            entity_graphs[g["node"].get("name", "")] = g
+def _call_llm_judge(
+    client: httpx.Client,
+    base: str,
+    graph_text: str,
+    assertions: list[str],
+    section_name: str,
+) -> list[dict]:
+    """Ask the LLM to judge a list of assertions against graph data.
 
-    # Also build ID-to-name lookup for cross-connection checks
-    id_to_name = {}
-    id_to_domain = {}
-    for g in graph_results:
-        if g.get("node") and g.get("id"):
-            id_to_name[g["id"]] = g["node"].get("name", "")
-            id_to_domain[g["id"]] = g.get("domain", "")
+    Returns list of {"assertion": str, "pass": bool, "reason": str}.
+    """
+    numbered = "\n".join(f"{i + 1}. {a}" for i, a in enumerate(assertions))
+    prompt = (
+        f"You are evaluating a knowledge graph. Below is the graph neighborhood data "
+        f"for key entities, followed by a list of assertions about relationships that "
+        f"should exist in the graph.\n\n"
+        f"## Graph Data\n\n{graph_text}\n\n"
+        f"## {section_name} — Assertions to evaluate\n\n{numbered}\n\n"
+        f"## Instructions\n\n"
+        f"For each numbered assertion, determine whether the graph data supports it. "
+        f"A relationship counts as captured if there is a DIRECT edge between the "
+        f"relevant entities (in either direction, with any reasonable edge name) OR if "
+        f"the entities are clearly connected through a short path (1-2 hops).\n\n"
+        f"Respond with a JSON array. Each element must have:\n"
+        f'- "n": the assertion number (integer)\n'
+        f'- "pass": true if the relationship is captured, false if not\n'
+        f'- "reason": brief explanation (what edge or path you found, or what is missing)\n\n'
+        f"Respond ONLY with the JSON array, no other text."
+    )
 
-    found = 0
-    detail = []
-    for pattern_type, entity_sub, target_sub, description in anti_patterns:
-        matched = False
+    # Use the recall endpoint to leverage the same model as the system
+    # Actually, we need a raw LLM call. Use the converse endpoint with a direct prompt.
+    resp = client.post(
+        f"{base}/converse",
+        json={"message": prompt, "history": []},
+        timeout=300,
+    )
+    if resp.status_code != 200:
+        print(f"    ⚠ LLM judge call failed: {resp.status_code}")
+        return [
+            {"assertion": a, "pass": False, "reason": "LLM judge call failed"}
+            for a in assertions
+        ]
 
-        if pattern_type == "unlinked_alias":
-            # Both entities exist as separate probed entities with no connecting edge
-            entity_a_ids = []
-            entity_b_ids = []
-            for name, g in entity_graphs.items():
-                if entity_sub.lower() in name.lower():
-                    entity_a_ids.append(g.get("id"))
-                if target_sub.lower() in name.lower():
-                    entity_b_ids.append(g.get("id"))
-            if entity_a_ids and entity_b_ids:
-                has_link = False
-                for g in graph_results:
-                    gid = g.get("id")
-                    if gid not in entity_a_ids + entity_b_ids:
-                        continue
-                    for conn in g.get("connections", []):
-                        other_id = conn["node"].get("id", "")
-                        if gid in entity_a_ids and other_id in entity_b_ids:
-                            has_link = True
-                        if gid in entity_b_ids and other_id in entity_a_ids:
-                            has_link = True
-                if not has_link:
-                    matched = True
+    data = resp.json()
+    answer = data.get("reply", "")
 
-        elif pattern_type == "duplicate_edge":
-            for name, g in entity_graphs.items():
-                if entity_sub.lower() not in name.lower():
-                    continue
-                edge_targets = {}
-                for conn in g.get("connections", []):
-                    node = conn["node"]
-                    target_name = node.get("name", "")
-                    if target_sub.lower() in target_name.lower():
-                        target_id = node.get("id", "")
-                        if target_id in edge_targets:
-                            matched = True
-                        edge_targets[target_id] = conn["edge"]["table"]
+    # Parse JSON from response
+    try:
+        # Extract JSON array from the response (may be wrapped in markdown)
+        json_start = answer.find("[")
+        json_end = answer.rfind("]") + 1
+        if json_start >= 0 and json_end > json_start:
+            results = json.loads(answer[json_start:json_end])
+        else:
+            raise ValueError("No JSON array found")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"    ⚠ Failed to parse LLM judge response: {e}")
+        print(f"    Response: {answer[:500]}")
+        return [
+            {"assertion": a, "pass": False, "reason": "Failed to parse LLM response"}
+            for a in assertions
+        ]
 
-        elif pattern_type == "cross_connection":
-            # Check if any probed entity matching entity_sub has connections
-            # to entities matching target_sub (from the other domain)
-            for name, g in entity_graphs.items():
-                if entity_sub.lower() not in name.lower():
-                    continue
-                for conn in g.get("connections", []):
-                    node = conn["node"]
-                    node_label = node.get("name", node.get("content", ""))
-                    if node.get("table") == "entity" and _matches(
-                        target_sub, node_label
-                    ):
-                        matched = True
-                        break
-                if matched:
-                    break
+    # Map results back to assertions
+    result_map = {}
+    for r in results:
+        n = r.get("n", 0)
+        result_map[n] = r
 
-        status = "⚠" if matched else "✓"
-        detail.append(f"{status} {description}")
-        if matched:
-            found += 1
+    final = []
+    for i, assertion in enumerate(assertions):
+        r = result_map.get(i + 1, {})
+        final.append(
+            {
+                "assertion": assertion,
+                "pass": bool(r.get("pass", False)),
+                "reason": r.get("reason", "No judgment returned"),
+            }
+        )
+    return final
 
-    return found, len(anti_patterns), detail
+
+def score_with_llm(
+    client: httpx.Client,
+    base: str,
+    graph_results: list[dict],
+) -> dict:
+    """Run LLM-judged evaluation on graph quality. Returns structured scores."""
+    graph_text = _format_graph_neighborhood(graph_results)
+
+    print("  Judging Space Race assertions...")
+    space_results = _call_llm_judge(
+        client, base, graph_text, SPACE_ASSERTIONS, "Space Race Relationships"
+    )
+
+    print("  Judging Renaissance assertions...")
+    ren_results = _call_llm_judge(
+        client, base, graph_text, RENAISSANCE_ASSERTIONS, "Renaissance Relationships"
+    )
+
+    print("  Judging cross-domain isolation...")
+    cross_results = _call_llm_judge(
+        client, base, graph_text, CROSS_DOMAIN_ASSERTIONS, "Cross-Domain Isolation"
+    )
+
+    return {
+        "space": space_results,
+        "renaissance": ren_results,
+        "cross_domain": cross_results,
+    }
 
 
 def score_recall(recall_results):
@@ -1036,24 +890,14 @@ def score_recall(recall_results):
     }
 
 
-def format_report(
-    name,
-    notes,
-    space_edge_scores,
-    ren_edge_scores,
-    anti_scores,
-    recall_scores,
-    graph_results,
-):
-    space_found, space_total, space_detail = space_edge_scores
-    ren_found, ren_total, ren_detail = ren_edge_scores
-    _anti_found, _anti_total, anti_detail = anti_scores
-
-    # Split anti-patterns into categories
-    intra_detail = [d for d in anti_detail if "CROSS:" not in d]
-    cross_detail = [d for d in anti_detail if "CROSS:" in d]
-    intra_found = sum(1 for d in intra_detail if d.startswith("⚠"))
-    cross_found = sum(1 for d in cross_detail if d.startswith("⚠"))
+def format_report(name, notes, llm_scores, recall_scores, graph_results):
+    space_pass = sum(1 for r in llm_scores["space"] if r["pass"])
+    space_total = len(llm_scores["space"])
+    ren_pass = sum(1 for r in llm_scores["renaissance"] if r["pass"])
+    ren_total = len(llm_scores["renaissance"])
+    cross_pass = sum(1 for r in llm_scores["cross_domain"] if r["pass"])
+    cross_total = len(llm_scores["cross_domain"])
+    total_connections = sum(len(g.get("connections", [])) for g in graph_results)
 
     lines = [
         f"## {name}",
@@ -1061,36 +905,32 @@ def format_report(
         f"**Notes:** {notes}",
         f"**Data:** {len(SPACE_SNIPPETS)} space + {len(RENAISSANCE_SNIPPETS)} renaissance snippets, "
         f"{len(RECALL_QUESTIONS)} questions, {len(GRAPH_PROBES)} probes",
+        "**Scoring:** LLM-judged (not pattern-matched)",
         "",
         "### Scores",
         "| Metric | Value |",
         "|--------|-------|",
-        f"| Space edges | **{space_found}/{space_total}** |",
-        f"| Renaissance edges | **{ren_found}/{ren_total}** |",
-        f"| Combined edges | **{space_found + ren_found}/{space_total + ren_total}** |",
-        f"| Intra-domain anti-patterns | **{intra_found}/{len(intra_detail)}** (lower=better) |",
-        f"| Cross-domain leaks | **{cross_found}/{len(cross_detail)}** (lower=better) |",
-        f"| Total graph connections | **{sum(len(g.get('connections', [])) for g in graph_results)}** |",
+        f"| Space relationships | **{space_pass}/{space_total}** |",
+        f"| Renaissance relationships | **{ren_pass}/{ren_total}** |",
+        f"| Combined relationships | **{space_pass + ren_pass}/{space_total + ren_total}** |",
+        f"| Cross-domain isolation | **{cross_pass}/{cross_total}** |",
+        f"| Total graph connections | **{total_connections}** |",
         f"| Recall with context | **{recall_scores['with_context']}/{recall_scores['total']}** |",
         f"| Recall total nodes cited | **{recall_scores['total_nodes']}** |",
         "",
-        "### Space Race Expected Edges",
     ]
-    for d in space_detail:
-        lines.append(f"- {d}")
-    lines.append("")
-    lines.append("### Renaissance Expected Edges")
-    for d in ren_detail:
-        lines.append(f"- {d}")
-    lines.append("")
-    lines.append("### Intra-Domain Anti-patterns")
-    for d in intra_detail:
-        lines.append(f"- {d}")
-    lines.append("")
-    lines.append("### Cross-Domain Isolation")
-    for d in cross_detail:
-        lines.append(f"- {d}")
-    lines.append("")
+
+    for section_label, results in [
+        ("Space Race Relationships", llm_scores["space"]),
+        ("Renaissance Relationships", llm_scores["renaissance"]),
+        ("Cross-Domain Isolation", llm_scores["cross_domain"]),
+    ]:
+        lines.append(f"### {section_label}")
+        for r in results:
+            status = "✓" if r["pass"] else "✗"
+            lines.append(f"- {status} {r['assertion']}")
+            lines.append(f"  - {r['reason']}")
+        lines.append("")
 
     # Graph probes grouped by domain
     for domain_label, probe_list in [
@@ -1169,6 +1009,16 @@ def main():
             json.dump(graph_results, f, indent=2, default=str)
         print(f"Graph probes done in {time.time() - t0:.0f}s")
 
+        # Phase 4: LLM-judged scoring
+        print(
+            f"\n=== LLM JUDGE ({len(SPACE_ASSERTIONS) + len(RENAISSANCE_ASSERTIONS) + len(CROSS_DOMAIN_ASSERTIONS)} assertions) ==="
+        )
+        t0 = time.time()
+        llm_scores = score_with_llm(client, base, graph_results)
+        with open(os.path.join(data_dir, "llm_scores.json"), "w") as f:
+            json.dump(llm_scores, f, indent=2)
+        print(f"LLM judging done in {time.time() - t0:.0f}s")
+
         # Copy server log
         import contextlib
 
@@ -1178,34 +1028,27 @@ def main():
                 os.path.join(data_dir, "server.log"),
             )
 
-        # Score
-        space_edge_scores = score_expected_edges(graph_results, SPACE_EXPECTED_EDGES)
-        ren_edge_scores = score_expected_edges(
-            graph_results, RENAISSANCE_EXPECTED_EDGES
-        )
-        anti_scores = score_anti_patterns(graph_results, ANTI_PATTERNS)
+        # Summarize
         recall_scores = score_recall(recall_results)
 
         total_elapsed = time.time() - total_t0
-        s_found, s_total, _ = space_edge_scores
-        r_found, r_total, _ = ren_edge_scores
-        a_found, a_total, _ = anti_scores
+        s_pass = sum(1 for r in llm_scores["space"] if r["pass"])
+        r_pass = sum(1 for r in llm_scores["renaissance"] if r["pass"])
+        c_pass = sum(1 for r in llm_scores["cross_domain"] if r["pass"])
 
         print(f"\n=== RESULTS ({total_elapsed:.0f}s total) ===")
-        print(f"Space edges:       {s_found}/{s_total}")
-        print(f"Renaissance edges: {r_found}/{r_total}")
-        print(f"Anti-patterns:     {a_found}/{a_total} (lower=better)")
+        print(f"Space relationships:       {s_pass}/{len(SPACE_ASSERTIONS)}")
+        print(f"Renaissance relationships: {r_pass}/{len(RENAISSANCE_ASSERTIONS)}")
+        print(f"Cross-domain isolation:    {c_pass}/{len(CROSS_DOMAIN_ASSERTIONS)}")
         print(
-            f"Recall w/ context: {recall_scores['with_context']}/{recall_scores['total']}"
+            f"Recall w/ context:         {recall_scores['with_context']}/{recall_scores['total']}"
         )
 
         # Write journal
         report = format_report(
             name,
             notes,
-            space_edge_scores,
-            ren_edge_scores,
-            anti_scores,
+            llm_scores,
             recall_scores,
             graph_results,
         )

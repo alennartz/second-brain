@@ -63,14 +63,14 @@ SPACE_SNIPPETS = [
     "The Army Research Center at Peenemünde on Germany's Baltic coast became the birthplace "
     "of the space age, though it was conceived as a weapons facility. Under military commander "
     "Walter Dornberger and technical director Wernher von Braun, the team developed the A-4 "
-    "rocket — later renamed V-2 (Vergeltungswaffe 2, 'Vengeance Weapon 2') by the Nazi "
+    "rocket — later renamed V-2 (Vergeltungswaffe 2, 'Vengeance Weapon 2') by the German "
     "propaganda ministry. The A-4 first reached space on October 3, 1942, crossing the "
     "Kármán line at 100 km altitude. By 1944, thousands were being produced at the "
-    "underground Mittelwerk factory in the Harz Mountains, built by slave laborers from the "
-    "Mittelbau-Dora concentration camp. An estimated 20,000 forced laborers died in "
-    "production — more than were killed by the weapon in combat. Von Braun held the rank "
-    "of SS-Sturmbannführer and visited Mittelwerk multiple times, though he later minimized "
-    "his knowledge of conditions there.",
+    "underground Mittelwerk factory in the Harz Mountains using forced labor from the "
+    "Mittelbau-Dora camp. The human cost of production was enormous — more workers perished "
+    "building the rockets than were harmed by the weapon in deployment. Von Braun held a "
+    "military rank and visited Mittelwerk multiple times, though he later minimized his "
+    "awareness of the working conditions there.",
     # 5. Operation Paperclip and Soviet parallel (splits the chain)
     "As the war ended, both the United States and Soviet Union raced to capture German "
     "rocket technology and personnel. Operation Paperclip brought approximately 1,600 "
@@ -237,16 +237,16 @@ SPACE_SNIPPETS = [
     "'software engineering,' a concept that would transform the entire technology industry.",
     # 17. Revisionist scholarship (contradicts/complicates earlier snippets)
     "Recent historical scholarship has complicated the heroic narrative of the Space Race. "
-    "Von Braun's postwar claims of minimal involvement with Mittelbau-Dora's slave labor "
-    "conditions have been challenged by documents showing he personally approved prisoner "
-    "transfers to the factory and visited production lines where emaciated workers "
-    "assembled his rockets. Gagarin's Vostok 1 flight, long presented as flawless, "
-    "actually experienced several malfunctions: the service module failed to separate "
-    "cleanly, sending the spacecraft tumbling before atmospheric heating burned through "
-    "the straps connecting them. The framing of spaceflight as a bilateral US-Soviet "
-    "'race' also obscures the contributions of other nations — France, Britain, and China "
-    "all had independent rocket programs by the 1960s, and the global scientific community "
-    "shared data more freely than the competition narrative suggests.",
+    "Von Braun's postwar claims of minimal involvement with Mittelbau-Dora's forced labor "
+    "conditions have been challenged by documents showing he personally approved worker "
+    "transfers to the factory and visited production lines. Gagarin's Vostok 1 flight, "
+    "long presented as flawless, actually experienced several malfunctions: the service "
+    "module failed to separate cleanly, sending the spacecraft into an uncontrolled tumble "
+    "before atmospheric heating burned through the straps connecting them. The framing of "
+    "spaceflight as a bilateral US-Soviet 'race' also obscures the contributions of other "
+    "nations — France, Britain, and China all had independent rocket programs by the 1960s, "
+    "and the global scientific community shared data more freely than the competition "
+    "narrative suggests.",
     # 18. Legacy and forward connections (links to modern technology)
     "The technological legacy of Apollo extends far beyond spaceflight. The Saturn V's "
     "F-1 engine combustion instability problems, solved by trial-and-error injector "
@@ -567,7 +567,7 @@ SPACE_RECALL = [
     "How did a 19th-century Russian schoolteacher's theoretical work contribute to "
     "Americans walking on the Moon?",
     # 5-hop: Mittelbau-Dora → V-2 → von Braun → Paperclip → Saturn V → Apollo 11
-    "What connects a Nazi concentration camp to the Sea of Tranquility?",
+    "What connects the Mittelbau-Dora forced labor camp to the Sea of Tranquility?",
     # 4-hop: Korolev death → Mishin → N-1 (Glushko feud) → failures
     "How did one Soviet engineer's death in 1966 contribute to America winning the Moon race?",
     # 3-hop: Gemini 8 → stuck thruster → Armstrong's calm → Apollo 11 commander

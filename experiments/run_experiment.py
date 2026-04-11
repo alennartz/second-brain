@@ -634,7 +634,9 @@ def ingest_all(client, base, label=""):
 
             elapsed = time.time() - t0
             status_icon = "✓" if status == "complete" else "✗"
-            print(f"  {label}[{i}/{len(SNIPPETS)} {domain}] {elapsed:.0f}s {status_icon}")
+            print(
+                f"  {label}[{i}/{len(SNIPPETS)} {domain}] {elapsed:.0f}s {status_icon}"
+            )
         except Exception as e:
             elapsed = time.time() - t0
             print(f"  {label}⚠ Ingest {i} failed: {e} ({elapsed:.0f}s)")
@@ -774,17 +776,33 @@ def _format_graph_neighborhood(graph_results: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _create_judge_model():
+    """Create a PydanticAI model from project settings for direct LLM calls."""
+    sys.path.insert(0, os.path.join(PROJECT_DIR, "src"))
+    from second_brain.config import settings
+    from second_brain.providers import create_model
+
+    return create_model(
+        settings.reasoning_model,
+        settings.reasoning_foundry_url,
+        settings.reasoning_auth,
+        settings.reasoning_key,
+    )
+
+
 def _call_llm_judge(
-    client: httpx.Client,
-    base: str,
+    model,
     graph_text: str,
     assertions: list[str],
     section_name: str,
 ) -> list[dict]:
-    """Ask the LLM to judge a list of assertions against graph data.
+    """Ask the LLM to judge assertions against graph data.
 
+    Uses PydanticAI Agent directly — no server endpoint involved.
     Returns list of {"assertion": str, "pass": bool, "reason": str}.
     """
+    from pydantic_ai import Agent
+
     numbered = "\n".join(f"{i + 1}. {a}" for i, a in enumerate(assertions))
     prompt = (
         f"You are evaluating a knowledge graph. Below is the graph neighborhood data "
@@ -804,26 +822,19 @@ def _call_llm_judge(
         f"Respond ONLY with the JSON array, no other text."
     )
 
-    # Use the recall endpoint to leverage the same model as the system
-    # Actually, we need a raw LLM call. Use the converse endpoint with a direct prompt.
-    resp = client.post(
-        f"{base}/converse",
-        json={"message": prompt, "history": []},
-        timeout=300,
-    )
-    if resp.status_code != 200:
-        print(f"    ⚠ LLM judge call failed: {resp.status_code}")
+    judge = Agent(output_type=str)
+    try:
+        result = judge.run_sync(prompt, model=model)
+        answer = result.output
+    except Exception as e:
+        print(f"    ⚠ LLM judge call failed: {e}")
         return [
-            {"assertion": a, "pass": False, "reason": "LLM judge call failed"}
+            {"assertion": a, "pass": False, "reason": f"LLM call failed: {e}"}
             for a in assertions
         ]
 
-    data = resp.json()
-    answer = data.get("reply", "")
-
-    # Parse JSON from response
+    # Parse JSON from response (may be wrapped in markdown code fences)
     try:
-        # Extract JSON array from the response (may be wrapped in markdown)
         json_start = answer.find("[")
         json_end = answer.rfind("]") + 1
         if json_start >= 0 and json_end > json_start:
@@ -838,7 +849,6 @@ def _call_llm_judge(
             for a in assertions
         ]
 
-    # Map results back to assertions
     result_map = {}
     for r in results:
         n = r.get("n", 0)
@@ -857,27 +867,24 @@ def _call_llm_judge(
     return final
 
 
-def score_with_llm(
-    client: httpx.Client,
-    base: str,
-    graph_results: list[dict],
-) -> dict:
+def score_with_llm(graph_results: list[dict]) -> dict:
     """Run LLM-judged evaluation on graph quality. Returns structured scores."""
+    model = _create_judge_model()
     graph_text = _format_graph_neighborhood(graph_results)
 
     print("  Judging Space Race assertions...")
     space_results = _call_llm_judge(
-        client, base, graph_text, SPACE_ASSERTIONS, "Space Race Relationships"
+        model, graph_text, SPACE_ASSERTIONS, "Space Race Relationships"
     )
 
     print("  Judging Renaissance assertions...")
     ren_results = _call_llm_judge(
-        client, base, graph_text, RENAISSANCE_ASSERTIONS, "Renaissance Relationships"
+        model, graph_text, RENAISSANCE_ASSERTIONS, "Renaissance Relationships"
     )
 
     print("  Judging cross-domain isolation...")
     cross_results = _call_llm_judge(
-        client, base, graph_text, CROSS_DOMAIN_ASSERTIONS, "Cross-Domain Isolation"
+        model, graph_text, CROSS_DOMAIN_ASSERTIONS, "Cross-Domain Isolation"
     )
 
     return {
@@ -1026,7 +1033,7 @@ def main():
             f"\n=== LLM JUDGE ({len(SPACE_ASSERTIONS) + len(RENAISSANCE_ASSERTIONS) + len(CROSS_DOMAIN_ASSERTIONS)} assertions) ==="
         )
         t0 = time.time()
-        llm_scores = score_with_llm(client, base, graph_results)
+        llm_scores = score_with_llm(graph_results)
         with open(os.path.join(data_dir, "llm_scores.json"), "w") as f:
             json.dump(llm_scores, f, indent=2)
         print(f"LLM judging done in {time.time() - t0:.0f}s")

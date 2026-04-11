@@ -34,41 +34,65 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         deps_type=ConnectDeps,
         output_type=str,
         system_prompt=(
-            "You are a knowledge graph connection discovery agent. You explore the graph "
-            "to find meaningful relationships that are missing.\n\n"
-            "Strategy (in priority order):\n"
-            "1. **Structural patterns first**: Use find_unlinked_cooccurrences to find entities "
-            "that share notes but aren't directly connected. This is the highest-signal source "
-            "of missing connections.\n"
-            "2. **Graph exploration**: Use explore to traverse the neighborhood of each node. "
-            "Look for entities reachable through intermediate nodes but not directly linked. "
-            "Vary direction and node_types to discover different patterns.\n"
-            "3. **Similarity fallback**: For nodes with very few connections, use find_similar "
-            "to find semantically related but unconnected nodes.\n\n"
-            "When you find a missing connection:\n"
-            "- Read the actual content of both nodes (use get_node if needed)\n"
-            "- Decide if a real, meaningful relationship exists\n"
-            "- Choose a descriptive edge name (e.g., built_with, inspired_by, depends_on — "
-            "NOT generic labels like relates_to or references)\n"
-            "- Create the edge using create_edges\n\n"
-            "IMPORTANT — you are NOT a deduplication agent. NEVER create edges like "
-            "duplicate_of, same_as, identical_to, alias_of, or any edge that indicates "
-            "two nodes are the same thing. Deduplication is handled by a separate agent. "
-            "Your job is ONLY to create edges representing real semantic relationships "
-            "between distinct concepts.\n\n"
-            "Be judicious: only create edges for genuine relationships. Not every pair of "
-            "co-occurring entities needs a direct link.\n\n"
+            "You are a knowledge graph connection discovery agent. Your job is to find "
+            "meaningful relationships between entities that should be linked but aren't.\n\n"
+            "## Strategy\n\n"
+            "For each entity node in the batch:\n\n"
+            "1. **Find related entities**: Use find_similar to discover semantically "
+            "related entities anywhere in the graph. These are your candidates — "
+            "entities that might be connected but aren't yet.\n"
+            "2. **Check what's already connected**: Use explore (depth 1) to see the "
+            "entity's existing connections. Don't recreate edges that already exist.\n"
+            "3. **Find co-occurring entities**: Use find_unlinked_cooccurrences to find "
+            "entities that share notes with this one but lack a direct edge.\n"
+            "4. **Read and judge**: For promising candidates, use get_node to read both "
+            "entities. If a real relationship exists (e.g., one influenced the other, "
+            "one was part of the other, one created the other), create an edge.\n\n"
+            "The most valuable connections are between entities from DIFFERENT ingests "
+            "— information that was added at different times but describes related things. "
+            "For example, if one snippet mentions 'Tsiolkovsky inspired Oberth' and "
+            "another mentions 'Oberth mentored von Braun', both entities exist but may "
+            "not be connected yet.\n\n"
+            "## Edge naming\n\n"
+            "Choose clear, specific edge names that describe the relationship:\n"
+            "- inspired_by, mentored, developed, funded, commissioned, trained_at, "
+            "member_of, located_in, part_of, succeeded, etc.\n"
+            "- Do NOT use generic labels like relates_to, references, connected_to.\n"
+            "- Prefer reusing existing edge names in the graph over inventing new ones "
+            "for the same kind of relationship.\n\n"
+            "## Rules\n\n"
+            "- NEVER create edges like duplicate_of, same_as, alias_of — deduplication "
+            "is handled by a separate agent.\n"
+            "- Only create edges for genuine relationships you can justify from the "
+            "entity names and descriptions.\n"
+            "- Process every entity in the batch.\n\n"
             "Return a summary of connections discovered and created."
         ),
     )
+
+    @agent.tool
+    async def find_similar(
+        ctx: RunContext[ConnectDeps], record_id: str, k: int = 10
+    ) -> list[dict]:
+        """Find semantically related entities anywhere in the graph. Returns entities
+        with their names, types, and descriptions. Use this to discover candidates for
+        missing connections — especially entities from different ingests that should
+        be linked.
+        record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'."""
+        logger.info("connect: find_similar id=%s k=%d", record_id, k)
+        if _bad_id(record_id):
+            return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
+        if record_id not in ctx.deps.touched_ids:
+            ctx.deps.touched_ids.append(record_id)
+        return await dream_tools.find_similar(ctx.deps.db, record_id, k)
 
     @agent.tool
     async def find_unlinked_cooccurrences(
         ctx: RunContext[ConnectDeps], record_id: str
     ) -> list[dict]:
         """Find entities that share notes with this entity but have no direct edge.
-        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'.
-        Returns entities with their shared note IDs. High-signal source of missing connections."""
+        record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'.
+        Returns entities with their shared note IDs."""
         logger.info("connect: find_unlinked_cooccurrences id=%s", record_id)
         if _bad_id(record_id):
             return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
@@ -89,12 +113,13 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         node_types: list[str] | None = None,
         depth: int = 2,
     ) -> dict:
-        """Explore the graph neighborhood from a node.
-        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123' or 'note:xyz789'. Never pass a bare ID without the table prefix.
+        """Explore the graph neighborhood from a node. Use to see what's already
+        connected (depth 1) or to find entities reachable through intermediate
+        nodes (depth 2-3).
+        record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'.
         direction: 'out', 'in', or 'both'.
-        node_types: filter targets by table, e.g. ['entity'], ['note'], ['entity', 'note'].
-        depth: max hops (1-3).
-        Returns target nodes with paths showing how they were reached."""
+        node_types: filter by table, e.g. ['entity'].
+        depth: max hops (1-3)."""
         logger.info(
             "connect: explore id=%s dir=%s types=%s depth=%d",
             record_id,
@@ -113,7 +138,7 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
     @agent.tool
     async def get_node(ctx: RunContext[ConnectDeps], record_id: str) -> dict:
         """Get a single node by ID for closer inspection.
-        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
+        record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'."""
         logger.info("connect: get_node id=%s", record_id)
         if _bad_id(record_id):
             return {"error": _ID_FMT_ERROR.format(rid=record_id)}
@@ -125,24 +150,11 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         return make_serializable(node)
 
     @agent.tool
-    async def find_similar(
-        ctx: RunContext[ConnectDeps], record_id: str, k: int = 5
-    ) -> list[dict]:
-        """Find semantically similar nodes by embedding. Fallback for structurally isolated nodes.
-        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
-        logger.info("connect: find_similar id=%s k=%d", record_id, k)
-        if _bad_id(record_id):
-            return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
-        if record_id not in ctx.deps.touched_ids:
-            ctx.deps.touched_ids.append(record_id)
-        return await dream_tools.find_similar(ctx.deps.db, record_id, k)
-
-    @agent.tool
     async def create_edges(
         ctx: RunContext[ConnectDeps], edges: list[dict]
     ) -> list[dict]:
-        """Create relationship edges. Each dict needs 'from_id', 'edge_table', 'to_id', optional 'context'.
-        Use descriptive edge names: built_with, inspired_by, depends_on, etc."""
+        """Create relationship edges. Each dict needs 'from_id', 'edge_table', 'to_id',
+        optional 'context'."""
         logger.info("connect: create_edges (%d edges)", len(edges))
         try:
             results = await ingest_tools.create_edges(ctx.deps.db, edges)

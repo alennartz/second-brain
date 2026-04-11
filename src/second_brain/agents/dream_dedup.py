@@ -135,8 +135,10 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
     async def merge_edges(
         ctx: RunContext[DedupDeps], ids: list[str], new_context: str | None = None
     ) -> dict:
-        """Merge multiple edges between the same node pair into one.
-        First ID becomes the survivor. Provide new_context if the label should be updated."""
+        """Merge multiple edges between the same node pair into one. The first
+        edge ID becomes the survivor (its table/label is kept), the rest are deleted.
+        Put the edge with the MOST SPECIFIC label first.
+        You can get edge IDs from explore results (the edge_id field in each path step)."""
         logger.info("dedup: merge_edges ids=%s", ids)
         try:
             result = await dream_tools.merge_edges(ctx.deps.db, ids, new_context)

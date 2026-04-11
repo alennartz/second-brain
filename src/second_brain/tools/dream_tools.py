@@ -327,9 +327,9 @@ async def explore(
         cancel: Optional cancellation event.
 
     Returns:
-        {"targets": [{"node": {...}, "path": [{"edge_label": ..., "node_id": ...}, ...]}]}
+        {"targets": [{"node": {...}, "path": [{"edge_id": ..., "edge_label": ..., "node_id": ...}, ...]}]}
         Target nodes have full content (embeddings stripped).
-        Paths show intermediate node IDs and edge labels.
+        Paths show edge IDs, edge labels (table names), and intermediate node IDs.
     """
     if cancel is not None and cancel.is_set():
         return {"cancelled": True}
@@ -356,7 +356,7 @@ async def explore(
                     eid = _to_str(edge["id"])
                     label = eid.split(":")[0]
                     neighbor_id = _to_str(edge["out"])
-                    neighbors.append((neighbor_id, label))
+                    neighbors.append((neighbor_id, label, eid))
 
             if direction in ("in", "both"):
                 in_edges = check_query_result(
@@ -367,13 +367,13 @@ async def explore(
                     eid = _to_str(edge["id"])
                     label = eid.split(":")[0]
                     neighbor_id = _to_str(edge["in"])
-                    neighbors.append((neighbor_id, label))
+                    neighbors.append((neighbor_id, label, eid))
 
-            for neighbor_id, label in neighbors:
+            for neighbor_id, label, edge_id in neighbors:
                 if neighbor_id in visited:
                     continue
                 visited.add(neighbor_id)
-                new_path = [*path, {"edge_label": label, "node_id": neighbor_id}]
+                new_path = [*path, {"edge_id": edge_id, "edge_label": label, "node_id": neighbor_id}]
                 neighbor_table = neighbor_id.split(":")[0]
 
                 if neighbor_table in node_types:

@@ -4,11 +4,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from enum import Enum
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
@@ -55,6 +57,18 @@ _scheduler: DreamScheduler | None = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()
+
+# ── Ingest job store ──────────────────────────────────────────────────────────
+
+
+class JobStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    complete = "complete"
+    failed = "failed"
+
+
+_ingest_jobs: dict[str, dict[str, Any]] = {}
 
 
 def _dummy_embed(dimensions: int):
@@ -161,6 +175,13 @@ class IngestRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     summary: str
+
+
+class IngestJobResponse(BaseModel):
+    job_id: str
+    status: JobStatus
+    summary: str | None = None
+    error: str | None = None
 
 
 class RecallRequest(BaseModel):
@@ -316,13 +337,43 @@ async def dream():
     return {"status": "started"}
 
 
-@app.post("/ingest", response_model=IngestResponse)
-async def ingest(req: IngestRequest):
+@app.post("/ingest", status_code=202, response_model=IngestJobResponse)
+async def ingest(req: IngestRequest, response: Response):
     if _scheduler:
         _scheduler.touch_activity()
-    logger.info("POST /ingest")
-    summary = await run_ingest_agent(req.text, req.hints if req.hints else None)
-    return IngestResponse(summary=summary)
+    job_id = str(uuid.uuid4())
+    _ingest_jobs[job_id] = {"status": JobStatus.pending, "summary": None, "error": None}
+    logger.info("POST /ingest → job %s (text length=%d)", job_id, len(req.text))
+
+    async def _run_job() -> None:
+        _ingest_jobs[job_id]["status"] = JobStatus.running
+        try:
+            summary = await run_ingest_agent(
+                req.text, req.hints if req.hints else None
+            )
+            _ingest_jobs[job_id]["status"] = JobStatus.complete
+            _ingest_jobs[job_id]["summary"] = summary
+        except Exception as exc:
+            logger.exception("Ingest job %s failed", job_id)
+            _ingest_jobs[job_id]["status"] = JobStatus.failed
+            _ingest_jobs[job_id]["error"] = str(exc)
+
+    asyncio.create_task(_run_job())
+    response.headers["Location"] = f"/ingest/jobs/{job_id}"
+    return IngestJobResponse(job_id=job_id, status=JobStatus.pending)
+
+
+@app.get("/ingest/jobs/{job_id}", response_model=IngestJobResponse)
+async def get_ingest_job(job_id: str):
+    job = _ingest_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return IngestJobResponse(
+        job_id=job_id,
+        status=job["status"],
+        summary=job["summary"],
+        error=job["error"],
+    )
 
 
 @app.post("/recall", response_model=RecallResponse)

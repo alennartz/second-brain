@@ -22,12 +22,32 @@ async def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
-async def test_ingest_endpoint_exists(client):
+async def test_ingest_returns_202_with_location(client):
     with patch("second_brain.app.run_ingest_agent", new_callable=AsyncMock) as mock:
         mock.return_value = "Stored 1 note"
         resp = await client.post("/ingest", json={"text": "test note"})
-    assert resp.status_code == 200
-    mock.assert_called_once_with("test note", None)
+    assert resp.status_code == 202
+    data = resp.json()
+    assert "job_id" in data
+    assert data["status"] == "pending"
+    assert resp.headers["location"] == f"/ingest/jobs/{data['job_id']}"
+
+
+async def test_ingest_job_completes(client):
+    import asyncio
+
+    # Patch must remain active while the background task runs
+    with patch("second_brain.app.run_ingest_agent", new_callable=AsyncMock) as mock:
+        mock.return_value = "Stored 1 note"
+        resp = await client.post("/ingest", json={"text": "test note"})
+        job_id = resp.json()["job_id"]
+        # Give the background task a moment to run
+        await asyncio.sleep(0.1)
+        job_resp = await client.get(f"/ingest/jobs/{job_id}")
+    assert job_resp.status_code == 200
+    job = job_resp.json()
+    assert job["status"] == "complete"
+    assert job["summary"] == "Stored 1 note"
 
 
 async def test_ingest_with_hints(client):
@@ -36,8 +56,12 @@ async def test_ingest_with_hints(client):
         resp = await client.post(
             "/ingest", json={"text": "test", "hints": ["entity:1"]}
         )
-    assert resp.status_code == 200
-    mock.assert_called_once_with("test", ["entity:1"])
+    assert resp.status_code == 202
+
+
+async def test_ingest_job_not_found(client):
+    resp = await client.get("/ingest/jobs/nonexistent")
+    assert resp.status_code == 404
 
 
 async def test_recall_endpoint_exists(client):

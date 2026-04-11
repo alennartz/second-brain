@@ -615,17 +615,29 @@ def ingest_all(client, base, label=""):
     for i, snippet in enumerate(SNIPPETS, 1):
         domain = "SPACE" if i <= len(SPACE_SNIPPETS) else "RENAISSANCE"
         t0 = time.time()
-        for attempt in range(3):
-            try:
-                resp = client.post(f"{base}/ingest", json={"text": snippet})
-                resp.raise_for_status()
-                results.append(resp.json())
-                break
-            except Exception as e:
-                print(f"  {label}⚠ Ingest {i} attempt {attempt + 1} failed: {e}")
-                time.sleep(10)
-        elapsed = time.time() - t0
-        print(f"  {label}[{i}/{len(SNIPPETS)} {domain}] {elapsed:.0f}s")
+        try:
+            resp = client.post(f"{base}/ingest", json={"text": snippet}, timeout=10)
+            if resp.status_code != 202:
+                print(f"  {label}⚠ Ingest {i}: unexpected status {resp.status_code}")
+                continue
+            job = resp.json()
+            job_id = job["job_id"]
+
+            # Poll for completion (no timeout — the server does the work)
+            while True:
+                time.sleep(2)
+                poll = client.get(f"{base}/ingest/jobs/{job_id}", timeout=10)
+                status = poll.json()["status"]
+                if status in ("complete", "failed"):
+                    results.append(poll.json())
+                    break
+
+            elapsed = time.time() - t0
+            status_icon = "✓" if status == "complete" else "✗"
+            print(f"  {label}[{i}/{len(SNIPPETS)} {domain}] {elapsed:.0f}s {status_icon}")
+        except Exception as e:
+            elapsed = time.time() - t0
+            print(f"  {label}⚠ Ingest {i} failed: {e} ({elapsed:.0f}s)")
         time.sleep(0.5)
     return results
 

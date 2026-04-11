@@ -10,3 +10,8 @@ dist/
 client/brain
 run.local.sh
 .worktrees/
+
+# Test scenario output artifacts
+test_*.json
+test_*_output.txt
+server.log

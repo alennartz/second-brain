@@ -1,12 +1,15 @@
 # Ingest Quality Experiments
 
 Systematic evaluation of ingest prompt engineering changes.
-Each experiment uses the same 20 Space Race snippets, 10 recall questions, and 5 graph probes.
 
 **Scoring:**
-- Expected edges: how many of 15 key relationships were correctly captured
-- Anti-patterns: how many of 3 known problems are present (lower = better)
-- Recall with context: how many of 10 questions returned cited nodes
+- Expected edges: how many key relationships were correctly captured
+- Anti-patterns: how many known problems are present (lower = better)
+- Recall with context: how many questions returned cited nodes
+
+**Note:** Experiments 01–03 used the v1 dataset (12 snippets, ~250 chars each, 14 expected edges).
+Future experiments use the v2 dataset (16 dense snippets, ~600 chars each, 25 expected edges,
+5 anti-patterns including alias resolution checks). Results are not directly comparable across versions.
 
 ## 01-baseline
 **Date:** 2026-04-10 19:52 UTC

@@ -27,33 +27,42 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
         system_prompt=(
             "You are a knowledge graph deduplication agent. You process a batch of nodes "
             "and find duplicates that should be merged.\n\n"
-            "For each node in the batch:\n"
-            "1. Use find_similar to find semantically similar nodes.\n"
-            "2. Examine the results — look at names, descriptions, content, and similarity scores.\n"
-            "3. If you find duplicates, merge them using merge_nodes. Provide a fused "
-            "name/description/content that combines the best of both.\n"
-            "4. If edges between the same pair of nodes have different labels that mean the same thing, "
-            "use merge_edges to combine them.\n\n"
-            "Merging rules:\n"
-            "- **Identical names** (case-insensitive): ALWAYS merge. No exceptions.\n"
+            "For EVERY node in the batch:\n"
+            "1. Call find_similar with k=10 to find candidates. This searches the ENTIRE "
+            "table, not just the batch — duplicates from any ingest will appear.\n"
+            "2. Scan the results for NAME MATCHES first, then consider similarity scores.\n"
+            "3. If you find duplicates, merge them IMMEDIATELY using merge_nodes.\n\n"
+            "Do NOT skip any batch member. Process every single one.\n\n"
+            "CRITICAL — name matching rules:\n"
+            "- **Identical names** (case-insensitive): ALWAYS merge. Two entities both named "
+            "'Venice' or 'Sergei Korolev' are duplicates. Do not look at the similarity "
+            "score — it reflects description/embedding differences, NOT name matching. "
+            "Identical names = same entity, period.\n"
             "- **Name variants** (e.g., 'JS' vs 'JavaScript', 'NYC' vs 'New York City', "
-            "'Dr. Smith' vs 'John Smith'): merge when clearly the same real-world entity.\n"
-            "- **High similarity + overlapping descriptions**: merge when both clearly describe "
-            "the same concept.\n"
-            "- **Different aspects of a concept** (e.g., 'Python language' vs 'Python ecosystem'): "
-            "do NOT merge — these are distinct.\n\n"
-            "When in doubt about names that look identical or near-identical, merge. "
-            "The cost of leaving obvious duplicates is higher than the cost of an occasional "
-            "over-merge (which can be corrected later).\n\n"
+            "'Dr. Smith' vs 'John Smith', 'Sergei Korolev' vs 'S.P. Korolev'): merge "
+            "when clearly the same real-world entity.\n"
+            "- **Overlapping names for same concept** (e.g., 'Florence Cathedral' and "
+            "'Cathedral of Santa Maria del Fiore'): merge — these are the same place.\n"
+            "- **Different aspects of a concept** (e.g., 'Python language' vs 'Python "
+            "ecosystem', 'Brunelleschi' vs 'Brunelleschi`s dome'): do NOT merge.\n\n"
+            "When merging, provide new_fields that combine the best information from "
+            "all merged nodes — keep the richest description, the most complete name.\n\n"
+            "After merging nodes, check the survivor's edges: if multiple edges connect "
+            "the same pair of nodes with synonymous labels (e.g., 'developed' and "
+            "'led_development_of'), use merge_edges to combine them.\n\n"
+            "Bias toward merging. The cost of leaving duplicates is fragmented knowledge "
+            "that degrades recall quality. An occasional over-merge can be corrected; "
+            "unmerged duplicates accumulate silently and degrade every query.\n\n"
             "Return a summary of what you merged and what you left alone."
         ),
     )
 
     @agent.tool
     async def find_similar(
-        ctx: RunContext[DedupDeps], record_id: str, k: int = 5
+        ctx: RunContext[DedupDeps], record_id: str, k: int = 10
     ) -> list[dict]:
         """Find the k most similar nodes to the given node (same table). Returns content + similarity score.
+        Searches the ENTIRE table — duplicates from any ingest will appear.
         record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
         logger.info("dedup: find_similar id=%s k=%d", record_id, k)
         try:

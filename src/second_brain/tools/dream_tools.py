@@ -173,6 +173,7 @@ async def merge_nodes(
     )
 
     touched_ids = list(ids)
+    edges_auto_merged: list[dict] = []  # track which edges got deduped
 
     # Re-point edges from each loser to survivor
     for loser_id in loser_ids:
@@ -218,6 +219,9 @@ async def merge_nodes(
                 check_query_result(
                     await db.query(f"DELETE {edge_id}"),
                     f"delete duplicate edge {edge_id}",
+                )
+                edges_auto_merged.append(
+                    {"kept": existing_eid, "deleted": edge_id, "table": edge_table, "target": target_id}
                 )
                 touched_ids.append(existing_eid)
             else:
@@ -277,6 +281,9 @@ async def merge_nodes(
                     await db.query(f"DELETE {edge_id}"),
                     f"delete duplicate edge {edge_id}",
                 )
+                edges_auto_merged.append(
+                    {"kept": existing_eid, "deleted": edge_id, "table": edge_table, "source": source_id}
+                )
                 touched_ids.append(existing_eid)
             else:
                 # Re-point: delete old, create new with all preserved fields
@@ -306,6 +313,7 @@ async def merge_nodes(
     return {
         "survivor": make_serializable(survivor[0]) if survivor else {},
         "touched_ids": list(set(touched_ids)),
+        "edges_auto_merged": edges_auto_merged,
     }
 
 

@@ -123,8 +123,47 @@ spending cycles comparing notes (which are all unique) instead of finding entity
 
 ---
 
+## Iteration 4: Hybrid find_similar, strip scores, judgment-based prompt (KEPT)
+
+**Philosophy change:** The dedup agent shouldn't be thresholding numbers. It should
+read names, look at connections, and decide like a human would.
+
+**Changes:**
+- **`dream_tools.py` find_similar**: Now does hybrid search (vector + BM25 on
+  name/content) with RRF fusion. Exact-name duplicates reliably surface via BM25
+  even when embeddings diverge. Similarity scores stripped from results entirely.
+- **`dream_dedup.py` prompt**: Rewritten around judgment. "Read the candidates.
+  Look at their names, types, and descriptions." No mention of scores.
+- **`dream_dedup.py` tools**: Added `explore` tool so the agent can see what
+  each candidate is connected to. Two entities with the same name connected
+  to the same people/places are obviously duplicates.
+- **Test updated**: `test_find_similar_strips_scores` replaces
+  `test_find_similar_includes_similarity_score`.
+
+**Results (5 cycles from fresh baseline):**
+- All 5 known exact-name duplicates resolved: Brunelleschi ✓, Korolev ✓,
+  Linear perspective ✓, Venice ✓, Rome ✓
+- 9 merges in 5 cycles
+- 54 explore calls — the agent is actively checking connections
+- BM25 hits appearing (ft=1) when name tokens match
+
+**Comparison across all iterations (5 cycles each, fresh baseline):**
+
+| Metric | Original | Iter 2 (name-first) | Iter 4 (hybrid+judgment) |
+|--------|----------|---------------------|-------------------------|
+| Dupes resolved (of 5) | 1 | 4 | **5** |
+| Total merges | 4 | 10 | **9** |
+| Explore calls | 0 | 0 | **54** |
+| BM25 in find_similar | no | no | **yes** |
+| Scores shown to agent | yes | yes | **no** |
+
+---
+
 ## Summary of changes kept
 
-1. **dream_dedup.py prompt**: Name-first matching, ignore similarity scores for
-   identical names, real-world examples, default k=10
-2. **scheduler.py**: Entity-only batch for dedup phase, mixed batch for connect
+1. **dream_dedup.py prompt**: Judgment-based — read names, check connections via
+   explore, decide like a human. No similarity scores, no thresholds.
+2. **dream_dedup.py tools**: Added `explore` for relationship context.
+   `find_similar` default k=10.
+3. **dream_tools.py find_similar**: Hybrid vector+BM25 search, scores stripped.
+4. **scheduler.py**: Entity-only batch for dedup phase, mixed batch for connect.

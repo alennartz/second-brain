@@ -25,34 +25,43 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
         deps_type=DedupDeps,
         output_type=str,
         system_prompt=(
-            "You are a knowledge graph deduplication agent. You process a batch of nodes "
-            "and find duplicates that should be merged.\n\n"
-            "For EVERY node in the batch:\n"
-            "1. Call find_similar with k=10 to find candidates. This searches the ENTIRE "
-            "table, not just the batch — duplicates from any ingest will appear.\n"
-            "2. Scan the results for NAME MATCHES first, then consider similarity scores.\n"
-            "3. If you find duplicates, merge them IMMEDIATELY using merge_nodes.\n\n"
+            "You are a knowledge graph deduplication agent. You process a batch of "
+            "entity nodes and decide which ones are duplicates that should be merged.\n\n"
+            "## Workflow\n\n"
+            "For EVERY entity in the batch:\n"
+            "1. Call find_similar to get candidate matches from the full table.\n"
+            "2. **Read the candidates.** Look at their names, types, and descriptions.\n"
+            "3. For any candidate that looks like it might be the same entity, use "
+            "explore to see what each one is connected to. Two nodes with the same "
+            "name connected to related things (same people, same places, same events) "
+            "are almost certainly duplicates.\n"
+            "4. If you're confident they're the same thing, merge them.\n\n"
             "Do NOT skip any batch member. Process every single one.\n\n"
-            "CRITICAL — name matching rules:\n"
-            "- **Identical names** (case-insensitive): ALWAYS merge. Two entities both named "
-            "'Venice' or 'Sergei Korolev' are duplicates. Do not look at the similarity "
-            "score — it reflects description/embedding differences, NOT name matching. "
-            "Identical names = same entity, period.\n"
-            "- **Name variants** (e.g., 'JS' vs 'JavaScript', 'NYC' vs 'New York City', "
-            "'Dr. Smith' vs 'John Smith', 'Sergei Korolev' vs 'S.P. Korolev'): merge "
-            "when clearly the same real-world entity.\n"
-            "- **Overlapping names for same concept** (e.g., 'Florence Cathedral' and "
-            "'Cathedral of Santa Maria del Fiore'): merge — these are the same place.\n"
-            "- **Different aspects of a concept** (e.g., 'Python language' vs 'Python "
-            "ecosystem', 'Brunelleschi' vs 'Brunelleschi`s dome'): do NOT merge.\n\n"
-            "When merging, provide new_fields that combine the best information from "
-            "all merged nodes — keep the richest description, the most complete name.\n\n"
-            "After merging nodes, check the survivor's edges: if multiple edges connect "
-            "the same pair of nodes with synonymous labels (e.g., 'developed' and "
-            "'led_development_of'), use merge_edges to combine them.\n\n"
-            "Bias toward merging. The cost of leaving duplicates is fragmented knowledge "
-            "that degrades recall quality. An occasional over-merge can be corrected; "
-            "unmerged duplicates accumulate silently and degrade every query.\n\n"
+            "## How to judge duplicates\n\n"
+            "Use your own judgment. Read the names and descriptions like a human would.\n\n"
+            "**Obvious duplicates — merge immediately:**\n"
+            "- Same name, same type (two entities both called 'Venice' of type 'place')\n"
+            "- Name variants for the same thing ('Sergei Korolev' vs 'S.P. Korolev', "
+            "'NYC' vs 'New York City', 'Florence Cathedral' vs "
+            "'Cattedrale di Santa Maria del Fiore')\n\n"
+            "**Check connections to decide:**\n"
+            "- Similar names but you're not sure? Use explore on both. If they share "
+            "connections to the same people, places, or events, they're the same.\n"
+            "- Different names but descriptions overlap heavily? Check connections. "
+            "A 'Chief Designer' entity connected to Soviet space program entities is "
+            "the same person as 'Sergei Korolev'.\n\n"
+            "**Do NOT merge:**\n"
+            "- Different aspects of related things ('Brunelleschi' the person vs "
+            "'Brunelleschi`s dome' the building)\n"
+            "- Same category but clearly different instances ('Apollo 1' vs 'Apollo 11')\n\n"
+            "## After merging nodes\n\n"
+            "Check the survivor's edges. If multiple edges connect the same pair of "
+            "nodes with synonymous labels (e.g., 'developed' and 'led_development_of', "
+            "or 'member_of' and 'belongs_to'), merge them with merge_edges.\n\n"
+            "## Bias\n\n"
+            "Lean toward merging. Unmerged duplicates fragment knowledge and degrade "
+            "every future query. An accidental over-merge is fixable; thousands of "
+            "unmerged duplicates are not.\n\n"
             "Return a summary of what you merged and what you left alone."
         ),
     )
@@ -61,26 +70,47 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
     async def find_similar(
         ctx: RunContext[DedupDeps], record_id: str, k: int = 10
     ) -> list[dict]:
-        """Find the k most similar nodes to the given node (same table). Returns content + similarity score.
-        Searches the ENTIRE table — duplicates from any ingest will appear.
-        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
+        """Find candidate duplicate nodes by name and embedding. Searches the ENTIRE
+        table — duplicates from any ingest will appear. Returns node content (name,
+        type, description). Read the results and use your judgment.
+        record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'."""
         logger.info("dedup: find_similar id=%s k=%d", record_id, k)
         try:
             if record_id not in ctx.deps.touched_ids:
                 ctx.deps.touched_ids.append(record_id)
-            results = await dream_tools.find_similar(ctx.deps.db, record_id, k)
-            return results
+            return await dream_tools.find_similar(ctx.deps.db, record_id, k)
         except Exception as e:
             logger.error("dedup: find_similar failed: %s", e)
             return [{"error": str(e)}]
+
+    @agent.tool
+    async def explore(
+        ctx: RunContext[DedupDeps],
+        record_id: str,
+        direction: str = "both",
+        depth: int = 1,
+    ) -> dict:
+        """See what a node is connected to. Use this to compare two candidate
+        duplicates — if they're connected to the same people/places/events,
+        they're almost certainly the same entity.
+        direction: 'out', 'in', or 'both'. depth: 1-2 hops."""
+        logger.info("dedup: explore id=%s dir=%s depth=%d", record_id, direction, depth)
+        if ":" not in record_id:
+            return {
+                "error": f"Invalid record_id '{record_id}': must be 'table:id' format"
+            }
+        if record_id not in ctx.deps.touched_ids:
+            ctx.deps.touched_ids.append(record_id)
+        return await dream_tools.explore(ctx.deps.db, record_id, direction, None, depth)
 
     @agent.tool
     async def merge_nodes(
         ctx: RunContext[DedupDeps], ids: list[str], new_fields: dict
     ) -> dict:
         """Merge multiple nodes into one. First ID becomes the survivor.
-        new_fields: the fused content — e.g. {"name": "...", "description": "..."} for entities,
-        {"content": "...", "summary": "..."} for notes. Edges are automatically re-pointed and deduped."""
+        new_fields: the fused content — e.g. {"name": "...", "description": "..."} for
+        entities, {"content": "...", "summary": "..."} for notes.
+        Edges are automatically re-pointed and deduped."""
         logger.info("dedup: merge_nodes ids=%s", ids)
         try:
             result = await dream_tools.merge_nodes(
@@ -114,11 +144,11 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
     @agent.tool
     async def get_node(ctx: RunContext[DedupDeps], record_id: str) -> dict:
         """Get a single node by ID for closer inspection.
-        record_id: MUST be a fully-qualified SurrealDB record ID in 'table:id' format, e.g. 'entity:abc123'."""
+        record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'."""
         logger.info("dedup: get_node id=%s", record_id)
         if ":" not in record_id:
             return {
-                "error": f"Invalid record_id '{record_id}': must be 'table:id' format (e.g. 'entity:abc123')"
+                "error": f"Invalid record_id '{record_id}': must be 'table:id' format"
             }
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)

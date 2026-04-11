@@ -24,40 +24,96 @@ async def find_similar(
     record_id: str,
     k: int = 5,
 ) -> list[dict]:
-    """Find the k nearest same-table neighbors by embedding similarity.
+    """Find candidate duplicates using hybrid search (vector + BM25 on name).
 
-    Returns results with similarity scores. Excludes the source node itself.
+    Combines embedding similarity with full-text name matching so that
+    exact-name duplicates always surface, even when their descriptions
+    differ enough to push embeddings apart.  Similarity scores are stripped
+    from results — the caller should judge by reading names, types, and
+    descriptions, not by thresholding a number.
     """
     validate_record_id(record_id)
     table = record_id.split(":")[0]
+    field = "content" if table == "note" else "name"
 
-    # Fetch the source node's embedding
+    # Fetch the source node's embedding and name/content for BM25 query
     source = check_query_result(
+        await db.query(f"SELECT * OMIT embedding FROM {record_id}"),
+        f"fetch source for {record_id}",
+    )
+    if not source:
+        logger.warning("find_similar: node not found %s", record_id)
+        return []
+
+    source_node = source[0]
+    query_text = source_node.get(field, "")
+
+    source_emb_result = check_query_result(
         await db.query(f"SELECT embedding FROM {record_id}"),
         f"fetch embedding for {record_id}",
     )
-    if not source or not source[0].get("embedding"):
-        logger.warning("find_similar: no embedding for %s", record_id)
-        return []
-    source_embedding = source[0]["embedding"]
-
-    # Vector search with DB-computed cosine similarity, embeddings excluded
-    results = check_query_result(
-        await db.query(
-            f"SELECT *, vector::similarity::cosine(embedding, $vec) AS similarity OMIT embedding "
-            f"FROM {table} WHERE embedding <|{k + 1},100|> $vec",
-            {"vec": source_embedding},
-        ),
-        f"vector search on {table}",
+    source_embedding = (
+        source_emb_result[0].get("embedding") if source_emb_result else None
     )
 
-    # Filter out the source node
-    filtered = [
-        make_serializable(rec) for rec in results if _to_str(rec["id"]) != record_id
-    ]
+    # --- Vector search (if embedding exists) ---
+    vs_results: list[dict] = []
+    if source_embedding:
+        vs_raw = check_query_result(
+            await db.query(
+                f"SELECT * OMIT embedding FROM {table} "
+                f"WHERE embedding <|{k + 1},100|> $vec",
+                {"vec": source_embedding},
+            ),
+            f"vector search on {table}",
+        )
+        vs_results = [r for r in vs_raw if _to_str(r["id"]) != record_id]
 
-    filtered.sort(key=lambda r: r.get("similarity", 0), reverse=True)
-    return filtered[:k]
+    # --- BM25 full-text search on name/content ---
+    ft_results: list[dict] = []
+    if query_text:
+        ft_raw = await db.query(
+            f"SELECT *, search::score(1) AS score OMIT embedding "
+            f"FROM {table} WHERE {field} @1@ $query "
+            f"ORDER BY score DESC LIMIT {k + 1}",
+            {"query": query_text},
+        )
+        if isinstance(ft_raw, list):
+            ft_results = [r for r in ft_raw if _to_str(r["id"]) != record_id]
+
+    # --- Reciprocal rank fusion ---
+    rrf_k = 60
+    scores: dict[str, float] = {}
+    records: dict[str, dict] = {}
+
+    for rank, rec in enumerate(vs_results):
+        rid = _to_str(rec["id"])
+        scores[rid] = scores.get(rid, 0) + 1 / (rrf_k + rank + 1)
+        records[rid] = rec
+
+    for rank, rec in enumerate(ft_results):
+        rid = _to_str(rec["id"])
+        scores[rid] = scores.get(rid, 0) + 1 / (rrf_k + rank + 1)
+        records[rid] = rec
+
+    ranked_ids = sorted(scores, key=lambda rid: scores[rid], reverse=True)[:k]
+
+    logger.info(
+        "find_similar %s: vs=%d ft=%d fused=%d",
+        record_id,
+        len(vs_results),
+        len(ft_results),
+        len(ranked_ids),
+    )
+
+    # Strip scores — the dedup agent should judge by reading, not by number
+    cleaned = []
+    for rid in ranked_ids:
+        rec = make_serializable(records[rid])
+        rec.pop("similarity", None)
+        rec.pop("score", None)
+        cleaned.append(rec)
+    return cleaned
 
 
 async def merge_nodes(

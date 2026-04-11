@@ -35,12 +35,12 @@ async def test_find_similar_returns_nearest_neighbors(dream_db):
     assert not any(rid == "entity:py" for rid in ids)
 
 
-async def test_find_similar_includes_similarity_score(dream_db):
+async def test_find_similar_strips_scores(dream_db):
     from second_brain.tools.dream_tools import find_similar
 
     results = await find_similar(dream_db, "entity:py", k=2)
-    assert all("similarity" in r for r in results)
-    assert all(isinstance(r["similarity"], float) for r in results)
+    assert all("similarity" not in r for r in results)
+    assert all("score" not in r for r in results)
 
 
 async def test_find_similar_strips_embeddings(dream_db):

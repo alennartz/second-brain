@@ -465,12 +465,27 @@ async def find_unlinked_cooccurrences(
             await db.query(f"SELECT * OMIT embedding FROM {other_id}"),
             f"fetch entity {other_id}",
         )
-        if other:
-            results.append(
-                {
-                    "entity": make_serializable(other[0]),
-                    "shared_notes": list(set(shared_notes)),
-                }
+        if not other:
+            continue
+
+        # Fetch shared note content so the agent can read what the text says
+        note_contents = []
+        for nid in set(shared_notes):
+            note = check_query_result(
+                await db.query(f"SELECT * OMIT embedding FROM {nid}"),
+                f"fetch note {nid}",
+            )
+            if note:
+                n = make_serializable(note[0])
+                note_contents.append(
+                    {"id": n["id"], "content": n.get("content", "")}
+                )
+
+        results.append(
+            {
+                "entity": make_serializable(other[0]),
+                "shared_notes": note_contents,
+            }
             )
 
     return results

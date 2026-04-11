@@ -38,16 +38,18 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
             "meaningful relationships between entities that should be linked but aren't.\n\n"
             "## Strategy\n\n"
             "For each entity node in the batch:\n\n"
-            "1. **Find related entities**: Use find_similar to discover semantically "
-            "related entities anywhere in the graph. These are your candidates — "
-            "entities that might be connected but aren't yet.\n"
-            "2. **Check what's already connected**: Use explore (depth 1) to see the "
+            "1. **Find co-occurring entities**: Use find_unlinked_cooccurrences to find "
+            "entities that share notes with this one but lack a direct edge. The results "
+            "include the shared note content — READ IT. The note text describes how "
+            "the entities are related (e.g., 'von Braun led the development of the V-2'). "
+            "Use that to create a properly named edge.\n"
+            "2. **Find related entities**: Use find_similar to discover semantically "
+            "related entities anywhere in the graph — especially entities from different "
+            "ingests that should be linked but aren't.\n"
+            "3. **Check what's already connected**: Use explore (depth 1) to see the "
             "entity's existing connections. Don't recreate edges that already exist.\n"
-            "3. **Find co-occurring entities**: Use find_unlinked_cooccurrences to find "
-            "entities that share notes with this one but lack a direct edge.\n"
-            "4. **Read and judge**: For promising candidates, use get_node to read both "
-            "entities. If a real relationship exists (e.g., one influenced the other, "
-            "one was part of the other, one created the other), create an edge.\n\n"
+            "4. **Read and judge**: For promising candidates from find_similar, use "
+            "get_node to read both entities. If a real relationship exists, create an edge.\n\n"
             "The most valuable connections are between entities from DIFFERENT ingests "
             "— information that was added at different times but describes related things. "
             "For example, if one snippet mentions 'Tsiolkovsky inspired Oberth' and "
@@ -92,7 +94,8 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
     ) -> list[dict]:
         """Find entities that share notes with this entity but have no direct edge.
         record_id: fully-qualified SurrealDB record ID, e.g. 'entity:abc123'.
-        Returns entities with their shared note IDs."""
+        Returns entities with the full text of their shared notes. Read the note
+        content to understand what relationship the text describes between the entities."""
         logger.info("connect: find_unlinked_cooccurrences id=%s", record_id)
         if _bad_id(record_id):
             return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]

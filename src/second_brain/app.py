@@ -315,8 +315,17 @@ async def health():
     return {"status": "ok"}
 
 
-@app.post("/dream")
-async def dream():
+class DreamJobResponse(BaseModel):
+    job_id: str
+    status: JobStatus
+    error: str | None = None
+
+
+_dream_jobs: dict[str, dict[str, Any]] = {}
+
+
+@app.post("/dream", status_code=202, response_model=DreamJobResponse)
+async def dream(response: Response):
     """Manually trigger one dream cycle as a background task."""
     logger.info("POST /dream")
     scheduler = _scheduler
@@ -330,11 +339,33 @@ async def dream():
         )
     else:
         scheduler.touch_activity()  # pause any in-progress auto-dream
-    task = asyncio.create_task(scheduler.run_cycle())
-    task.add_done_callback(
-        lambda t: t.result() if not t.cancelled() and not t.exception() else None
+
+    job_id = str(uuid.uuid4())
+    _dream_jobs[job_id] = {"status": JobStatus.pending, "error": None}
+
+    async def _run_dream() -> None:
+        _dream_jobs[job_id]["status"] = JobStatus.running
+        try:
+            await scheduler.run_cycle()
+            _dream_jobs[job_id]["status"] = JobStatus.complete
+        except Exception as exc:
+            logger.exception("Dream job %s failed", job_id)
+            _dream_jobs[job_id]["status"] = JobStatus.failed
+            _dream_jobs[job_id]["error"] = str(exc)
+
+    asyncio.create_task(_run_dream())
+    response.headers["Location"] = f"/dream/jobs/{job_id}"
+    return DreamJobResponse(job_id=job_id, status=JobStatus.pending)
+
+
+@app.get("/dream/jobs/{job_id}", response_model=DreamJobResponse)
+async def get_dream_job(job_id: str):
+    job = _dream_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return DreamJobResponse(
+        job_id=job_id, status=job["status"], error=job["error"]
     )
-    return {"status": "started"}
 
 
 @app.post("/ingest", status_code=202, response_model=IngestJobResponse)

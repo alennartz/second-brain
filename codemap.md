@@ -30,7 +30,7 @@ sequenceDiagram
   T->>DB: hybrid_search
   DB-->>T: existing nodes
   T-->>IA: matches
-  IA->>T: create_notes + create_entities + create_edges
+  IA->>T: store_knowledge (entities + notes + edges)
   T->>DB: INSERT with auto-embed
   DB-->>T: created records
   T-->>IA: confirmation
@@ -94,9 +94,9 @@ Foundation layer: configuration, shared types, database schema, model/embedding 
 
 ### Tools
 
-Database read/write operations consumed by agents. Three tool sets: ingest (bulk create notes/entities/edges, update nodes), recall (hybrid BM25+vector search with RRF fusion, node lookup, edge enrichment), and dream (semantic similarity search, node/edge merging, graph traversal, co-occurrence discovery).
+Database read/write operations consumed by agents. Three tool sets: ingest (composite `store_knowledge` for one-call creation with reference resolution, plus bulk create notes/entities/edges and update nodes), recall (hybrid BM25+vector search with RRF fusion, node lookup, edge enrichment), and dream (semantic similarity search, node/edge merging, graph traversal, co-occurrence discovery).
 
-**Responsibilities:** hybrid search (BM25 + vector + RRF fusion), bulk node/edge creation with auto-embedding, edge deduplication on create, node/edge merging with re-pointing and re-embedding, graph traversal and structural pattern discovery, batch record fetching, edge neighborhood enrichment
+**Responsibilities:** hybrid search (BM25 + vector + RRF fusion), composite store_knowledge (creates entities/notes/edges in one call, resolves `new_entity:N`/`new_note:N` references to record IDs), bulk node/edge creation with auto-embedding, edge deduplication on create, node/edge merging with re-pointing and re-embedding, graph traversal and structural pattern discovery, batch record fetching, edge neighborhood enrichment
 
 **Dependencies:** Core (validation helpers, models for serialization)
 
@@ -106,14 +106,15 @@ Database read/write operations consumed by agents. Three tool sets: ingest (bulk
 - `src/second_brain/tools/dream_tools.py`
 - `src/second_brain/tools/__init__.py`
 - `tests/test_ingest_tools.py`
+- `tests/test_store_knowledge.py`
 - `tests/test_recall_tools.py`
 - `tests/test_dream_tools.py`
 
 ### Agents
 
-Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → create graph nodes/edges), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). The scheduler manages dream cycle timing, pausing on user activity.
+Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). The scheduler manages dream cycle timing, pausing on user activity.
 
-**Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses), tool registration per agent, conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware), progress streaming via async queues
+**Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware), progress streaming via async queues
 
 **Dependencies:** Core (models for context types), Tools (all three tool sets)
 

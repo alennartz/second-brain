@@ -7,7 +7,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Response
@@ -61,7 +61,7 @@ _converse_agent = create_converse_agent()
 # ── Ingest job store ──────────────────────────────────────────────────────────
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     pending = "pending"
     running = "running"
     complete = "complete"
@@ -69,6 +69,7 @@ class JobStatus(str, Enum):
 
 
 _ingest_jobs: dict[str, dict[str, Any]] = {}
+_background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _dummy_embed(dimensions: int):
@@ -353,7 +354,9 @@ async def dream(response: Response):
             _dream_jobs[job_id]["status"] = JobStatus.failed
             _dream_jobs[job_id]["error"] = str(exc)
 
-    asyncio.create_task(_run_dream())
+    task = asyncio.create_task(_run_dream())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     response.headers["Location"] = f"/dream/jobs/{job_id}"
     return DreamJobResponse(job_id=job_id, status=JobStatus.pending)
 
@@ -363,9 +366,7 @@ async def get_dream_job(job_id: str):
     job = _dream_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    return DreamJobResponse(
-        job_id=job_id, status=job["status"], error=job["error"]
-    )
+    return DreamJobResponse(job_id=job_id, status=job["status"], error=job["error"])
 
 
 @app.post("/ingest", status_code=202, response_model=IngestJobResponse)
@@ -379,9 +380,7 @@ async def ingest(req: IngestRequest, response: Response):
     async def _run_job() -> None:
         _ingest_jobs[job_id]["status"] = JobStatus.running
         try:
-            summary = await run_ingest_agent(
-                req.text, req.hints if req.hints else None
-            )
+            summary = await run_ingest_agent(req.text, req.hints if req.hints else None)
             _ingest_jobs[job_id]["status"] = JobStatus.complete
             _ingest_jobs[job_id]["summary"] = summary
         except Exception as exc:
@@ -389,7 +388,9 @@ async def ingest(req: IngestRequest, response: Response):
             _ingest_jobs[job_id]["status"] = JobStatus.failed
             _ingest_jobs[job_id]["error"] = str(exc)
 
-    asyncio.create_task(_run_job())
+    task = asyncio.create_task(_run_job())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     response.headers["Location"] = f"/ingest/jobs/{job_id}"
     return IngestJobResponse(job_id=job_id, status=JobStatus.pending)
 

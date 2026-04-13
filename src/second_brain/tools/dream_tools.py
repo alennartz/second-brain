@@ -221,7 +221,12 @@ async def merge_nodes(
                     f"delete duplicate edge {edge_id}",
                 )
                 edges_auto_merged.append(
-                    {"kept": existing_eid, "deleted": edge_id, "table": edge_table, "target": target_id}
+                    {
+                        "kept": existing_eid,
+                        "deleted": edge_id,
+                        "table": edge_table,
+                        "target": target_id,
+                    }
                 )
                 touched_ids.append(existing_eid)
             else:
@@ -282,7 +287,12 @@ async def merge_nodes(
                     f"delete duplicate edge {edge_id}",
                 )
                 edges_auto_merged.append(
-                    {"kept": existing_eid, "deleted": edge_id, "table": edge_table, "source": source_id}
+                    {
+                        "kept": existing_eid,
+                        "deleted": edge_id,
+                        "table": edge_table,
+                        "source": source_id,
+                    }
                 )
                 touched_ids.append(existing_eid)
             else:
@@ -353,7 +363,7 @@ async def explore(
     for _ in range(depth):
         next_queue: list[tuple[str, list[dict]]] = []
         for current_id, path in queue:
-            neighbors: list[tuple[str, str]] = []
+            neighbors: list[tuple[str, str, str]] = []
 
             if direction in ("out", "both"):
                 out_edges = check_query_result(
@@ -381,7 +391,10 @@ async def explore(
                 if neighbor_id in visited:
                     continue
                 visited.add(neighbor_id)
-                new_path = [*path, {"edge_id": edge_id, "edge_label": label, "node_id": neighbor_id}]
+                new_path = [
+                    *path,
+                    {"edge_id": edge_id, "edge_label": label, "node_id": neighbor_id},
+                ]
                 neighbor_table = neighbor_id.split(":")[0]
 
                 if neighbor_table in node_types:
@@ -485,16 +498,14 @@ async def find_unlinked_cooccurrences(
             )
             if note:
                 n = make_serializable(note[0])
-                note_contents.append(
-                    {"id": n["id"], "content": n.get("content", "")}
-                )
+                note_contents.append({"id": n["id"], "content": n.get("content", "")})
 
         results.append(
             {
                 "entity": make_serializable(other[0]),
                 "shared_notes": note_contents,
             }
-            )
+        )
 
     return results
 

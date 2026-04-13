@@ -135,14 +135,10 @@ func TestSubmitClearCommand(t *testing.T) {
 	m.history = []types.Exchange{{User: "q", Assistant: types.AssistantResponse{Response: "a"}}}
 	m.input.textArea.SetValue("/clear")
 	updated, cmd := m.submitInput()
-	if cmd == nil {
-		t.Fatal("expected a command from /clear")
+	if cmd != nil {
+		t.Error("expected nil command from /clear")
 	}
-	// Execute the returned command and pass result through Update
-	msg := cmd()
-	result, _ := updated.Update(msg)
-	model := result.(Model)
-	if len(model.history) != 0 {
+	if len(updated.history) != 0 {
 		t.Error("expected history cleared after /clear")
 	}
 }

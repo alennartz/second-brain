@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     embedding_key: str | None = None
     reasoning_key: str | None = None
     dream_enabled: bool = True
-    dream_idle_timeout: float = 10
+    dream_idle_timeout_minutes: float = 10
+    dream_delay_multiplier: float = 1.5
+    dream_max_delay_minutes: float = 720
     dream_batch_size: int = 25
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}

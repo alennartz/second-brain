@@ -125,16 +125,25 @@ async def lifespan(app: FastAPI):
 
         global _scheduler
         if not settings.test_mode and settings.dream_enabled:
-            _scheduler = DreamScheduler(
-                db=_db,
-                embed_fn=_embed,
-                model=_model,
-                idle_timeout=settings.dream_idle_timeout
-                * 60,  # convert minutes to seconds
-                batch_size=settings.dream_batch_size,
-            )
-            _scheduler.start()
-            logger.info("Dream scheduler started")
+            if settings.dream_batch_size <= 0:
+                logger.warning(
+                    "Dream scheduler disabled: batch_size=%d is not positive",
+                    settings.dream_batch_size,
+                )
+            else:
+                _scheduler = DreamScheduler(
+                    db=_db,
+                    embed_fn=_embed,
+                    model=_model,
+                    idle_timeout=settings.dream_idle_timeout_minutes
+                    * 60,  # convert minutes to seconds
+                    batch_size=settings.dream_batch_size,
+                    delay_multiplier=settings.dream_delay_multiplier,
+                    max_delay=settings.dream_max_delay_minutes
+                    * 60,  # convert minutes to seconds
+                )
+                _scheduler.start()
+                logger.info("Dream scheduler started")
 
         configure_mcp(
             run_recall=run_recall_agent,
@@ -337,6 +346,9 @@ async def dream(response: Response):
             model=_model,
             idle_timeout=0,
             batch_size=settings.dream_batch_size,
+            delay_multiplier=settings.dream_delay_multiplier,
+            max_delay=settings.dream_max_delay_minutes
+            * 60,  # convert minutes to seconds
         )
     else:
         scheduler.touch_activity()  # pause any in-progress auto-dream

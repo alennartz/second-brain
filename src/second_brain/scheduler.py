@@ -1,7 +1,7 @@
 import asyncio
 import contextlib
 import logging
-import time
+import math
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -16,6 +16,36 @@ def _to_str(val: Any) -> str:
     return str(val)
 
 
+class DreamCycleState:
+    """Encapsulates backoff state for the dream scheduler."""
+
+    def __init__(
+        self,
+        idle_timeout: float,
+        delay_multiplier: float,
+        max_delay: float,
+    ):
+        self.idle_timeout = idle_timeout
+        self.delay_multiplier = delay_multiplier
+        self.max_delay = max_delay
+        self.cycle_count: int = 0
+        self.current_delay: float = idle_timeout
+        self.max_cycles: int | None = None
+
+    def advance(self) -> None:
+        """Increment cycle count and apply exponential backoff to the delay."""
+        self.cycle_count += 1
+        self.current_delay = min(
+            self.current_delay * self.delay_multiplier, self.max_delay
+        )
+
+    def reset(self) -> None:
+        """Reset backoff state to initial values."""
+        self.cycle_count = 0
+        self.current_delay = self.idle_timeout
+        self.max_cycles = None
+
+
 class DreamScheduler:
     def __init__(
         self,
@@ -24,23 +54,41 @@ class DreamScheduler:
         model: Any,
         idle_timeout: float = 600,  # seconds
         batch_size: int = 10,
+        delay_multiplier: float = 1.5,
+        max_delay: float = 43200,  # 12 hours in seconds
     ):
         self.db = db
         self.embed_fn = embed_fn
         self.model = model
         self.idle_timeout = idle_timeout
         self.batch_size = batch_size
-        self._last_activity: float = time.monotonic()
         self._cancel = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._state = DreamCycleState(idle_timeout, delay_multiplier, max_delay)
+
+    @staticmethod
+    def _compute_max_cycles(total_nodes: int, batch_size: int) -> int:
+        """Compute max dream cycles as ceil(sqrt(total_nodes / batch_size)).
+
+        Returns 0 when there are no nodes to process.
+        """
+        if total_nodes <= 0:
+            return 0
+        return math.ceil(math.sqrt(total_nodes / batch_size))
 
     def touch_activity(self) -> None:
-        """Record that user activity (ingest/recall) occurred. Wakes up dreaming."""
-        self._last_activity = time.monotonic()
+        """Record that user activity (ingest/recall) occurred. Resets backoff and wakes up dreaming."""
+        self._state.reset()
         self._cancel.set()
 
-    def _is_idle(self) -> bool:
-        return (time.monotonic() - self._last_activity) >= self.idle_timeout
+    async def _count_nodes(self) -> int:
+        """Return total number of entity + note records in the database."""
+        total = 0
+        for table in ("entity", "note"):
+            result = await self.db.query(f"SELECT count() FROM {table} GROUP ALL")
+            if isinstance(result, list) and result and "count" in result[0]:
+                total += result[0]["count"]
+        return total
 
     async def _select_batch(
         self, table_filter: str | None = None
@@ -169,24 +217,71 @@ class DreamScheduler:
         )
 
     async def run_forever(self) -> None:
-        """Main loop: wait for idle, run dream cycle, repeat."""
+        """Main loop: wait for idle with backoff delays, run dream cycles up to cutoff."""
         logger.info(
             "dream: scheduler started (idle_timeout=%.0fs, batch_size=%d)",
             self.idle_timeout,
             self.batch_size,
         )
         while True:
-            # Wait until idle
-            while not self._is_idle():
-                await asyncio.sleep(1)
+            # Step 1: Wait current_delay seconds (interruptible by _cancel)
+            delay = self._state.current_delay
+            try:
+                await asyncio.wait_for(self._cancel.wait(), timeout=delay)
+                # _cancel was set → user activity occurred
+                logger.info("dream: woken by activity, resetting")
+                self._cancel.clear()
+                continue
+            except TimeoutError:
+                # Delay elapsed without interruption — proceed with cycle
+                pass
 
-            # Check cancel wasn't set while we were checking
+            # Step 2: If cancel was set right at the boundary, reset and restart
             if self._cancel.is_set():
                 self._cancel.clear()
                 continue
 
-            logger.info("dream: server idle, starting dream cycle")
+            # Step 3: On first cycle of an idle period, compute max_cycles
+            if self._state.max_cycles is None:
+                total = await self._count_nodes()
+                self._state.max_cycles = self._compute_max_cycles(
+                    total, self.batch_size
+                )
+                logger.info(
+                    "dream: computed max_cycles=%d (total_nodes=%d, batch_size=%d)",
+                    self._state.max_cycles,
+                    total,
+                    self.batch_size,
+                )
+
+            # Step 4: Check if we've reached the cycle cutoff
+            if self._state.cycle_count >= self._state.max_cycles:
+                logger.info(
+                    "dream: converged after %d cycles, waiting for activity",
+                    self._state.cycle_count,
+                )
+                # Wait indefinitely for user activity
+                await self._cancel.wait()
+                logger.info("dream: woken by activity after convergence, resetting")
+                self._cancel.clear()
+                continue
+
+            # Step 5: Run the dream cycle
+            logger.info(
+                "dream: starting cycle %d/%d (delay=%.1fs)",
+                self._state.cycle_count + 1,
+                self._state.max_cycles,
+                self._state.current_delay,
+            )
             await self.run_cycle()
+
+            # If activity arrived during the cycle, state was already reset
+            if self._cancel.is_set():
+                self._cancel.clear()
+                continue
+
+            # Step 6: Advance backoff state
+            self._state.advance()
 
     def start(self) -> None:
         """Start the scheduler as a background asyncio task."""

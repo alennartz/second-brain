@@ -71,6 +71,16 @@ Each concern (reasoning, embedding) can independently target an Azure AI Foundry
 
 **Resolution logic:** `*_FOUNDRY_URL` unset → PydanticAI passthrough (uses `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` directly). Set + `auth=aad` → DefaultAzureCredential. Set + `auth=key` → explicit `BRAIN_*_KEY` if provided, otherwise SDK reads its own default env var.
 
+### Dream scheduler
+
+| Variable | Description |
+|---|---|
+| `BRAIN_DREAM_IDLE_TIMEOUT_MINUTES` | Minutes of inactivity before dreaming starts (default: `10`) |
+| `BRAIN_DREAM_DELAY_MULTIPLIER` | Backoff multiplier between consecutive dream cycles (default: `1.5`) |
+| `BRAIN_DREAM_MAX_DELAY_MINUTES` | Maximum delay between dream cycles in minutes (default: `720`) |
+| `BRAIN_DREAM_BATCH_SIZE` | Number of nodes to process per dream cycle (default: `25`) |
+| `BRAIN_DREAM_ENABLED` | Enable/disable the dream scheduler (default: `true`) |
+
 ## Architecture
 
 Personal knowledge engine: FastAPI REST API backed by an embedded SurrealDB graph database and three PydanticAI agent loops, with a Go terminal client. See [DESIGN.md](docs/DESIGN.md) for design rationale.

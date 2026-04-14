@@ -5,16 +5,22 @@ from second_brain.db import Storage
 
 
 class DummyEmbedder:
-    """Embedder that returns zero vectors. Conforms to the Embedder protocol."""
+    """Embedder returning unique vectors per call for testing re-embedding behavior.
+
+    Each embed() call increments a counter, producing [float(counter), 0.0, ...].
+    All vectors share the same direction so cosine-similarity search still works.
+    """
 
     def __init__(self, dimensions: int = 4) -> None:
         self.dimensions = dimensions
+        self._counter = 0
 
     async def embed(self, text: str) -> list[float]:
-        return [0.0] * self.dimensions
+        self._counter += 1
+        return [float(self._counter)] + [0.0] * (self.dimensions - 1)
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [[0.0] * self.dimensions for _ in texts]
+        return [await self.embed(t) for t in texts]
 
 
 @pytest.fixture

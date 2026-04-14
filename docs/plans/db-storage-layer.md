@@ -199,7 +199,7 @@ await storage.init()
 
 ### Test Files
 
-- `tests/test_storage.py` — 72 behavioral tests exercising the full `Storage` public interface: node CRUD, edge CRUD, search (hybrid/vector/fulltext), graph traversal, and low-level scheduler support operations.
+- `tests/test_storage.py` — 74 behavioral tests exercising the full `Storage` public interface: node CRUD, edge CRUD, search (hybrid/vector/fulltext), graph traversal, and low-level scheduler support operations.
 
 ### Behaviors Covered
 
@@ -240,6 +240,7 @@ await storage.init()
 - `create_edge` does NOT deduplicate — two calls create two distinct edges
 - `create_edge` returns a record with plain-string ID
 - `delete_edge` removes an edge so it is no longer retrievable
+- `delete_edge` does not raise for nonexistent edges
 - `check_edge_exists` returns matching edges between two nodes on a given table
 - `check_edge_exists` returns empty list when no matching edge exists
 
@@ -253,6 +254,7 @@ await storage.init()
 - `hybrid_search` respects the k parameter
 - `vector_search` returns results for a pre-computed embedding
 - `vector_search` excludes embeddings from results
+- `vector_search` returns empty list for no matches
 - `fulltext_search` returns BM25 matches
 - `fulltext_search` excludes embeddings from results
 - `fulltext_search` returns empty list for no matches
@@ -269,7 +271,9 @@ await storage.init()
 - `count_nodes` counts records in a specific table
 - `count_nodes` returns zero for empty tables
 - `count_nodes` counts note and entity tables independently
-- `select_batch` returns ordered records with a limit
+- `select_batch` returns ordered records with a limit, verifying sort order
 - `select_batch` returns empty list for empty tables
 - `select_batch` with `table=None` selects across both note and entity tables
 - `get_node_field` returns a specific field value (content, embedding, dream_age)
+
+**Review status:** approved

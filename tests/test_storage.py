@@ -5,7 +5,6 @@ All methods currently raise NotImplementedError — tests are expected to fail
 until the implementation phase.
 """
 
-
 from second_brain.db import Storage
 
 # ── Node Operations ──────────────────────────────────────────────────────────
@@ -167,23 +166,26 @@ class TestUpdateNode:
 
     async def test_re_embeds_when_content_changes(self, storage: Storage):
         created = await storage.create_note(content="Original text")
+        old_emb = await storage.get_node_field(created["id"], "embedding")
         await storage.update_node(created["id"], {"content": "New content"})
-        emb = await storage.get_node_field(created["id"], "embedding")
-        assert isinstance(emb, list)
+        new_emb = await storage.get_node_field(created["id"], "embedding")
+        assert new_emb != old_emb
 
     async def test_re_embeds_when_name_changes(self, storage: Storage):
         created = await storage.create_entity(name="Old Name", type="concept")
+        old_emb = await storage.get_node_field(created["id"], "embedding")
         await storage.update_node(created["id"], {"name": "New Name"})
-        emb = await storage.get_node_field(created["id"], "embedding")
-        assert isinstance(emb, list)
+        new_emb = await storage.get_node_field(created["id"], "embedding")
+        assert new_emb != old_emb
 
     async def test_re_embeds_when_description_changes(self, storage: Storage):
         created = await storage.create_entity(
             name="Entity", type="concept", description="Old desc"
         )
+        old_emb = await storage.get_node_field(created["id"], "embedding")
         await storage.update_node(created["id"], {"description": "New desc"})
-        emb = await storage.get_node_field(created["id"], "embedding")
-        assert isinstance(emb, list)
+        new_emb = await storage.get_node_field(created["id"], "embedding")
+        assert new_emb != old_emb
 
     async def test_does_not_re_embed_on_non_text_field(self, storage: Storage):
         """Updating non-text fields (like dream_age) should not trigger re-embedding."""
@@ -311,6 +313,10 @@ class TestDeleteEdge:
         result = await storage.get_edge(edge["id"])
         assert result == {}
 
+    async def test_deleting_nonexistent_edge_does_not_raise(self, storage: Storage):
+        """Deleting an edge that doesn't exist should not error."""
+        await storage.delete_edge("references:nonexistent")  # Should not raise
+
 
 class TestCheckEdgeExists:
     async def test_returns_matching_edges(self, storage: Storage):
@@ -367,14 +373,18 @@ class TestHybridSearch:
 class TestVectorSearch:
     async def test_returns_results(self, storage: Storage):
         await storage.create_note(content="Vector searchable content")
-        results = await storage.vector_search("note", [0.0, 0.0, 0.0, 0.0], k=5)
+        results = await storage.vector_search("note", [1.0, 0.0, 0.0, 0.0], k=5)
         assert isinstance(results, list)
 
     async def test_excludes_embeddings_from_results(self, storage: Storage):
         await storage.create_note(content="Content with embedding")
-        results = await storage.vector_search("note", [0.0, 0.0, 0.0, 0.0], k=5)
+        results = await storage.vector_search("note", [1.0, 0.0, 0.0, 0.0], k=5)
         for r in results:
             assert "embedding" not in r
+
+    async def test_returns_empty_for_no_matches(self, storage: Storage):
+        results = await storage.vector_search("note", [1.0, 0.0, 0.0, 0.0], k=5)
+        assert results == []
 
 
 class TestFulltextSearch:
@@ -464,11 +474,17 @@ class TestCountNodes:
 
 class TestSelectBatch:
     async def test_selects_ordered_records_with_limit(self, storage: Storage):
-        await storage.create_note(content="A")
-        await storage.create_note(content="B")
-        await storage.create_note(content="C")
+        n1 = await storage.create_note(content="A")
+        n2 = await storage.create_note(content="B")
+        n3 = await storage.create_note(content="C")
+        # Set different dream_age values to verify ordering
+        await storage.update_node(n1["id"], {"dream_age": 10})
+        await storage.update_node(n2["id"], {"dream_age": 5})
+        await storage.update_node(n3["id"], {"dream_age": 1})
         batch = await storage.select_batch("note", order_by="dream_age", limit=2)
         assert len(batch) == 2
+        # Verify ascending order (lowest dream_age first)
+        assert batch[0]["dream_age"] <= batch[1]["dream_age"]
 
     async def test_returns_empty_for_empty_table(self, storage: Storage):
         batch = await storage.select_batch("note", order_by="dream_age", limit=10)

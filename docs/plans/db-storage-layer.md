@@ -277,3 +277,268 @@ await storage.init()
 - `get_node_field` returns a specific field value (content, embedding, dream_age)
 
 **Review status:** approved
+
+## Steps
+
+### Step 1: Add private helpers to the Storage class
+
+Add private utility methods inside `Storage` in `src/second_brain/db.py`. These are the internal plumbing every public method uses.
+
+- **`_check(result, context)`** — static method. Same logic as `check_query_result` in `validation.py`: if `result` is a `str`, raise `RuntimeError(f"{context}: {result}")`. If `list`, return it. Otherwise return `[]`.
+- **`_normalize(record, *, keep_embedding=False)`** — call `make_serializable(record)` from `models.py` to convert `RecordID` → `"table:id"` strings and `datetime` → ISO strings, then pop `"embedding"` unless `keep_embedding=True`. Return the dict.
+- **`_embed_text(table, fields)`** — determine what text to embed for a record. If `table == "note"`, return `fields.get("content")`. Otherwise return `fields.get("description") or fields.get("name")`. Returns `str | None`.
+
+Add `from second_brain.models import make_serializable` to the imports at the top of `db.py`.
+
+**Verify:** No tests target these directly — they're exercised by all subsequent steps. Confirm `db.py` imports cleanly: `.venv/bin/python -c "from second_brain.db import Storage"`.
+**Status:** not started
+
+### Step 2: Implement node creation methods
+
+Implement `create_note`, `create_notes`, `create_entity`, `create_entities` in `Storage` in `src/second_brain/db.py`.
+
+**`create_note(content, source, summary)`:**
+- Embed content: `embedding = await self._embedder.embed(content)`.
+- Build data dict: `{"content": content, "source": source, "embedding": embedding}`. Add `"summary"` if not `None`.
+- Create: `result = await self._db.create("note", data)`. The SDK may return a dict or a single-element list — handle both: `rec = result if isinstance(result, dict) else result[0]`.
+- Return `self._normalize(rec)`.
+
+**`create_notes(notes)`:**
+- Return `[]` for empty input.
+- Extract content strings, call `self._embedder.embed_batch(contents)`.
+- For each note dict + embedding, build data dict (content, source defaulting to `"api"`, embedding, optional summary) and `self._db.create("note", data)`.
+- Return list of normalized records.
+
+**`create_entity(name, type, description)`:**
+- Embed: `await self._embedder.embed(description if description else name)`.
+- Build data: `{"name": name, "type": type, "embedding": embedding}`. Add `"description"` if not `None`.
+- Create via `self._db.create("entity", data)`.
+- Return `self._normalize(rec)`.
+
+**`create_entities(entities)`:**
+- Return `[]` for empty input.
+- Extract embed texts (`e.get("description") or e["name"]`), batch embed.
+- For each entity dict + embedding, build data and create.
+- Return list of normalized records.
+
+**Verify:** `pytest tests/test_storage.py -k "TestCreateNote or TestCreateNotes or TestCreateEntity or TestCreateEntities"` — 16 tests pass.
+**Status:** not started
+
+### Step 3: Implement node read and field access methods
+
+Implement `get_node`, `get_nodes`, `get_node_field` in `Storage` in `src/second_brain/db.py`.
+
+**`get_node(record_id)`:**
+- Query: `SELECT * OMIT embedding FROM {record_id}` (inline the validated record ID).
+- Validate with `self._check(result, ...)`.
+- Return `self._normalize(result[0])` if result is non-empty, else `{}`.
+
+**`get_nodes(record_ids)`:**
+- Return `[]` for empty input.
+- Loop: call `self.get_node(rid)` for each ID. Collect non-empty results.
+- Return the collected list.
+
+**`get_node_field(record_id, field)`:**
+- Query: `SELECT {field} FROM {record_id}`.
+- Validate, return `result[0].get(field)` if result is non-empty. The returned value is raw (may include embedding arrays) — do not normalize.
+
+**Verify:** `pytest tests/test_storage.py -k "TestGetNode or TestGetNodes or TestGetNodeField"` — 11 tests pass.
+**Status:** not started
+
+### Step 4: Implement node mutation methods
+
+Implement `update_node`, `delete_node` in `Storage` in `src/second_brain/db.py`.
+
+**`update_node(record_id, fields)`:**
+- Determine table from record_id: `table = record_id.split(":")[0]`.
+- Check if any text field is being updated: `TEXT_FIELDS = {"content", "name", "description"}`. `needs_embed = bool(TEXT_FIELDS & fields.keys())`.
+- If `needs_embed`:
+  - Fetch current record: `SELECT * FROM {record_id}` to get existing field values.
+  - Merge: `merged = {**existing_fields, **fields}`.
+  - Compute embed text via `self._embed_text(table, merged)`.
+  - Embed: `embedding = await self._embedder.embed(text)` if text is non-empty.
+  - Add `"embedding": embedding` to the fields dict.
+- Build `SET` clause: `", ".join(f"{k} = ${k}" for k in fields)`.
+- Query: `UPDATE {record_id} SET {set_clauses}, updated_at = time::now()` with fields as params.
+- Validate result. Return `self._normalize(result[0])`.
+
+**`delete_node(record_id)`:**
+- Query: `DELETE {record_id}`. No error handling needed — SurrealDB silently ignores missing records.
+
+**Verify:** `pytest tests/test_storage.py -k "TestUpdateNode or TestDeleteNode"` — 9 tests pass.
+**Status:** not started
+
+### Step 5: Implement edge operations
+
+Implement all six edge methods in `Storage` in `src/second_brain/db.py`.
+
+**`create_edge(from_id, edge_table, to_id, fields)`:**
+- Build query: `RELATE {from_id}->{edge_table}->{to_id}`.
+- If `fields` is provided and non-empty, append `SET` clause: `SET {k} = ${k}, ...` with fields as params.
+- Execute, validate. Return `self._normalize(result[0])` (edge dicts get `id`, `in`, `out` as plain strings).
+
+**`get_edge(edge_id)`:**
+- Query: `SELECT * FROM {edge_id}`.
+- Return `self._normalize(result[0])` if found, else `{}`.
+
+**`get_outgoing_edges(record_id)`:**
+- Query: `SELECT * FROM {record_id}->?`.
+- Handle: result may be a list of edges or a non-list. Validate.
+- Return `[self._normalize(e) for e in result]` — edge dicts have `id`, `in`, `out` as plain strings plus edge-specific fields.
+
+**`get_incoming_edges(record_id)`:**
+- Query: `SELECT * FROM {record_id}<-?`.
+- Same handling as outgoing.
+
+**`delete_edge(edge_id)`:**
+- Query: `DELETE {edge_id}`. Silent on missing.
+
+**`check_edge_exists(from_id, edge_table, to_id)`:**
+- Query: `SELECT * FROM {from_id}->{edge_table} WHERE out = {to_id}`.
+- Validate. Return `[self._normalize(e) for e in result]`.
+
+**Verify:** `pytest tests/test_storage.py -k "TestCreateEdge or TestGetEdge or TestGetOutgoingEdges or TestGetIncomingEdges or TestDeleteEdge or TestCheckEdgeExists"` — 16 tests pass.
+**Status:** not started
+
+### Step 6: Implement search operations
+
+Implement `hybrid_search`, `vector_search`, `fulltext_search` in `Storage` in `src/second_brain/db.py`. Port the search logic from `recall_tools.py`.
+
+**`hybrid_search(table, query_text, k)`:**
+- Embed query: `query_embedding = await self._embedder.embed(query_text)`.
+- Vector search: `SELECT * OMIT embedding FROM {table} WHERE embedding <|{k},100|> $vec` with `{"vec": query_embedding}`.
+- Determine BM25 field: `"content"` for `"note"`, `"name"` for `"entity"`.
+- Fulltext search: `SELECT *, search::score(1) AS score OMIT embedding FROM {table} WHERE {field} @1@ $query ORDER BY score DESC LIMIT {k}` with `{"query": query_text}`.
+- Validate both results with `self._check`.
+- RRF fusion (k=60): for each ranked list, compute `score = 1 / (60 + rank + 1)` per record ID. Sum scores across both lists. Sort by total score descending, take top `k`.
+- Strip `"score"` key from result dicts.
+- Return `[self._normalize(r) for r in top_k]`.
+
+**`vector_search(table, query_embedding, k)`:**
+- Query: `SELECT * OMIT embedding FROM {table} WHERE embedding <|{k},100|> $vec` with `{"vec": query_embedding}`.
+- Validate. Return `[self._normalize(r) for r in result]`.
+
+**`fulltext_search(table, query_text, k)`:**
+- Determine field: `"content"` for `"note"`, `"name"` for `"entity"`.
+- Query: `SELECT *, search::score(1) AS score OMIT embedding FROM {table} WHERE {field} @1@ $query ORDER BY score DESC LIMIT {k}` with `{"query": query_text}`.
+- Validate. Strip `"score"` from each result.
+- Return `[self._normalize(r) for r in result]`.
+
+**Verify:** `pytest tests/test_storage.py -k "TestHybridSearch or TestVectorSearch or TestFulltextSearch"` — 12 tests pass.
+**Status:** not started
+
+### Step 7: Implement graph and low-level operations
+
+Implement `get_connections`, `count_nodes`, `select_batch` in `Storage` in `src/second_brain/db.py`.
+
+**`get_connections(record_id)`:**
+- Fetch outgoing edges: `SELECT * FROM {record_id}->?`. Fetch incoming: `SELECT * FROM {record_id}<-?`.
+- Build connection list. For each outgoing edge: `{"edge_label": edge_table_from_id_prefix, "direction": "out", "adjacent_id": make_serializable(edge["out"])}`. For each incoming edge: `{"edge_label": ..., "direction": "in", "adjacent_id": make_serializable(edge["in"])}`.
+- Extract edge table from the edge's `id` field: `make_serializable(edge["id"]).split(":")[0]`.
+- Return the connections list.
+
+**`count_nodes(table)`:**
+- Query: `SELECT count() FROM {table} GROUP ALL`.
+- If result is a non-empty list with `"count"` key, return `result[0]["count"]`. Otherwise return `0`.
+
+**`select_batch(table, order_by, limit)`:**
+- If `table` is not `None`: query `SELECT * OMIT embedding FROM {table} ORDER BY {order_by} ASC LIMIT {limit}`.
+- If `table` is `None`: query both `"note"` and `"entity"` separately with the same ordering, merge results, sort by `order_by` ascending, return first `limit` records.
+- Return `[self._normalize(r) for r in results]`.
+
+**Verify:** `pytest tests/test_storage.py` — all 74 tests pass.
+**Status:** not started
+
+### Step 8: Migrate tool files to use Storage
+
+Change all three tool files to use `Storage` instead of raw `AsyncSurreal` + `embed_fn`. Update their corresponding test files.
+
+**`src/second_brain/tools/recall_tools.py`:**
+- All primitives (`hybrid_search`, `get_node`, `fetch_records_by_ids`, `enrich_with_connections`, `_to_str`) are now in Storage. Convert remaining functions to thin wrappers that delegate to Storage, or remove the module if agents will call Storage directly. Recommended approach: keep the file with wrapper functions so the agent-level changes in step 9 are smaller.
+- Change signatures from `(db: AsyncSurreal, ...)` to `(storage: Storage, ...)`.
+- `hybrid_search(storage, table, query_text, query_embedding, k)` → `return await storage.hybrid_search(table, query_text, k)`. The `query_embedding` parameter is now unused (Storage embeds internally) — keep for API compatibility or remove.
+- `get_node(storage, record_id)` → `return await storage.get_node(record_id)`. Remove `validate_record_id` call (Storage handles normalization).
+- `fetch_records_by_ids(storage, record_ids)` → `return await storage.get_nodes(record_ids)`.
+- `enrich_with_connections(storage, record)` → fetch connections via `storage.get_connections(record_id)`, attach as `record["connections"]`, return enriched dict.
+- Remove `AsyncSurreal`, `RecordID`, `check_query_result` imports. Add `from second_brain.db import Storage`.
+- Update `tests/test_recall_tools.py`: replace `db` fixture usage with `storage` fixture. Update all call sites to pass `storage` instead of `db`. Remove `embed_fn`/`query_embedding` arguments from `hybrid_search` calls if the parameter was dropped.
+
+**`src/second_brain/tools/ingest_tools.py`:**
+- Remove `create_notes`, `create_entities`, `update_node` functions — these are now Storage methods.
+- Remove `BatchEmbedder` protocol — replaced by `Embedder` in `db.py`.
+- Update `create_edges(storage: Storage, edges)`: replace `db.query(...)` calls with `storage.check_edge_exists(from_id, edge_table, to_id)` for duplicate checks and `storage.create_edge(from_id, edge_table, to_id, fields)` for creation. Remove `validate_record_id`/`validate_identifier`/`check_query_result` calls — Storage handles normalization. Self-edge rejection and duplicate-skip logic stay as business logic.
+- Update `store_knowledge(storage: Storage, entities, notes, edges)`: remove `embed_fn` parameter. Call `storage.create_entities(entities)`, `storage.create_notes(notes)`, and the local `create_edges(storage, resolved)`. `make_serializable` calls on record IDs are no longer needed — Storage already returns plain strings.
+- Update `_resolve_ref` — unchanged (pure business logic).
+- Remove `AsyncSurreal`, `check_query_result`, `validate_identifier`, `validate_record_id`, `Callable`, `Awaitable` imports. Add `from second_brain.db import Storage`.
+- Update `tests/test_ingest_tools.py` and `tests/test_store_knowledge.py`: use `storage` fixture. Remove `embed_fn` parameters from function calls. Adjust for removed functions (create_notes, create_entities, update_node tests may need to move to test_storage.py or be removed if already covered there).
+
+**`src/second_brain/tools/dream_tools.py`:**
+- All functions stay but switch from `(db: AsyncSurreal, ..., embed_fn)` to `(storage: Storage, ...)`.
+- Remove `_to_str` helper — Storage returns plain string IDs.
+- `find_similar(storage, record_id, k)`: use `storage.get_node(record_id)` for source node, `storage.get_node_field(record_id, "embedding")` for source embedding, `storage.vector_search(table, embedding, k+1)` and `storage.fulltext_search(table, query_text, k+1)` for search. Self-exclusion and RRF fusion stay as business logic. Remove `make_serializable` calls (Storage returns normalized data). Remove `check_query_result` calls.
+- `merge_nodes(storage, ids, new_fields, cancel)`: remove `embed_fn` parameter. Use `storage.get_node_field(id, "dream_age")` for ages. Use `storage.update_node(survivor, {**new_fields, "dream_age": max_age})` for survivor update (auto-re-embeds). Use `storage.get_outgoing_edges(loser)` / `storage.get_incoming_edges(loser)` for edges. Use `storage.check_edge_exists(...)` for duplicate detection. Edge re-pointing and duplicate merge: use `storage.delete_edge(old)` + `storage.create_edge(new_from, table, new_to, preserved_fields)` (delete-recreate pattern since Storage has no `update_edge`). Use `storage.delete_node(loser)` for cleanup. Use `storage.get_node(survivor)` for final result.
+- `explore(storage, record_id, ...)`: use `storage.get_outgoing_edges(id)` / `storage.get_incoming_edges(id)` for traversal, `storage.get_node(neighbor)` for content.
+- `find_unlinked_cooccurrences(storage, record_id, cancel)`: use `storage.get_incoming_edges(record_id)` for references edges, `storage.get_outgoing_edges(note_id)` for note→entity edges, `storage.get_outgoing_edges(record_id)` / `storage.get_outgoing_edges(other_id)` for direct-edge checks, `storage.get_node(id)` for content.
+- `merge_edges(storage, ids, new_context, cancel)`: use `storage.get_edge(eid)` for fetching. Survivor "update" via delete-recreate: `storage.delete_edge(survivor_id)` then `storage.create_edge(from_id, table, to_id, {"context": new_context, "dream_age": max_age})`. Use `storage.delete_edge(lid)` for losers. Use `storage.get_edge(new_survivor_id)` for final result.
+- Remove `AsyncSurreal`, `RecordID`, `check_query_result`, `validate_record_id`, embed-related imports.
+- Update `tests/test_dream_tools.py`: use `storage` fixture. Remove `embed_fn` from function calls. Adjust for changed return formats (Storage returns normalized data, so `_to_str` calls in assertions become direct string comparisons).
+
+**Verify:** `pytest tests/test_recall_tools.py tests/test_ingest_tools.py tests/test_store_knowledge.py tests/test_dream_tools.py tests/test_storage.py` — all tool tests and Storage tests pass.
+**Status:** not started
+
+### Step 9: Migrate agents, scheduler, app.py, and conftest.py
+
+Update all callers to use `Storage` instead of raw `AsyncSurreal` + `embed_fn`. Clean up obsolete code.
+
+**Agent Deps — all five agent files in `src/second_brain/agents/`:**
+
+- `ingest.py`: Change `IngestDeps` to `storage: Storage` (remove `db` and `embed_fn`). Update tool functions: `search_knowledge` → `ctx.deps.storage.hybrid_search(table, query, k)` for search, `ctx.deps.storage.get_connections(r["id"])` for enrichment (attach as `r["connections"]`). `store_knowledge` → `ingest_tools.store_knowledge(ctx.deps.storage, ...)`. `update_node` → `ctx.deps.storage.update_node(...)`. `get_node` → `ctx.deps.storage.get_node(...)` + `ctx.deps.storage.get_connections(...)`. Remove `AsyncSurreal`, `Callable`, `Awaitable` imports, add `Storage` import.
+- `recall.py`: Change `RecallDeps` to `storage: Storage`. Same search/enrichment pattern as ingest. Remove `AsyncSurreal` imports.
+- `converse.py`: Change `ConverseDeps` to `storage: Storage` + `model_setting` + `context` + `progress_queue` (remove `db` and `embed_fn`). Update sub-agent deps construction: `RecallDeps(storage=ctx.deps.storage)`, `IngestDeps(storage=ctx.deps.storage)`. Replace `fetch_records_by_ids(ctx.deps.db, ids)` with `ctx.deps.storage.get_nodes(ids)`. For cited edges, loop: `[await ctx.deps.storage.get_edge(eid) for eid in cited_edge_ids]`, filter empty results. Remove `AsyncSurreal`, `fetch_records_by_ids` imports.
+- `dream_dedup.py`: Change `DedupDeps` to `storage: Storage` + `cancel` + `touched_ids` (remove `db` and `embed_fn`). Update tool calls: `dream_tools.find_similar(ctx.deps.storage, ...)`, `dream_tools.explore(ctx.deps.storage, ...)`, `dream_tools.merge_nodes(ctx.deps.storage, ids, new_fields)` (no `embed_fn`), `dream_tools.merge_edges(ctx.deps.storage, ...)`, `recall_tools.get_node(ctx.deps.storage, ...)` or `ctx.deps.storage.get_node(...)` directly.
+- `dream_connect.py`: Change `ConnectDeps` to `storage: Storage` + `cancel` + `touched_ids` (remove `db` and `embed_fn`). Update tool calls similarly. `ingest_tools.create_edges(ctx.deps.storage, edges)` for edge creation.
+
+**`src/second_brain/scheduler.py`:**
+- Change `__init__` to accept `storage: Storage` instead of `db: AsyncSurreal` + `embed_fn`. Store as `self.storage`.
+- `_count_nodes()` → `return await self.storage.count_nodes("entity") + await self.storage.count_nodes("note")`.
+- `_select_batch(table_filter)` → `return await self.storage.select_batch(table_filter, order_by="dream_age", limit=self.batch_size)`. When `table_filter` is `None`, pass `None` to `select_batch` — Storage handles cross-table selection. Remove the manual merge-sort logic.
+- `_increment_dream_age(record_ids)` → for each ID: `current = await self.storage.get_node_field(rid, "dream_age")` then `await self.storage.update_node(rid, {"dream_age": (current or 0) + 1})`. This is two queries per ID instead of one, acceptable for the batch sizes involved.
+- `run_cycle()`: update Deps construction: `DedupDeps(storage=self.storage, cancel=...)`, `ConnectDeps(storage=self.storage, cancel=...)`.
+- Remove `AsyncSurreal`, `RecordID` imports.
+
+**`src/second_brain/app.py`:**
+- Replace globals `_db` and `_embed` with `_storage: Storage | None = None`.
+- In `lifespan`, test mode: create a zero-vector embedder conforming to `Embedder` protocol (replace `_dummy_embed` closure), then `_storage = Storage(url="mem://", embedder=embedder, dimensions=settings.embedding_dimensions)` and `await _storage.init()`.
+- In `lifespan`, production mode: wrap `create_embed_fn(...)` result in an `Embedder`-conforming adapter (the existing embed function is a bare callable, not an Embedder), then `_storage = Storage(url=f"surrealkv://{settings.db_path}", embedder=embedder, dimensions=settings.embedding_dimensions)` and `await _storage.init()`.
+- Remove manual `init_schema`/`init_vector_indexes` calls — `Storage.init()` handles them.
+- On shutdown: `await _storage.close()` instead of `await _db.close()`.
+- Update all Deps construction: `IngestDeps(storage=_storage)`, `RecallDeps(storage=_storage)`, `ConverseDeps(storage=_storage, model_setting=_model)`, etc.
+- Update `DreamScheduler` construction: `DreamScheduler(storage=_storage, model=_model, ...)`.
+- Update `get_graph_data`: use `_storage.get_node(record_id)`, `_storage.get_outgoing_edges(record_id)` + `_storage.get_incoming_edges(record_id)` for connections. Remove `_get_raw_connections` helper. Storage returns normalized data — remove `make_serializable` wrapping.
+- Update `run_recall_agent` and `run_converse_agent`: use `_storage` for Deps, replace `fetch_records_by_ids(_db, ids)` with `_storage.get_nodes(ids)`.
+- Remove `AsyncSurreal`, `init_schema`, `init_vector_indexes`, `recall_tools.get_node`, `recall_tools.fetch_records_by_ids` imports.
+
+**`tests/conftest.py`:**
+- The `storage` fixture already exists and constructs Storage correctly. Keep it.
+- The `db` fixture (raw `AsyncSurreal("mem://")`) may still be needed by tests that haven't migrated. If all tests now use `storage`, remove the `db` fixture. If some tests still need it, keep it.
+- `DummyEmbedder` stays in `conftest.py` (it's test infrastructure).
+
+**`src/second_brain/validation.py`:**
+- Remove `check_query_result` function — it's now a private method in Storage (`_check`). Keep `validate_record_id` and `validate_identifier` (still used by tool business logic like `create_edges` in `ingest_tools.py` and possibly agents).
+- Check: if `create_edges` in `ingest_tools.py` no longer uses `validate_record_id`/`validate_identifier` (Storage handles validation internally), remove those imports too and assess whether `validation.py` still has callers.
+
+**`src/second_brain/mcp.py`:**
+- Review for any direct `db` or `embed_fn` usage. The MCP module receives configured callbacks from `app.py` (`run_recall`, `run_ingest`, `get_graph`), so it should need no changes unless it imports SurrealDB types.
+
+Update all agent and scheduler test files to construct Deps with `storage` instead of `db` + `embed_fn`:
+- `tests/test_ingest_agent.py`
+- `tests/test_recall_agent.py`
+- `tests/test_converse_agent.py`
+- `tests/test_dream_dedup_agent.py`
+- `tests/test_dream_connect_agent.py`
+- `tests/test_scheduler.py`
+- `tests/test_app.py`
+- `tests/test_mcp.py`
+
+**Verify:** Full test suite passes: `pytest tests/` with zero failures. Confirm no remaining `AsyncSurreal` imports in tool files, agent files, or scheduler (only in `db.py`).
+**Status:** not started

@@ -97,15 +97,15 @@ GET  /graph/{record_id}             →  node + connections lookup
 ### Key modules (server — `src/second_brain/`)
 
 - **`app.py`** — FastAPI app with lifespan (DB init on startup). Endpoints: `/health`, `/ingest`, `/recall`, `/converse`, `/graph/{record_id}`.
-- **`db.py`** — SurrealDB schema definition (`init_schema`) and vector index setup (`init_vector_indexes`). Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and HNSW cosine indexes.
+- **`db.py`** — `Storage` class consolidating all SurrealDB operations behind a domain-level API, plus schema definition (`init_schema`) and vector index setup (`init_vector_indexes`). `Storage` owns the DB connection, embeds automatically on create/update via an injected `Embedder` protocol, and provides methods for CRUD, search, graph traversal, and batch operations. Tables: `note`, `entity`. Edge tables: `references`, `relates_to`, `derived_from`. Full-text search analyzers (BM25) and HNSW cosine indexes.
 - **`providers.py`** — Model and embedding factory. `create_model` and `create_embed_fn` accept an optional `key` parameter for explicit API key override. Per-concern Foundry support: when `BRAIN_REASONING_FOUNDRY_URL` or `BRAIN_EMBEDDING_FOUNDRY_URL` is set, constructs Azure Foundry clients with the configured auth mode (`aad` for DefaultAzureCredential, `key` for explicit key or SDK default env var). Any model string prefix is accepted for Foundry embeddings (OpenAI-compatible API). Otherwise, model strings pass through to PydanticAI for native resolution.
 - **`config.py`** — `Settings(BaseSettings)` with `BRAIN_` env prefix.
 - **`models.py`** — Shared `Context` model (nodes + edges), `make_serializable()` for SurrealDB types, `strip_embeddings()` to remove embedding arrays from LLM-facing results, and node/edge normalization helpers.
-- **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, deduplicates entities, and creates graph relationships with semantically meaningful edge names. Auto-embeds on create. Tools: `search_knowledge`, `get_node`, `store_knowledge` (bulk-creates entities, notes, and edges in one call with index-based cross-references), `update_node`. Dependencies: `IngestDeps(db, embed_fn)`.
-- **`agents/recall.py`** — PydanticAI agent that searches via hybrid search, returns `RecallOutput` with answer + cited IDs. Each node result is enriched with its edge neighborhood (label, direction, adjacent ID) for graph exploration. Tools: `search_knowledge`, `get_node`. Dependencies: `RecallDeps(db, embed_fn)`.
-- **`agents/converse.py`** — Conversational router that delegates to recall/ingest agents as internal tools. Supports multi-turn history. Accumulates `Context` across tool calls. Dependencies: `ConverseDeps(db, embed_fn, model_setting)`.
-- **`tools/ingest_tools.py`** — DB write operations: `store_knowledge` (bulk-creates entities, notes, and edges in a single call with index-based reference resolution — `new_entity:N`, `new_note:N`), `update_node`. Internal helpers: `create_notes`, `create_entities`, `create_edges`.
-- **`tools/recall_tools.py`** — DB read operations: `hybrid_search` (BM25 + vector with RRF fusion), `get_node`, `enrich_with_connections` (attaches edge neighborhood to node results), `fetch_records_by_ids`.
+- **`agents/ingest.py`** — PydanticAI agent that parses input into notes/entities, searches for existing knowledge, deduplicates entities, and creates graph relationships with semantically meaningful edge names. Auto-embeds on create. Tools: `search_knowledge`, `get_node`, `store_knowledge` (bulk-creates entities, notes, and edges in one call with index-based cross-references), `update_node`. Dependencies: `IngestDeps(storage)`.
+- **`agents/recall.py`** — PydanticAI agent that searches via hybrid search, returns `RecallOutput` with answer + cited IDs. Each node result is enriched with its edge neighborhood (label, direction, adjacent ID) for graph exploration. Tools: `search_knowledge`, `get_node`. Dependencies: `RecallDeps(storage)`.
+- **`agents/converse.py`** — Conversational router that delegates to recall/ingest agents as internal tools. Supports multi-turn history. Accumulates `Context` across tool calls. Dependencies: `ConverseDeps(storage, model_setting)`.
+- **`tools/ingest_tools.py`** — Write operations via `Storage`: `store_knowledge` (bulk-creates entities, notes, and edges in a single call with index-based reference resolution — `new_entity:N`, `new_note:N`), `create_edges`. All functions take a `storage: Storage` parameter.
+- **`tools/recall_tools.py`** — Read operations via `Storage`: `get_node`, `enrich_with_connections` (attaches edge neighborhood to node results), `fetch_records_by_ids`. Hybrid search (BM25 + vector with RRF fusion) is now a `Storage` method; tools call `storage.hybrid_search()` directly.
 
 ### Client (`client/`)
 
@@ -138,7 +138,7 @@ SurrealDB runs embedded (in-process) via `surrealkv://` protocol. Namespace and 
 
 ### Testing patterns
 
-- Shared `db` fixture in `conftest.py` provides an in-memory SurrealDB (`mem://`) per test.
+- Shared `storage` fixture in `conftest.py` provides a `Storage` instance backed by in-memory SurrealDB (`mem://`) with a `DummyEmbedder` per test. A raw `db` fixture (bare `AsyncSurreal`) is also available for lower-level tests.
 - Agent tests use `pydantic_ai.models.test.TestModel()` for deterministic behavior without real LLM calls.
 - Endpoint tests use `httpx.AsyncClient` with FastAPI's `ASGITransport`.
 - All tests are async (pytest-asyncio with `asyncio_mode = "auto"`).

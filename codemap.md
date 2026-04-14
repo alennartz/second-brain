@@ -71,9 +71,9 @@ sequenceDiagram
 
 ### Core
 
-Foundation layer: configuration, shared types, database schema, model/embedding factory, and input validation.
+Foundation layer: configuration, shared types, database storage abstraction, model/embedding factory, and input validation.
 
-**Responsibilities:** environment-based settings (`BRAIN_` prefix, including dream scheduler backoff/delay tuning), SurrealDB schema definition (tables, BM25 analyzers, HNSW vector indexes), Pydantic models and serialization helpers for SurrealDB types (RecordID, datetime), model/embedding provider factory (direct API keys, Azure Foundry with AAD/key auth), record ID and identifier validation
+**Responsibilities:** environment-based settings (`BRAIN_` prefix, including dream scheduler backoff/delay tuning), SurrealDB schema definition (tables, BM25 analyzers, HNSW vector indexes), `Storage` class wrapping all raw SurrealQL behind graph-concept operations (node/edge CRUD, hybrid search, vector search, batch operations, graph traversal), `Embedder` protocol for embedding injection, auto-embedding on node create/update, query result validation (`Storage._check`), Pydantic models and serialization helpers for SurrealDB types (RecordID, datetime), model/embedding provider factory (direct API keys, Azure Foundry with AAD/key auth), record ID and identifier validation
 
 **Dependencies:** none (leaf module — everything else depends on this)
 
@@ -94,11 +94,11 @@ Foundation layer: configuration, shared types, database schema, model/embedding 
 
 ### Tools
 
-Database read/write operations consumed by agents. Three tool sets: ingest (composite `store_knowledge` for one-call creation with reference resolution, plus bulk create notes/entities/edges and update nodes), recall (hybrid BM25+vector search with RRF fusion, node lookup, edge enrichment), and dream (semantic similarity search, node/edge merging, graph traversal, co-occurrence discovery).
+Business logic layer consumed by agents. Composes `Storage` primitives from Core — no raw SurrealQL or `AsyncSurreal` imports. Three tool sets: ingest (composite `store_knowledge` with index-based reference resolution for one-call creation, plus edge creation with dedup), recall (hybrid search with RRF fusion, node lookup, edge enrichment), and dream (semantic similarity search, node/edge merging, graph traversal, co-occurrence discovery). All functions take `storage: Storage` as their first argument.
 
-**Responsibilities:** hybrid search (BM25 + vector + RRF fusion), composite store_knowledge (creates entities/notes/edges in one call, resolves `new_entity:N`/`new_note:N` references to record IDs), bulk node/edge creation with auto-embedding, edge deduplication on create, node/edge merging with re-pointing and re-embedding, graph traversal and structural pattern discovery, batch record fetching, edge neighborhood enrichment
+**Responsibilities:** composite store_knowledge (creates entities/notes/edges in one call, resolves `new_entity:N`/`new_note:N` references to record IDs via Storage primitives), edge creation with dedup checks, RRF fusion over Storage's BM25 + vector search, edge neighborhood enrichment, node/edge merging with re-pointing, graph traversal and structural pattern discovery, batch record fetching
 
-**Dependencies:** Core (validation helpers, models for serialization)
+**Dependencies:** Core (Storage for all DB operations, validation helpers)
 
 **Files:**
 - `src/second_brain/tools/ingest_tools.py`
@@ -114,9 +114,9 @@ Database read/write operations consumed by agents. Three tool sets: ingest (comp
 
 Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). The scheduler manages dream cycle timing with exponential backoff between cycles and a convergence cutoff — it stops after `ceil(sqrt(total_nodes / batch_size))` cycles per idle period and waits for new user activity before resuming.
 
-**Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware, with `DreamCycleState` managing exponential backoff delays and per-idle-period cycle cutoff), progress streaming via async queues
+**Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses holding `storage: Storage`), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware, with `DreamCycleState` managing exponential backoff delays and per-idle-period cycle cutoff), progress streaming via async queues
 
-**Dependencies:** Core (models for context types), Tools (all three tool sets)
+**Dependencies:** Core (Storage via Deps, models for context types), Tools (all three tool sets)
 
 **Files:**
 - `src/second_brain/agents/ingest.py`
@@ -137,9 +137,9 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 
 HTTP and MCP entry points. FastAPI app with lifespan management (DB init, dream scheduler start/stop), request/response models, and route handlers. MCP server exposes ingest/recall/graph as Model Context Protocol tools for external AI clients.
 
-**Responsibilities:** REST endpoints (/health, /ingest, /recall, /converse, /converse/stream, /dream, /graph/{id}), SSE streaming for converse, app lifespan (DB + scheduler), request validation and response shaping, MCP tool definitions wrapping agent runners
+**Responsibilities:** REST endpoints (/health, /ingest, /recall, /converse, /converse/stream, /dream, /graph/{id}), SSE streaming for converse, app lifespan (constructs `Storage` at startup, injects into all Deps and scheduler), request validation and response shaping, MCP tool definitions wrapping agent runners
 
-**Dependencies:** Core (config, db, models, providers, validation), Agents (all five agents + scheduler), Tools (recall_tools for graph endpoint)
+**Dependencies:** Core (config, Storage + Embedder, models, providers, validation), Agents (all five agents + scheduler)
 
 **Files:**
 - `src/second_brain/app.py`

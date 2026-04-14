@@ -280,6 +280,8 @@ await storage.init()
 
 ## Steps
 
+**Pre-implementation commit:** `fe9854a53c2b7927aa122b801a2d309772c349dd`
+
 ### Step 1: Add private helpers to the Storage class
 
 Add private utility methods inside `Storage` in `src/second_brain/db.py`. These are the internal plumbing every public method uses.
@@ -291,7 +293,7 @@ Add private utility methods inside `Storage` in `src/second_brain/db.py`. These 
 Add `from second_brain.models import make_serializable` to the imports at the top of `db.py`.
 
 **Verify:** No tests target these directly — they're exercised by all subsequent steps. Confirm `db.py` imports cleanly: `.venv/bin/python -c "from second_brain.db import Storage"`.
-**Status:** not started
+**Status:** done
 
 ### Step 2: Implement node creation methods
 
@@ -322,7 +324,7 @@ Implement `create_note`, `create_notes`, `create_entity`, `create_entities` in `
 - Return list of normalized records.
 
 **Verify:** `pytest tests/test_storage.py -k "TestCreateNote or TestCreateNotes or TestCreateEntity or TestCreateEntities"` — 16 tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 3: Implement node read and field access methods
 
@@ -343,7 +345,7 @@ Implement `get_node`, `get_nodes`, `get_node_field` in `Storage` in `src/second_
 - Validate, return `result[0].get(field)` if result is non-empty. The returned value is raw (may include embedding arrays) — do not normalize.
 
 **Verify:** `pytest tests/test_storage.py -k "TestGetNode or TestGetNodes or TestGetNodeField"` — 11 tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 4: Implement node mutation methods
 
@@ -366,7 +368,7 @@ Implement `update_node`, `delete_node` in `Storage` in `src/second_brain/db.py`.
 - Query: `DELETE {record_id}`. No error handling needed — SurrealDB silently ignores missing records.
 
 **Verify:** `pytest tests/test_storage.py -k "TestUpdateNode or TestDeleteNode"` — 9 tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 5: Implement edge operations
 
@@ -398,7 +400,7 @@ Implement all six edge methods in `Storage` in `src/second_brain/db.py`.
 - Validate. Return `[self._normalize(e) for e in result]`.
 
 **Verify:** `pytest tests/test_storage.py -k "TestCreateEdge or TestGetEdge or TestGetOutgoingEdges or TestGetIncomingEdges or TestDeleteEdge or TestCheckEdgeExists"` — 16 tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 6: Implement search operations
 
@@ -425,7 +427,7 @@ Implement `hybrid_search`, `vector_search`, `fulltext_search` in `Storage` in `s
 - Return `[self._normalize(r) for r in result]`.
 
 **Verify:** `pytest tests/test_storage.py -k "TestHybridSearch or TestVectorSearch or TestFulltextSearch"` — 12 tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 7: Implement graph and low-level operations
 
@@ -447,7 +449,7 @@ Implement `get_connections`, `count_nodes`, `select_batch` in `Storage` in `src/
 - Return `[self._normalize(r) for r in results]`.
 
 **Verify:** `pytest tests/test_storage.py` — all 74 tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 8: Migrate tool files to use Storage
 

@@ -1,6 +1,5 @@
 import pytest
 
-from second_brain.db import init_schema, init_vector_indexes
 from second_brain.tools.recall_tools import (
     enrich_with_connections,
     fetch_records_by_ids,
@@ -10,131 +9,159 @@ from second_brain.tools.recall_tools import (
 
 
 @pytest.fixture
-async def seeded_db(db):
-    """DB with schema and sample data."""
-    await init_schema(db)
-    await db.query("""
-        CREATE note:1 SET content = 'Spaced repetition improves long-term memory',
-            summary = 'spaced repetition for memory', source = 'cli',
-            embedding = [0.1, 0.2, 0.3];
-        CREATE note:2 SET content = 'GTD is a productivity methodology',
-            summary = 'GTD methodology', source = 'cli',
-            embedding = [0.4, 0.5, 0.6];
-        CREATE entity:sr SET name = 'spaced repetition', type = 'concept';
-        CREATE entity:gtd SET name = 'GTD', type = 'concept';
-        RELATE note:1->references->entity:sr;
-        RELATE note:2->references->entity:gtd;
-        RELATE entity:sr->relates_to->entity:gtd SET context = 'both are learning methods';
-    """)
-    return db
+async def seeded_storage(storage):
+    """Storage with sample data for connection and node tests."""
+    note1 = await storage.create_note(
+        content="Spaced repetition improves long-term memory",
+        summary="spaced repetition for memory",
+        source="cli",
+    )
+    note2 = await storage.create_note(
+        content="GTD is a productivity methodology",
+        summary="GTD methodology",
+        source="cli",
+    )
+    entity_sr = await storage.create_entity(
+        name="spaced repetition",
+        type="concept",
+    )
+    entity_gtd = await storage.create_entity(
+        name="GTD",
+        type="concept",
+    )
+    await storage.create_edge(note1["id"], "references", entity_sr["id"])
+    await storage.create_edge(note2["id"], "references", entity_gtd["id"])
+    await storage.create_edge(
+        entity_sr["id"],
+        "relates_to",
+        entity_gtd["id"],
+        {"context": "both are learning methods"},
+    )
+    records = {
+        "note1": note1,
+        "note2": note2,
+        "entity_sr": entity_sr,
+        "entity_gtd": entity_gtd,
+    }
+    return storage, records
 
 
 @pytest.fixture
-async def hybrid_db(db):
-    """DB with schema, vector indexes, and sample data with embeddings."""
-    await init_schema(db)
-    await init_vector_indexes(db, dimensions=3)
-    await db.query("""
-        CREATE note:1 SET content = 'Spaced repetition improves long-term memory',
-            summary = 'spaced repetition for memory', source = 'cli',
-            embedding = [0.1, 0.2, 0.3];
-        CREATE note:2 SET content = 'GTD is a productivity methodology',
-            summary = 'GTD methodology', source = 'cli',
-            embedding = [0.4, 0.5, 0.6];
-        CREATE entity:sr SET name = 'spaced repetition', type = 'concept',
-            embedding = [0.1, 0.2, 0.3];
-        CREATE entity:gtd SET name = 'GTD', type = 'concept',
-            embedding = [0.4, 0.5, 0.6];
-    """)
-    return db
+async def hybrid_storage(storage):
+    """Storage with sample data for hybrid search tests."""
+    note1 = await storage.create_note(
+        content="Spaced repetition improves long-term memory",
+        summary="spaced repetition for memory",
+        source="cli",
+    )
+    note2 = await storage.create_note(
+        content="GTD is a productivity methodology",
+        summary="GTD methodology",
+        source="cli",
+    )
+    entity_sr = await storage.create_entity(
+        name="spaced repetition",
+        type="concept",
+    )
+    entity_gtd = await storage.create_entity(
+        name="GTD",
+        type="concept",
+    )
+    records = {
+        "note1": note1,
+        "note2": note2,
+        "entity_sr": entity_sr,
+        "entity_gtd": entity_gtd,
+    }
+    return storage, records
 
 
-async def test_hybrid_search_notes(hybrid_db):
+async def test_hybrid_search_notes(hybrid_storage):
     """Hybrid search on notes table finds results matching both keyword and vector."""
-    results = await hybrid_search(hybrid_db, "note", "repetition", [0.1, 0.2, 0.3], k=5)
+    storage, records = hybrid_storage
+    results = await hybrid_search(storage, "note", "repetition", k=5)
     assert len(results) >= 1
-    # The note about spaced repetition should be in results
     ids = [r["id"] for r in results]
-    assert any("note:1" in str(rid) for rid in ids)
+    assert records["note1"]["id"] in ids
 
 
-async def test_hybrid_search_entities(hybrid_db):
+async def test_hybrid_search_entities(hybrid_storage):
     """Hybrid search on entities table works."""
-    results = await hybrid_search(hybrid_db, "entity", "spaced", [0.1, 0.2, 0.3], k=5)
+    storage, records = hybrid_storage
+    results = await hybrid_search(storage, "entity", "spaced", k=5)
     assert len(results) >= 1
     ids = [r["id"] for r in results]
-    assert any("entity:sr" in str(rid) for rid in ids)
+    assert records["entity_sr"]["id"] in ids
 
 
-async def test_hybrid_search_no_results(db):
+async def test_hybrid_search_no_results(storage):
     """Returns empty list when table has no data."""
-    await init_schema(db)
-    await init_vector_indexes(db, dimensions=3)
-    results = await hybrid_search(db, "note", "xyznonexistent", [0.9, 0.9, 0.9], k=5)
+    results = await hybrid_search(storage, "note", "xyznonexistent", k=5)
     assert results == []
 
 
-async def test_hybrid_search_dimension_mismatch(hybrid_db):
-    """Raises RuntimeError with clear message on vector dimension mismatch."""
-    with pytest.raises(RuntimeError, match="Vector search on note failed"):
-        await hybrid_search(
-            hybrid_db, "note", "anything", [0.1, 0.2, 0.3, 0.4, 0.5], k=5
-        )
+async def test_hybrid_search_invalid_table(storage):
+    """Raises ValueError for invalid table name."""
+    with pytest.raises(ValueError, match="Invalid table"):
+        await hybrid_search(storage, "invalid_table", "anything", k=5)
 
 
-async def test_get_node(seeded_db):
-    result = await get_node(seeded_db, "note:1")
+async def test_get_node(seeded_storage):
+    """get_node returns a node by record ID."""
+    storage, records = seeded_storage
+    result = await get_node(storage, records["note1"]["id"])
     assert "Spaced repetition" in result["content"]
 
 
-async def test_enrich_with_connections_outgoing(seeded_db):
+async def test_enrich_with_connections_outgoing(seeded_storage):
     """enrich_with_connections attaches outgoing edges."""
-    node = (await seeded_db.query("SELECT * FROM entity:sr"))[0]
-    enriched = await enrich_with_connections(seeded_db, node)
-    # entity:sr has an outgoing relates_to edge to entity:gtd
+    storage, records = seeded_storage
+    node = await storage.get_node(records["entity_sr"]["id"])
+    enriched = await enrich_with_connections(storage, node)
+    # entity_sr has an outgoing relates_to edge to entity_gtd
     assert "connections" in enriched
     out_conns = [c for c in enriched["connections"] if c["direction"] == "out"]
     assert len(out_conns) >= 1
     assert out_conns[0]["edge_label"] == "relates_to"
-    assert "entity:gtd" in out_conns[0]["adjacent_id"]
+    assert out_conns[0]["adjacent_id"] == records["entity_gtd"]["id"]
 
 
-async def test_enrich_with_connections_incoming(seeded_db):
+async def test_enrich_with_connections_incoming(seeded_storage):
     """enrich_with_connections attaches incoming edges."""
-    node = (await seeded_db.query("SELECT * FROM entity:sr"))[0]
-    enriched = await enrich_with_connections(seeded_db, node)
-    # entity:sr has an incoming references edge from note:1
+    storage, records = seeded_storage
+    node = await storage.get_node(records["entity_sr"]["id"])
+    enriched = await enrich_with_connections(storage, node)
+    # entity_sr has an incoming references edge from note1
     in_conns = [c for c in enriched["connections"] if c["direction"] == "in"]
     assert len(in_conns) >= 1
     assert in_conns[0]["edge_label"] == "references"
-    assert "note:1" in in_conns[0]["adjacent_id"]
+    assert in_conns[0]["adjacent_id"] == records["note1"]["id"]
 
 
-async def test_enrich_with_connections_no_edges(seeded_db):
+async def test_enrich_with_connections_no_edges(storage):
     """enrich_with_connections returns empty connections for isolated node."""
-    await seeded_db.query("CREATE entity:lonely SET name = 'lonely', type = 'test'")
-    node = (await seeded_db.query("SELECT * FROM entity:lonely"))[0]
-    enriched = await enrich_with_connections(seeded_db, node)
+    entity = await storage.create_entity(name="lonely", type="test")
+    node = await storage.get_node(entity["id"])
+    enriched = await enrich_with_connections(storage, node)
     assert enriched["connections"] == []
 
 
-async def test_fetch_records_by_ids(seeded_db):
+async def test_fetch_records_by_ids(seeded_storage):
     """fetch_records_by_ids returns records for valid IDs."""
-    results = await fetch_records_by_ids(seeded_db, ["note:1"])
+    storage, records = seeded_storage
+    results = await fetch_records_by_ids(storage, [records["note1"]["id"]])
     assert len(results) == 1
     assert "Spaced repetition" in results[0]["content"]
 
 
-async def test_fetch_records_by_ids_empty(seeded_db):
+async def test_fetch_records_by_ids_empty(storage):
     """Passing an empty list returns an empty list."""
-    results = await fetch_records_by_ids(seeded_db, [])
+    results = await fetch_records_by_ids(storage, [])
     assert results == []
 
 
-async def test_fetch_records_by_ids_missing(seeded_db):
+async def test_fetch_records_by_ids_missing(storage):
     """Passing a non-existent ID does not crash; returns empty or skips gracefully."""
-    results = await fetch_records_by_ids(seeded_db, ["note:nonexistent"])
-    # Should not crash; result should be empty (no record found)
+    results = await fetch_records_by_ids(storage, ["note:nonexistent"])
     assert isinstance(results, list)
-    # The missing ID should not produce a result
     assert len(results) == 0

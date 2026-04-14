@@ -486,7 +486,7 @@ Change all three tool files to use `Storage` instead of raw `AsyncSurreal` + `em
 - Update `tests/test_dream_tools.py`: use `storage` fixture. Remove `embed_fn` from function calls. Adjust for changed return formats (Storage returns normalized data, so `_to_str` calls in assertions become direct string comparisons).
 
 **Verify:** `pytest tests/test_recall_tools.py tests/test_ingest_tools.py tests/test_store_knowledge.py tests/test_dream_tools.py tests/test_storage.py` — all tool tests and Storage tests pass.
-**Status:** not started
+**Status:** done
 
 ### Step 9: Migrate agents, scheduler, app.py, and conftest.py
 

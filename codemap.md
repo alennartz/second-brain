@@ -73,7 +73,7 @@ sequenceDiagram
 
 Foundation layer: configuration, shared types, database schema, model/embedding factory, and input validation.
 
-**Responsibilities:** environment-based settings (`BRAIN_` prefix), SurrealDB schema definition (tables, BM25 analyzers, HNSW vector indexes), Pydantic models and serialization helpers for SurrealDB types (RecordID, datetime), model/embedding provider factory (direct API keys, Azure Foundry with AAD/key auth), record ID and identifier validation
+**Responsibilities:** environment-based settings (`BRAIN_` prefix, including dream scheduler backoff/delay tuning), SurrealDB schema definition (tables, BM25 analyzers, HNSW vector indexes), Pydantic models and serialization helpers for SurrealDB types (RecordID, datetime), model/embedding provider factory (direct API keys, Azure Foundry with AAD/key auth), record ID and identifier validation
 
 **Dependencies:** none (leaf module — everything else depends on this)
 
@@ -112,9 +112,9 @@ Database read/write operations consumed by agents. Three tool sets: ingest (comp
 
 ### Agents
 
-Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). The scheduler manages dream cycle timing, pausing on user activity.
+Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). The scheduler manages dream cycle timing with exponential backoff between cycles and a convergence cutoff — it stops after `ceil(sqrt(total_nodes / batch_size))` cycles per idle period and waits for new user activity before resuming.
 
-**Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware), progress streaming via async queues
+**Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware, with `DreamCycleState` managing exponential backoff delays and per-idle-period cycle cutoff), progress streaming via async queues
 
 **Dependencies:** Core (models for context types), Tools (all three tool sets)
 

@@ -1,12 +1,10 @@
 import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
-from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable
+from second_brain.db import Storage
 from second_brain.tools import recall_tools
 
 logger = logging.getLogger(__name__)
@@ -20,8 +18,7 @@ class RecallOutput(BaseModel):
 
 @dataclass
 class RecallDeps:
-    db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues] - SDK types AsyncSurreal as function
-    embed_fn: Callable[[str], Awaitable[list[float]]]
+    storage: Storage
 
 
 def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
@@ -60,17 +57,16 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
             "recall: search_knowledge tables=%s query='%.80s' k=%d", tables, query, k
         )
         try:
-            query_embedding = await ctx.deps.embed_fn(query)
             all_results: list[dict] = []
             for table in tables:
                 results = await recall_tools.hybrid_search(
-                    ctx.deps.db, table, query, query_embedding, k
+                    ctx.deps.storage, table, query, k
                 )
                 all_results.extend(results)
             enriched = []
             for r in all_results:
-                e = await recall_tools.enrich_with_connections(ctx.deps.db, r)
-                enriched.append(make_serializable(e))
+                e = await recall_tools.enrich_with_connections(ctx.deps.storage, r)
+                enriched.append(e)
             logger.info("recall: search_knowledge → %d results", len(enriched))
             return enriched
         except Exception as e:
@@ -83,11 +79,13 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         Result includes a 'connections' list showing edges with labels and adjacent node IDs."""
         logger.info("recall: get_node id=%s", record_id)
         try:
-            node = await recall_tools.get_node(ctx.deps.db, record_id)
+            node = await recall_tools.get_node(ctx.deps.storage, record_id)
             if not node:
                 return {"error": f"Node {record_id} not found"}
-            enriched = await recall_tools.enrich_with_connections(ctx.deps.db, node)
-            return make_serializable(enriched)
+            enriched = await recall_tools.enrich_with_connections(
+                ctx.deps.storage, node
+            )
+            return enriched
         except Exception as e:
             logger.error("recall: get_node failed: %s", e)
             return {"error": str(e)}

@@ -543,4 +543,4 @@ Update all agent and scheduler test files to construct Deps with `storage` inste
 - `tests/test_mcp.py`
 
 **Verify:** Full test suite passes: `pytest tests/` with zero failures. Confirm no remaining `AsyncSurreal` imports in tool files, agent files, or scheduler (only in `db.py`).
-**Status:** not started
+**Status:** done

@@ -2,23 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import FunctionToolCallEvent
 from pydantic_ai.models import Model
-from surrealdb import AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
 
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
+from second_brain.db import Storage
 from second_brain.models import (
     Context,
-    make_serializable,
     normalize_edge,
     normalize_node,
 )
-from second_brain.tools.recall_tools import fetch_records_by_ids
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +39,7 @@ _INGEST_STATUS: dict[str, str] = {
 
 @dataclass
 class ConverseDeps:
-    db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
-    embed_fn: Callable[[str], Awaitable[list[float]]]
+    storage: Storage
     model_setting: Model | str  # model string or TestModel for sub-agent calls
     context: Context = field(default_factory=Context)  # mutable accumulator
     progress_queue: asyncio.Queue[dict | None] | None = None
@@ -103,7 +99,7 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         await _push(queue, "Searching knowledge base...")
 
         kwargs: dict = dict(
-            deps=RecallDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
+            deps=RecallDeps(storage=ctx.deps.storage),
             model=ctx.deps.model_setting,
         )
         if queue is not None:
@@ -115,17 +111,21 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         await _push(queue, "Search complete")
 
         # Fetch actual records and accumulate onto deps.context (deduplicated)
-        nodes = await fetch_records_by_ids(ctx.deps.db, output.cited_node_ids)
-        edges = await fetch_records_by_ids(ctx.deps.db, output.cited_edge_ids)
+        nodes = await ctx.deps.storage.get_nodes(output.cited_node_ids)
+        edges = [
+            e
+            for eid in output.cited_edge_ids
+            if (e := await ctx.deps.storage.get_edge(eid))
+        ]
         existing_node_ids = {str(n["id"]) for n in ctx.deps.context.nodes}
         existing_edge_ids = {str(e["id"]) for e in ctx.deps.context.edges}
         ctx.deps.context.nodes.extend(
-            normalize_node(make_serializable(n))
+            normalize_node(n)
             for n in nodes
             if str(n.get("id")) not in existing_node_ids
         )
         ctx.deps.context.edges.extend(
-            normalize_edge(make_serializable(e))
+            normalize_edge(e)
             for e in edges
             if str(e.get("id")) not in existing_edge_ids
         )
@@ -142,7 +142,7 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         await _push(queue, "Storing new knowledge...")
 
         kwargs: dict = dict(
-            deps=IngestDeps(db=ctx.deps.db, embed_fn=ctx.deps.embed_fn),
+            deps=IngestDeps(storage=ctx.deps.storage),
             model=ctx.deps.model_setting,
         )
         if queue is not None:

@@ -1,22 +1,17 @@
-from unittest.mock import AsyncMock
-
 import pytest
 from pydantic_ai.models.test import TestModel
 
 from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
-from second_brain.db import init_schema
 
 
 @pytest.fixture
-async def recall_deps(db):
-    await init_schema(db)
-    await db.query("""
-        CREATE note:1 SET content = 'Spaced repetition improves memory',
-            summary = 'spaced rep', source = 'cli';
-        CREATE entity:sr SET name = 'spaced repetition', type = 'concept';
-        RELATE note:1->references->entity:sr;
-    """)
-    return RecallDeps(db=db, embed_fn=AsyncMock(return_value=[0.1, 0.2, 0.3]))
+async def recall_deps(storage):
+    note = await storage.create_note(
+        content="Spaced repetition improves memory", source="cli", summary="spaced rep"
+    )
+    entity = await storage.create_entity(name="spaced repetition", type="concept")
+    await storage.create_edge(note["id"], "references", entity["id"])
+    return RecallDeps(storage=storage)
 
 
 async def test_recall_agent_has_tools():

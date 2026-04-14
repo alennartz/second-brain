@@ -1,16 +1,12 @@
-from unittest.mock import AsyncMock
-
 import pytest
 from pydantic_ai.models.test import TestModel
 
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
-from second_brain.db import init_schema
 
 
 @pytest.fixture
-async def ingest_deps(db):
-    await init_schema(db)
-    return IngestDeps(db=db, embed_fn=AsyncMock(return_value=[0.1, 0.2, 0.3]))
+async def ingest_deps(storage):
+    return IngestDeps(storage=storage)
 
 
 async def test_ingest_agent_has_tools():

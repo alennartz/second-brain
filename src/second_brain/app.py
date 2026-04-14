@@ -14,23 +14,20 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
-from surrealdb import AsyncSurreal
 
 from second_brain.agents.converse import ConverseDeps, create_converse_agent
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.recall import RecallDeps, create_recall_agent
 from second_brain.config import settings
-from second_brain.db import init_schema, init_vector_indexes
+from second_brain.db import Embedder, Storage
 from second_brain.mcp import configure as configure_mcp
 from second_brain.mcp import mcp
 from second_brain.models import (
     Context,
-    make_serializable,
     normalize_edge,
     normalize_node,
 )
 from second_brain.scheduler import DreamScheduler
-from second_brain.tools.recall_tools import get_node
 from second_brain.validation import validate_record_id
 
 # Console + file logging
@@ -50,9 +47,8 @@ _file.setFormatter(
 logging.basicConfig(level=logging.INFO, handlers=[_console, _file])
 logger = logging.getLogger(__name__)
 
-_db: Any = None
+_storage: Storage | None = None
 _model: Any = None
-_embed: Any = None
 _scheduler: DreamScheduler | None = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
@@ -72,29 +68,48 @@ _ingest_jobs: dict[str, dict[str, Any]] = {}
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
-def _dummy_embed(dimensions: int):
-    """Return an async embed function that produces zero vectors."""
+class _DummyEmbedder:
+    """Zero-vector embedder for test mode."""
 
-    async def _embed_fn(text: str) -> list[float]:
-        return [0.0] * dimensions
+    def __init__(self, dimensions: int) -> None:
+        self._dimensions = dimensions
 
-    async def _embed_batch(texts: list[str]) -> list[list[float]]:
-        return [[0.0] * dimensions for _ in texts]
+    async def embed(self, text: str) -> list[float]:
+        return [0.0] * self._dimensions
 
-    _embed_fn.embed_batch = _embed_batch  # type: ignore[attr-defined]
-    return _embed_fn
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return [[0.0] * self._dimensions for _ in texts]
+
+
+class _EmbedFnAdapter:
+    """Wraps a bare embed callable into the Embedder protocol."""
+
+    def __init__(self, embed_fn: Any) -> None:
+        self._embed_fn = embed_fn
+
+    async def embed(self, text: str) -> list[float]:
+        return await self._embed_fn(text)
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if hasattr(self._embed_fn, "embed_batch"):
+            return await self._embed_fn.embed_batch(texts)
+        return [await self._embed_fn(t) for t in texts]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _db, _model, _embed
+    global _storage, _model
     if settings.test_mode:
         from pydantic_ai.models.test import TestModel
 
         logger.info("Starting in TEST mode (in-memory DB, TestModel)")
-        _db = AsyncSurreal("mem://")
         _model = TestModel()
-        _embed = _dummy_embed(settings.embedding_dimensions)
+        embedder: Embedder = _DummyEmbedder(settings.embedding_dimensions)
+        _storage = Storage(
+            url="mem://",
+            embedder=embedder,
+            dimensions=settings.embedding_dimensions,
+        )
     else:
         from second_brain.providers import create_embed_fn, create_model
 
@@ -103,24 +118,27 @@ async def lifespan(app: FastAPI):
             settings.reasoning_model,
             settings.embedding_model,
         )
-        _db = AsyncSurreal(f"surrealkv://{settings.db_path}")
         _model = create_model(
             settings.reasoning_model,
             settings.reasoning_foundry_url,
             settings.reasoning_auth,
             settings.reasoning_key,
         )
-        _embed = create_embed_fn(
+        embed_fn = create_embed_fn(
             settings.embedding_model,
             settings.embedding_foundry_url,
             settings.embedding_auth,
             settings.embedding_key,
             settings.embedding_dimensions,
         )
+        embedder = _EmbedFnAdapter(embed_fn)
+        _storage = Storage(
+            url=f"surrealkv://{settings.db_path}",
+            embedder=embedder,
+            dimensions=settings.embedding_dimensions,
+        )
     try:
-        await _db.use("brain", "brain")
-        await init_schema(_db)
-        await init_vector_indexes(_db)
+        await _storage.init()
         logger.info("Database schema initialized")
 
         global _scheduler
@@ -131,9 +149,9 @@ async def lifespan(app: FastAPI):
                     settings.dream_batch_size,
                 )
             else:
+                assert _storage is not None
                 _scheduler = DreamScheduler(
-                    db=_db,
-                    embed_fn=_embed,
+                    storage=_storage,
                     model=_model,
                     idle_timeout=settings.dream_idle_timeout_minutes
                     * 60,  # convert minutes to seconds
@@ -160,8 +178,8 @@ async def lifespan(app: FastAPI):
         ]
         app.mount("/mcp", mcp_app)
     except Exception:
-        await _db.close()
-        _db = None
+        await _storage.close()
+        _storage = None
         raise
 
     async with mcp_app.router.lifespan_context(app):
@@ -170,9 +188,9 @@ async def lifespan(app: FastAPI):
     if _scheduler:
         await _scheduler.stop()
         _scheduler = None
-    if _db:
-        await _db.close()
-        _db = None
+    if _storage:
+        await _storage.close()
+        _storage = None
 
 
 app = FastAPI(title="Second Brain", lifespan=lifespan)
@@ -235,6 +253,7 @@ class ConverseResponse(BaseModel):
 
 
 async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
+    assert _storage is not None
     prompt = text
     if hints:
         hint_str = ", ".join(hints)
@@ -242,7 +261,7 @@ async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
     logger.info("Ingest agent starting (text length=%d)", len(text))
     result = await _ingest_agent.run(
         prompt,
-        deps=IngestDeps(db=_db, embed_fn=_embed),
+        deps=IngestDeps(storage=_storage),
         model=_model,
     )
     logger.info("Ingest agent completed")
@@ -252,6 +271,7 @@ async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
 async def run_recall_agent(
     question: str, hints: list[str] | None = None
 ) -> RecallResponse:
+    assert _storage is not None
     prompt = question
     if hints:
         hint_str = ", ".join(hints)
@@ -260,7 +280,7 @@ async def run_recall_agent(
     logger.info("Recall agent starting (question length=%d)", len(question))
     result = await _recall_agent.run(
         prompt,
-        deps=RecallDeps(db=_db, embed_fn=_embed),
+        deps=RecallDeps(storage=_storage),
         model=_model,
     )
     output = result.output  # RecallOutput
@@ -271,16 +291,19 @@ async def run_recall_agent(
     )
 
     # Fetch actual records for cited IDs
-    from second_brain.tools.recall_tools import fetch_records_by_ids
-
-    nodes = await fetch_records_by_ids(_db, output.cited_node_ids)
-    edges = await fetch_records_by_ids(_db, output.cited_edge_ids)
+    assert _storage is not None
+    nodes = await _storage.get_nodes(output.cited_node_ids)
+    edges: list[dict] = []
+    for eid in output.cited_edge_ids:
+        edge = await _storage.get_edge(eid)
+        if edge:
+            edges.append(edge)
 
     ctx = None
     if nodes or edges:
         ctx = Context(
-            nodes=[normalize_node(make_serializable(n)) for n in nodes],
-            edges=[normalize_edge(make_serializable(e)) for e in edges],
+            nodes=[normalize_node(n) for n in nodes],
+            edges=[normalize_edge(e) for e in edges],
         )
 
     return RecallResponse(answer=output.answer, context=ctx)
@@ -289,9 +312,9 @@ async def run_recall_agent(
 async def run_converse_agent(
     message: str, history: list[HistoryTurn]
 ) -> ConverseResponse:
+    assert _storage is not None
     deps = ConverseDeps(
-        db=_db,
-        embed_fn=_embed,
+        storage=_storage,
         model_setting=_model,
     )
 
@@ -340,9 +363,9 @@ async def dream(response: Response):
     logger.info("POST /dream")
     scheduler = _scheduler
     if scheduler is None:
+        assert _storage is not None
         scheduler = DreamScheduler(
-            db=_db,
-            embed_fn=_embed,
+            storage=_storage,
             model=_model,
             idle_timeout=0,
             batch_size=settings.dream_batch_size,
@@ -436,52 +459,45 @@ async def converse(req: ConverseRequest):
     return await run_converse_agent(req.message, req.history)
 
 
-async def _get_raw_connections(db: Any, record_id: str) -> list[dict]:
-    """Get all edge records connected to a node (both directions)."""
-    outgoing = await db.query(f"SELECT * FROM {record_id}->?")
-    incoming = await db.query(f"SELECT * FROM {record_id}<-?")
-    out = outgoing if isinstance(outgoing, list) else []
-    inc = incoming if isinstance(incoming, list) else []
-    return out + inc
-
-
 async def get_graph_data(record_id: str) -> GraphResponse | None:
     """Fetch a node and its connections. Returns None if not found."""
+    assert _storage is not None
     validate_record_id(record_id)
-    node = await get_node(_db, record_id)
+    node = await _storage.get_node(record_id)
     if not node:
         return None
-    raw_edges = await _get_raw_connections(_db, record_id)
+
+    out_edges = await _storage.get_outgoing_edges(record_id)
+    in_edges = await _storage.get_incoming_edges(record_id)
+    raw_edges = out_edges + in_edges
+
     connections = []
     for edge in raw_edges:
-        edge_s = make_serializable(edge)
-        raw_in = edge_s.get("in")
-        raw_out = edge_s.get("out")
+        raw_in = edge.get("in")
+        raw_out = edge.get("out")
         if raw_in is None or raw_out is None:
             continue
-        other_id = str(raw_in) if str(raw_out) == record_id else str(raw_out)
+        other_id = raw_in if raw_out == record_id else raw_out
         if other_id:
-            other_node = await get_node(_db, str(other_id))
+            other_node = await _storage.get_node(str(other_id))
             if other_node:
                 connections.append(
                     ConnectionItem(
-                        edge=normalize_edge(edge_s),
-                        node=normalize_node(make_serializable(other_node)),
+                        edge=normalize_edge(edge),
+                        node=normalize_node(other_node),
                     )
                 )
-    return GraphResponse(
-        node=normalize_node(make_serializable(node)), connections=connections
-    )
+    return GraphResponse(node=normalize_node(node), connections=connections)
 
 
 @app.post("/converse/stream")
 async def converse_stream(req: ConverseRequest):
     logger.info("POST /converse/stream")
+    assert _storage is not None
     queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
     deps = ConverseDeps(
-        db=_db,
-        embed_fn=_embed,
+        storage=_storage,
         model_setting=_model,
         progress_queue=queue,
     )

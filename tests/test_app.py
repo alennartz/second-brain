@@ -103,19 +103,18 @@ async def test_recall_response_with_context(client):
 
 
 async def test_graph_endpoint(client):
-    with (
-        patch("second_brain.app.get_node", new_callable=AsyncMock) as mock_node,
-        patch(
-            "second_brain.app._get_raw_connections", new_callable=AsyncMock
-        ) as mock_conn,
-    ):
-        mock_node.side_effect = [
-            {"id": "note:1", "content": "test note", "source": "api"},  # main node
-            {"id": "entity:sr", "name": "spaced rep", "type": "concept"},  # other node
-        ]
-        mock_conn.return_value = [
-            {"id": "references:abc", "in": "entity:sr", "out": "note:1"},
-        ]
+    with patch("second_brain.app.get_graph_data", new_callable=AsyncMock) as mock_graph:
+        from second_brain.app import ConnectionItem, GraphResponse
+
+        mock_graph.return_value = GraphResponse(
+            node={"id": "note:1", "content": "test note", "source": "api"},
+            connections=[
+                ConnectionItem(
+                    edge={"id": "references:abc", "in": "entity:sr", "out": "note:1"},
+                    node={"id": "entity:sr", "name": "spaced rep", "type": "concept"},
+                )
+            ],
+        )
         resp = await client.get("/graph/note:1")
     assert resp.status_code == 200
     data = resp.json()
@@ -125,21 +124,20 @@ async def test_graph_endpoint(client):
 
 
 async def test_graph_endpoint_404(client):
-    with patch("second_brain.app.get_node", new_callable=AsyncMock) as mock_node:
-        mock_node.return_value = {}
+    with patch("second_brain.app.get_graph_data", new_callable=AsyncMock) as mock_graph:
+        mock_graph.return_value = None
         resp = await client.get("/graph/note:nonexistent")
     assert resp.status_code == 404
 
 
 async def test_graph_endpoint_no_connections(client):
-    with (
-        patch("second_brain.app.get_node", new_callable=AsyncMock) as mock_node,
-        patch(
-            "second_brain.app._get_raw_connections", new_callable=AsyncMock
-        ) as mock_conn,
-    ):
-        mock_node.return_value = {"id": "note:1", "content": "lonely node"}
-        mock_conn.return_value = []
+    with patch("second_brain.app.get_graph_data", new_callable=AsyncMock) as mock_graph:
+        from second_brain.app import GraphResponse
+
+        mock_graph.return_value = GraphResponse(
+            node={"id": "note:1", "content": "lonely node"},
+            connections=[],
+        )
         resp = await client.get("/graph/note:1")
     assert resp.status_code == 200
     assert resp.json()["connections"] == []

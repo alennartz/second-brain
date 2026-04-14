@@ -2,18 +2,11 @@ import asyncio
 import contextlib
 import logging
 import math
-from collections.abc import Awaitable, Callable
 from typing import Any
 
-from surrealdb import AsyncSurreal, RecordID
+from second_brain.db import Storage
 
 logger = logging.getLogger(__name__)
-
-
-def _to_str(val: Any) -> str:
-    if isinstance(val, RecordID):
-        return f"{val.table_name}:{val.id}"
-    return str(val)
 
 
 class DreamCycleState:
@@ -49,16 +42,14 @@ class DreamCycleState:
 class DreamScheduler:
     def __init__(
         self,
-        db: AsyncSurreal,  # pyright: ignore[reportGeneralTypeIssues]
-        embed_fn: Callable[[str], Awaitable[list[float]]],
+        storage: Storage,
         model: Any,
         idle_timeout: float = 600,  # seconds
         batch_size: int = 10,
         delay_multiplier: float = 1.5,
         max_delay: float = 43200,  # 12 hours in seconds
     ):
-        self.db = db
-        self.embed_fn = embed_fn
+        self.storage = storage
         self.model = model
         self.idle_timeout = idle_timeout
         self.batch_size = batch_size
@@ -83,48 +74,26 @@ class DreamScheduler:
 
     async def _count_nodes(self) -> int:
         """Return total number of entity + note records in the database."""
-        total = 0
-        for table in ("entity", "note"):
-            result = await self.db.query(f"SELECT count() FROM {table} GROUP ALL")
-            if isinstance(result, list) and result and "count" in result[0]:
-                total += result[0]["count"]
-        return total
+        return await self.storage.count_nodes(
+            "entity"
+        ) + await self.storage.count_nodes("note")
 
     async def _select_batch(
         self, table_filter: str | None = None
     ) -> list[dict[str, Any]]:
-        """Select nodes with lowest dream_age, breaking ties by newest created_at.
+        """Select nodes with lowest dream_age.
 
         If table_filter is set (e.g. 'entity'), only that table is queried.
         """
-        tables = (table_filter,) if table_filter else ("entity", "note")
-        nodes: list[dict[str, Any]] = []
-        for table in tables:
-            result = await self.db.query(
-                f"SELECT * OMIT embedding FROM {table} ORDER BY dream_age ASC, created_at DESC LIMIT {self.batch_size}"
-            )
-            if isinstance(result, list):
-                nodes.extend(result)
-
-        # Sort combined results by dream_age ASC, created_at DESC (newest first
-        # within same dream_age). created_at may be datetime or string.
-        nodes.sort(
-            key=lambda n: (
-                n.get("dream_age", 0),
-                # Negate timestamp for DESC sort; fallback to 0 for missing created_at
-                -(
-                    n["created_at"].timestamp()
-                    if hasattr(n.get("created_at"), "timestamp")
-                    else 0
-                ),
-            )
+        return await self.storage.select_batch(
+            table_filter, order_by="dream_age", limit=self.batch_size
         )
-        return nodes[: self.batch_size]
 
     async def _increment_dream_age(self, record_ids: list[str]) -> None:
         """Increment dream_age by 1 on all given record IDs."""
         for rid in record_ids:
-            await self.db.query(f"UPDATE {rid} SET dream_age = dream_age + 1")
+            current = await self.storage.get_node_field(rid, "dream_age")
+            await self.storage.update_node(rid, {"dream_age": (current or 0) + 1})
 
     async def run_cycle(self) -> None:
         """Run one dream cycle: dedup then connect."""
@@ -140,13 +109,11 @@ class DreamScheduler:
 
         dedup_batch = await self._select_batch(table_filter="entity")
         if dedup_batch:
-            dedup_ids = [_to_str(n["id"]) for n in dedup_batch]
+            dedup_ids = [n["id"] for n in dedup_batch]
             logger.info("dream: dedup phase with %d entities", len(dedup_ids))
 
             dedup_agent = create_dedup_agent()
-            dedup_deps = DedupDeps(
-                db=self.db, embed_fn=self.embed_fn, cancel=self._cancel
-            )
+            dedup_deps = DedupDeps(storage=self.storage, cancel=self._cancel)
             prompt = (
                 f"Process this batch of entities for deduplication: "
                 f"{', '.join(dedup_ids)}"
@@ -163,9 +130,7 @@ class DreamScheduler:
                 "dream: dedup complete, touched %d IDs", len(dedup_deps.touched_ids)
             )
         else:
-            dedup_deps = DedupDeps(
-                db=self.db, embed_fn=self.embed_fn, cancel=self._cancel
-            )
+            dedup_deps = DedupDeps(storage=self.storage, cancel=self._cancel)
             dedup_ids = []
 
         # Phase 2: Connect — mixed batch (entities + notes)
@@ -176,7 +141,7 @@ class DreamScheduler:
                 await self._increment_dream_age(list(set(dedup_deps.touched_ids)))
             return
 
-        batch_ids = [_to_str(n["id"]) for n in connect_batch]
+        batch_ids = [n["id"] for n in connect_batch]
         logger.info("dream: connect phase with %d nodes", len(batch_ids))
 
         # Build result set from both phases
@@ -200,9 +165,7 @@ class DreamScheduler:
             return
 
         connect_agent = create_connect_agent()
-        connect_deps = ConnectDeps(
-            db=self.db, embed_fn=self.embed_fn, cancel=self._cancel
-        )
+        connect_deps = ConnectDeps(storage=self.storage, cancel=self._cancel)
         prompt = f"Explore connections for these nodes: {', '.join(node_ids)}"
         try:
             await connect_agent.run(prompt, deps=connect_deps, model=self.model)

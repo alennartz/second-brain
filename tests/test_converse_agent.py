@@ -1,8 +1,4 @@
-from unittest.mock import AsyncMock
-
 from pydantic_ai.models.test import TestModel
-
-from second_brain.db import init_schema
 
 
 async def test_converse_agent_has_tools():
@@ -14,13 +10,11 @@ async def test_converse_agent_has_tools():
     assert "ingest" in tool_names
 
 
-async def test_converse_agent_runs(db):
+async def test_converse_agent_runs(storage):
     from second_brain.agents.converse import ConverseDeps, create_converse_agent
 
-    await init_schema(db)
     deps = ConverseDeps(
-        db=db,
-        embed_fn=AsyncMock(return_value=[0.1, 0.2, 0.3]),
+        storage=storage,
         model_setting=TestModel(),
     )
     agent = create_converse_agent()

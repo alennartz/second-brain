@@ -3,62 +3,51 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from second_brain.db import init_schema, init_vector_indexes
 from second_brain.scheduler import DreamCycleState, DreamScheduler
 
-dummy_embed = AsyncMock(return_value=[0.5, 0.5, 0.0])
-
 
 @pytest.fixture
-async def scheduler_db(db):
-    await init_schema(db)
-    await init_vector_indexes(db, dimensions=3)
-    return db
-
-
-@pytest.fixture
-def scheduler(scheduler_db):
+def scheduler(storage):
     return DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=0.1,
         batch_size=10,
     )
 
 
-async def test_scheduler_selects_lowest_dream_age_first(scheduler_db):
-    await scheduler_db.query("""
+async def test_scheduler_selects_lowest_dream_age_first(storage):
+    assert storage._db is not None
+    await storage._db.query("""
         CREATE entity:old SET name = 'old', type = 'concept',
-            embedding = [0.1, 0.2, 0.3], dream_age = 5;
+            embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 5;
         CREATE entity:new SET name = 'new', type = 'concept',
-            embedding = [0.4, 0.5, 0.6], dream_age = 0;
+            embedding = [0.4, 0.5, 0.6, 0.0], dream_age = 0;
         CREATE entity:mid SET name = 'mid', type = 'concept',
-            embedding = [0.7, 0.8, 0.9], dream_age = 2;
+            embedding = [0.7, 0.8, 0.9, 0.0], dream_age = 2;
     """)
     sched = DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=10,
         batch_size=10,
     )
     batch = await sched._select_batch()
-    ids = [str(n["id"]) for n in batch]
+    ids = [n["id"] for n in batch]
     # Should be sorted: dream_age 0 first, then 2, then 5
     assert "new" in ids[0]
     assert "mid" in ids[1]
     assert "old" in ids[2]
 
 
-async def test_scheduler_respects_batch_size(scheduler_db):
+async def test_scheduler_respects_batch_size(storage):
+    assert storage._db is not None
     for i in range(20):
-        await scheduler_db.query(
-            f"CREATE entity:e{i} SET name = 'e{i}', type = 'test', embedding = [0.1, 0.2, 0.3], dream_age = 0"
+        await storage._db.query(
+            f"CREATE entity:e{i} SET name = 'e{i}', type = 'test', embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0"
         )
     sched = DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=10,
         batch_size=5,
@@ -102,38 +91,41 @@ async def test_count_nodes_empty_db(scheduler):
     assert count == 0
 
 
-async def test_count_nodes_entities_and_notes(scheduler_db, scheduler):
-    await scheduler_db.query("""
+async def test_count_nodes_entities_and_notes(storage, scheduler):
+    assert storage._db is not None
+    await storage._db.query("""
         CREATE entity:a SET name = 'A', type = 'concept',
-            embedding = [0.1, 0.2, 0.3], dream_age = 0;
+            embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0;
         CREATE entity:b SET name = 'B', type = 'concept',
-            embedding = [0.4, 0.5, 0.6], dream_age = 0;
+            embedding = [0.4, 0.5, 0.6, 0.0], dream_age = 0;
         CREATE note:1 SET content = 'hello', source = 'test',
-            embedding = [0.7, 0.8, 0.9], dream_age = 0;
+            embedding = [0.7, 0.8, 0.9, 0.0], dream_age = 0;
     """)
     count = await scheduler._count_nodes()
     assert count == 3
 
 
-async def test_count_nodes_only_entities(scheduler_db, scheduler):
-    await scheduler_db.query("""
+async def test_count_nodes_only_entities(storage, scheduler):
+    assert storage._db is not None
+    await storage._db.query("""
         CREATE entity:x SET name = 'X', type = 'concept',
-            embedding = [0.1, 0.2, 0.3], dream_age = 0;
+            embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0;
         CREATE entity:y SET name = 'Y', type = 'concept',
-            embedding = [0.4, 0.5, 0.6], dream_age = 0;
+            embedding = [0.4, 0.5, 0.6, 0.0], dream_age = 0;
     """)
     count = await scheduler._count_nodes()
     assert count == 2
 
 
-async def test_count_nodes_only_notes(scheduler_db, scheduler):
-    await scheduler_db.query("""
+async def test_count_nodes_only_notes(storage, scheduler):
+    assert storage._db is not None
+    await storage._db.query("""
         CREATE note:1 SET content = 'one', source = 'test',
-            embedding = [0.1, 0.2, 0.3], dream_age = 0;
+            embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0;
         CREATE note:2 SET content = 'two', source = 'test',
-            embedding = [0.4, 0.5, 0.6], dream_age = 0;
+            embedding = [0.4, 0.5, 0.6, 0.0], dream_age = 0;
         CREATE note:3 SET content = 'three', source = 'test',
-            embedding = [0.7, 0.8, 0.9], dream_age = 0;
+            embedding = [0.7, 0.8, 0.9, 0.0], dream_age = 0;
     """)
     count = await scheduler._count_nodes()
     assert count == 3
@@ -191,8 +183,7 @@ def test_cycle_state_reset():
 def test_touch_activity_resets_backoff_state():
     """touch_activity() resets backoff state via DreamCycleState.reset()."""
     sched = DreamScheduler(
-        db=MagicMock(),
-        embed_fn=dummy_embed,
+        storage=MagicMock(),
         model=MagicMock(),
         idle_timeout=60,
         batch_size=10,
@@ -218,8 +209,7 @@ def test_touch_activity_resets_backoff_state():
 def test_backoff_default_params():
     """Default delay_multiplier=1.5 and max_delay=43200 when not specified."""
     sched = DreamScheduler(
-        db=MagicMock(),
-        embed_fn=dummy_embed,
+        storage=MagicMock(),
         model=MagicMock(),
         idle_timeout=0.1,
         batch_size=10,
@@ -228,39 +218,39 @@ def test_backoff_default_params():
     assert sched._state.max_delay == 43200
 
 
-async def test_scheduler_increments_dream_age(scheduler_db):
-    await scheduler_db.query("""
+async def test_scheduler_increments_dream_age(storage):
+    assert storage._db is not None
+    await storage._db.query("""
         CREATE entity:a SET name = 'A', type = 'concept',
-            embedding = [0.1, 0.2, 0.3], dream_age = 0;
+            embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0;
     """)
     sched = DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=10,
         batch_size=10,
     )
     await sched._increment_dream_age(["entity:a"])
-    result = (await scheduler_db.query("SELECT dream_age FROM entity:a"))[0]
+    result = (await storage._db.query("SELECT dream_age FROM entity:a"))[0]
     assert result["dream_age"] == 1
 
 
-async def test_run_forever_stops_at_max_cycles(scheduler_db):
+async def test_run_forever_stops_at_max_cycles(storage):
     """run_forever should stop calling run_cycle once max_cycles is reached."""
+    assert storage._db is not None
     # Create 4 entities so _count_nodes() returns 4
-    await scheduler_db.query("""
+    await storage._db.query("""
         CREATE entity:a SET name = 'A', type = 'concept',
-            embedding = [0.1, 0.2, 0.3], dream_age = 0;
+            embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0;
         CREATE entity:b SET name = 'B', type = 'concept',
-            embedding = [0.4, 0.5, 0.6], dream_age = 0;
+            embedding = [0.4, 0.5, 0.6, 0.0], dream_age = 0;
         CREATE entity:c SET name = 'C', type = 'concept',
-            embedding = [0.7, 0.8, 0.9], dream_age = 0;
+            embedding = [0.7, 0.8, 0.9, 0.0], dream_age = 0;
         CREATE entity:d SET name = 'D', type = 'concept',
-            embedding = [0.1, 0.3, 0.5], dream_age = 0;
+            embedding = [0.1, 0.3, 0.5, 0.0], dream_age = 0;
     """)
     sched = DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=0.01,
         batch_size=4,
@@ -282,19 +272,19 @@ async def test_run_forever_stops_at_max_cycles(scheduler_db):
     assert run_cycle_mock.call_count == 1
 
 
-async def test_run_forever_uses_backoff_delay(scheduler_db):
+async def test_run_forever_uses_backoff_delay(storage):
     """Verify that delays increase with the backoff multiplier between cycles."""
+    assert storage._db is not None
     # Create 100 entities → max_cycles = ceil(sqrt(100/4)) = ceil(5) = 5
     for i in range(100):
-        await scheduler_db.query(
+        await storage._db.query(
             f"CREATE entity:e{i} SET name = 'e{i}', type = 'test', "
-            f"embedding = [0.1, 0.2, 0.3], dream_age = 0"
+            f"embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0"
         )
     idle_timeout = 0.01
     multiplier = 2.0
     sched = DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=idle_timeout,
         batch_size=4,
@@ -333,17 +323,17 @@ async def test_run_forever_uses_backoff_delay(scheduler_db):
         assert observed_delays[i] == pytest.approx(expected)
 
 
-async def test_run_forever_resets_on_activity(scheduler_db):
+async def test_run_forever_resets_on_activity(storage):
     """touch_activity() during run_forever resets state (cycle_count back to 0)."""
+    assert storage._db is not None
     # Create enough entities for multiple cycles
     for i in range(100):
-        await scheduler_db.query(
+        await storage._db.query(
             f"CREATE entity:e{i} SET name = 'e{i}', type = 'test', "
-            f"embedding = [0.1, 0.2, 0.3], dream_age = 0"
+            f"embedding = [0.1, 0.2, 0.3, 0.0], dream_age = 0"
         )
     sched = DreamScheduler(
-        db=scheduler_db,
-        embed_fn=dummy_embed,
+        storage=storage,
         model=MagicMock(),
         idle_timeout=0.01,
         batch_size=4,
@@ -372,10 +362,3 @@ async def test_run_forever_resets_on_activity(scheduler_db):
 
     # run_cycle should have been called more than once (reset restarted the loop)
     assert cycle_call_count >= 2
-    # After the activity reset, cycle_count should have restarted from 0
-    # (the state was reset by touch_activity). We can't check mid-run easily,
-    # but we verify that more cycles ran than the original max_cycles,
-    # which proves a reset happened.
-    # Original max_cycles = ceil(sqrt(100/4)) = ceil(5) = 5
-    # With reset, total calls should exceed what a single pass would produce
-    # (at minimum 2: one before reset + one after)

@@ -3,7 +3,6 @@
 import pytest
 
 from second_brain.validation import (
-    check_query_result,
     validate_identifier,
     validate_record_id,
 )
@@ -81,27 +80,3 @@ class TestValidateIdentifier:
     def test_invalid(self, name: str):
         with pytest.raises(ValueError, match="Invalid identifier"):
             validate_identifier(name)
-
-
-# --- check_query_result ---
-
-
-class TestCheckQueryResult:
-    """Query result checking."""
-
-    def test_error_string_raises(self):
-        with pytest.raises(RuntimeError, match="search: something went wrong"):
-            check_query_result("something went wrong", "search")
-
-    def test_list_passthrough(self):
-        data = [{"id": "note:abc", "body": "hello"}]
-        assert check_query_result(data, "search") is data
-
-    def test_empty_list_passthrough(self):
-        assert check_query_result([], "search") == []
-
-    def test_none_returns_empty_list(self):
-        assert check_query_result(None, "search") == []
-
-    def test_unexpected_type_returns_empty_list(self):
-        assert check_query_result(42, "search") == []

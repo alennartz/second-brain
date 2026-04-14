@@ -1,13 +1,11 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
-from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable
-from second_brain.tools import dream_tools, ingest_tools, recall_tools
+from second_brain.db import Storage
+from second_brain.tools import dream_tools, ingest_tools
 
 _ID_FMT_ERROR = (
     "Invalid record_id '{rid}': must be 'table:id' format (e.g. 'entity:abc123')"
@@ -23,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ConnectDeps:
-    db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
-    embed_fn: Callable[[str], Awaitable[list[float]]]
+    storage: Storage
     cancel: asyncio.Event
     touched_ids: list[str] = field(default_factory=list)
 
@@ -86,7 +83,7 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
             return [{"error": _ID_FMT_ERROR.format(rid=record_id)}]
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
-        return await dream_tools.find_similar(ctx.deps.db, record_id, k)
+        return await dream_tools.find_similar(ctx.deps.storage, record_id, k)
 
     @agent.tool
     async def find_unlinked_cooccurrences(
@@ -102,7 +99,7 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         result = await dream_tools.find_unlinked_cooccurrences(
-            ctx.deps.db, record_id, cancel=ctx.deps.cancel
+            ctx.deps.storage, record_id, cancel=ctx.deps.cancel
         )
         if isinstance(result, dict):
             return [result]
@@ -135,7 +132,7 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
         return await dream_tools.explore(
-            ctx.deps.db, record_id, direction, node_types, depth
+            ctx.deps.storage, record_id, direction, node_types, depth
         )
 
     @agent.tool
@@ -147,10 +144,10 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
             return {"error": _ID_FMT_ERROR.format(rid=record_id)}
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
-        node = await recall_tools.get_node(ctx.deps.db, record_id)
+        node = await ctx.deps.storage.get_node(record_id)
         if not node:
             return {"error": f"Node {record_id} not found"}
-        return make_serializable(node)
+        return node
 
     @agent.tool
     async def create_edges(
@@ -160,12 +157,12 @@ def create_connect_agent() -> Agent[ConnectDeps, str]:
         optional 'context'."""
         logger.info("connect: create_edges (%d edges)", len(edges))
         try:
-            results = await ingest_tools.create_edges(ctx.deps.db, edges)
+            results = await ingest_tools.create_edges(ctx.deps.storage, edges)
             for r in results:
                 rid = str(r.get("id", ""))
                 if rid and rid not in ctx.deps.touched_ids:
                     ctx.deps.touched_ids.append(rid)
-            return [make_serializable(r) for r in results]
+            return results
         except Exception as e:
             logger.error("connect: create_edges failed: %s", e)
             return [{"error": str(e)}]

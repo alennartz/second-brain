@@ -1,21 +1,18 @@
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
-from surrealdb import AsyncSurreal
 
-from second_brain.models import make_serializable
-from second_brain.tools import dream_tools, recall_tools
+from second_brain.db import Storage
+from second_brain.tools import dream_tools
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class DedupDeps:
-    db: AsyncSurreal  # pyright: ignore[reportGeneralTypeIssues]
-    embed_fn: Callable[[str], Awaitable[list[float]]]
+    storage: Storage
     cancel: asyncio.Event
     touched_ids: list[str] = field(default_factory=list)
 
@@ -70,7 +67,7 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
         try:
             if record_id not in ctx.deps.touched_ids:
                 ctx.deps.touched_ids.append(record_id)
-            return await dream_tools.find_similar(ctx.deps.db, record_id, k)
+            return await dream_tools.find_similar(ctx.deps.storage, record_id, k)
         except Exception as e:
             logger.error("dedup: find_similar failed: %s", e)
             return [{"error": str(e)}]
@@ -93,7 +90,9 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
             }
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
-        return await dream_tools.explore(ctx.deps.db, record_id, direction, None, depth)
+        return await dream_tools.explore(
+            ctx.deps.storage, record_id, direction, None, depth
+        )
 
     @agent.tool
     async def merge_nodes(
@@ -106,7 +105,7 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
         logger.info("dedup: merge_nodes ids=%s", ids)
         try:
             result = await dream_tools.merge_nodes(
-                ctx.deps.db, ids, new_fields, ctx.deps.embed_fn
+                ctx.deps.storage, ids, new_fields, cancel=ctx.deps.cancel
             )
             ctx.deps.touched_ids.extend(result.get("touched_ids", []))
             return result
@@ -124,7 +123,7 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
         You can get edge IDs from explore results (the edge_id field in each path step)."""
         logger.info("dedup: merge_edges ids=%s", ids)
         try:
-            result = await dream_tools.merge_edges(ctx.deps.db, ids, new_context)
+            result = await dream_tools.merge_edges(ctx.deps.storage, ids, new_context)
             ctx.deps.touched_ids.extend(result.get("deleted_ids", []))
             if result.get("survivor"):
                 sid = str(result["survivor"].get("id", ""))
@@ -146,9 +145,9 @@ def create_dedup_agent() -> Agent[DedupDeps, str]:
             }
         if record_id not in ctx.deps.touched_ids:
             ctx.deps.touched_ids.append(record_id)
-        node = await recall_tools.get_node(ctx.deps.db, record_id)
+        node = await ctx.deps.storage.get_node(record_id)
         if not node:
             return {"error": f"Node {record_id} not found"}
-        return make_serializable(node)
+        return node
 
     return agent

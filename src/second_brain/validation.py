@@ -1,7 +1,6 @@
-"""Shared validation helpers for SurrealDB identifiers and query results."""
+"""Shared validation helpers for SurrealDB identifiers."""
 
 import re
-from typing import Any
 
 # table:id — table part is a lowercase identifier, id part allows
 # alphanumerics, underscores, hyphens, and the angle-bracket quoting
@@ -34,20 +33,3 @@ def validate_identifier(name: str) -> str:
     if not _IDENTIFIER_RE.match(name):
         raise ValueError(f"Invalid identifier: {name!r}")
     return name
-
-
-def check_query_result(result: Any, context: str) -> list:
-    """Ensure a ``db.query()`` return value is a result list, not an error.
-
-    SurrealDB's Python driver sometimes returns an error string instead
-    of raising an exception.  This helper turns that into a proper
-    ``RuntimeError`` so callers don't silently swallow failures.
-
-    Returns *result* unchanged when it is a ``list``, or an empty list
-    for any other non-error type.
-    """
-    if isinstance(result, str):
-        raise RuntimeError(f"{context}: {result}")
-    if isinstance(result, list):
-        return result
-    return []

@@ -187,3 +187,89 @@ await storage.init()
 ```
 
 `DummyEmbedder` returns zero vectors of the configured dimension. Replaces the current `_dummy_embed` closure in `app.py`.
+
+## Tests
+
+**Pre-test-write commit:** `50a19820e7099ee7eafb258e506a68be72f614bb`
+
+### Interface Files
+
+- `src/second_brain/db.py` — Added `Embedder` protocol (runtime-checkable, with `embed` and `embed_batch` methods) and `Storage` class with full method signatures and `NotImplementedError` stubs for all operations. `__init__`, `init`, and `close` are implemented as connection-management wiring.
+- `tests/conftest.py` — Added `DummyEmbedder` class (zero-vector embedder conforming to `Embedder` protocol) and `storage` fixture that constructs `Storage` with `mem://` backend.
+
+### Test Files
+
+- `tests/test_storage.py` — 72 behavioral tests exercising the full `Storage` public interface: node CRUD, edge CRUD, search (hybrid/vector/fulltext), graph traversal, and low-level scheduler support operations.
+
+### Behaviors Covered
+
+#### Node Operations
+
+- `get_node` returns a node by record ID with embeddings excluded
+- `get_node` returns empty dict when node not found
+- `get_node` returns record ID as a plain `"table:id"` string
+- `get_nodes` returns multiple nodes, excludes embeddings, skips missing IDs
+- `get_nodes` returns empty list for empty input
+- `create_note` creates a note with content, auto-embeds, defaults source to `"api"`
+- `create_note` accepts optional source and summary parameters
+- `create_note` returns a record with plain-string ID starting with `"note:"`
+- `create_notes` bulk-creates multiple notes with auto-embedding
+- `create_notes` returns empty list for empty input
+- `create_entity` creates an entity with name and type, auto-embeds description (or name as fallback)
+- `create_entity` accepts optional description
+- `create_entity` returns a record with plain-string ID starting with `"entity:"`
+- `create_entities` bulk-creates multiple entities with auto-embedding
+- `create_entities` returns empty list for empty input
+- `update_node` updates specified fields while preserving unchanged ones
+- `update_node` auto re-embeds when content, name, or description fields change
+- `update_node` does not re-embed when non-text fields change (e.g. dream_age)
+- `delete_node` removes a node so it is no longer retrievable
+- `delete_node` does not raise for nonexistent nodes
+
+#### Edge Operations
+
+- `get_edge` returns an edge by ID
+- `get_edge` returns empty dict when edge not found
+- `get_outgoing_edges` returns all outgoing edges from a node with `id`, `in`, `out` as plain strings
+- `get_outgoing_edges` includes edge-specific fields (e.g. context)
+- `get_outgoing_edges` returns empty list for nodes with no outgoing edges
+- `get_incoming_edges` returns all incoming edges to a node
+- `get_incoming_edges` returns empty list for nodes with no incoming edges
+- `create_edge` creates an edge between two nodes and returns the record
+- `create_edge` accepts optional fields dict (e.g. context)
+- `create_edge` does NOT deduplicate — two calls create two distinct edges
+- `create_edge` returns a record with plain-string ID
+- `delete_edge` removes an edge so it is no longer retrievable
+- `check_edge_exists` returns matching edges between two nodes on a given table
+- `check_edge_exists` returns empty list when no matching edge exists
+
+#### Search Operations
+
+- `hybrid_search` returns matching results via BM25 + vector fusion
+- `hybrid_search` auto-embeds the query text (no pre-computed embedding required)
+- `hybrid_search` excludes embeddings from results
+- `hybrid_search` returns empty list for no matches
+- `hybrid_search` works on both note and entity tables
+- `hybrid_search` respects the k parameter
+- `vector_search` returns results for a pre-computed embedding
+- `vector_search` excludes embeddings from results
+- `fulltext_search` returns BM25 matches
+- `fulltext_search` excludes embeddings from results
+- `fulltext_search` returns empty list for no matches
+
+#### Graph Operations
+
+- `get_connections` returns edge neighborhood with `edge_label`, `direction`, `adjacent_id`
+- `get_connections` correctly labels outgoing edges as direction `"out"`
+- `get_connections` correctly labels incoming edges as direction `"in"`
+- `get_connections` returns empty list for isolated nodes
+
+#### Low-level Operations
+
+- `count_nodes` counts records in a specific table
+- `count_nodes` returns zero for empty tables
+- `count_nodes` counts note and entity tables independently
+- `select_batch` returns ordered records with a limit
+- `select_batch` returns empty list for empty tables
+- `select_batch` with `table=None` selects across both note and entity tables
+- `get_node_field` returns a specific field value (content, embedding, dream_age)

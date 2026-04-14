@@ -242,8 +242,18 @@ class Storage:
             results.append(self._normalize(rec))
         return results
 
-    async def update_node(self, record_id: str, fields: dict) -> dict:
-        """Update node fields. Auto re-embeds if text fields changed (content/name/description)."""
+    async def update_node(
+        self, record_id: str, fields: dict, *, touch_updated_at: bool = True
+    ) -> dict:
+        """Update node fields. Auto re-embeds if text fields changed (content/name/description).
+
+        Args:
+            record_id: The node to update.
+            fields: Field values to set.
+            touch_updated_at: If True (default), sets ``updated_at`` to now.
+                Pass False for bookkeeping updates (e.g. dream_age) that
+                shouldn't change the last-meaningful-edit timestamp.
+        """
         assert self._db is not None
         table = record_id.split(":")[0]
         text_fields = {"content", "name", "description"}
@@ -264,7 +274,10 @@ class Storage:
                 validate_identifier(k)
         validate_record_id(record_id)
         set_clauses = ", ".join(f"{k} = ${k}" for k in fields)
-        query = f"UPDATE {record_id} SET {set_clauses}, updated_at = time::now()"
+        if touch_updated_at:
+            query = f"UPDATE {record_id} SET {set_clauses}, updated_at = time::now()"
+        else:
+            query = f"UPDATE {record_id} SET {set_clauses}"
         result = await self._db.query(query, fields)
         result = self._check(result, f"update_node({record_id})")
         if not result:

@@ -90,10 +90,18 @@ class DreamScheduler:
         )
 
     async def _increment_dream_age(self, record_ids: list[str]) -> None:
-        """Increment dream_age by 1 on all given record IDs."""
+        """Increment dream_age by 1 on all given node IDs.
+
+        Filters out edge IDs to avoid upserting deleted edge records.
+        """
         for rid in record_ids:
+            table = rid.split(":")[0]
+            if table not in ("entity", "note"):
+                continue
             current = await self.storage.get_node_field(rid, "dream_age")
-            await self.storage.update_node(rid, {"dream_age": (current or 0) + 1})
+            await self.storage.update_node(
+                rid, {"dream_age": (current or 0) + 1}, touch_updated_at=False
+            )
 
     async def run_cycle(self) -> None:
         """Run one dream cycle: dedup then connect."""

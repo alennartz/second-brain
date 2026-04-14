@@ -161,7 +161,7 @@ async def merge_nodes(
 
                 edges_auto_merged.append(
                     {
-                        "kept": existing_eid,
+                        "recreated": existing_eid,
                         "deleted": edge_id,
                         "table": edge_table,
                         "target": target_id,
@@ -215,7 +215,7 @@ async def merge_nodes(
 
                 edges_auto_merged.append(
                     {
-                        "kept": existing_eid,
+                        "recreated": existing_eid,
                         "deleted": edge_id,
                         "table": edge_table,
                         "source": source_id,
@@ -463,5 +463,5 @@ async def merge_edges(
 
     return {
         "survivor": new_survivor,
-        "deleted_ids": loser_ids,
+        "deleted_ids": [survivor_id, *loser_ids],
     }

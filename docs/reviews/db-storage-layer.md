@@ -54,7 +54,7 @@ SurrealDB's UPDATE may return an empty list for non-existent records rather than
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/second_brain/scheduler.py:106-109` (run_cycle final_ids) + `src/second_brain/scheduler.py:98-100` (_increment_dream_age)
-- **Status:** open
+- **Status:** resolved
 
 `dedup_deps.touched_ids` and `connect_deps.touched_ids` accumulate both node *and* edge IDs during merge operations. Many of these edge IDs are for edges that were deleted during merging (delete-recreate pattern). The scheduler passes all of them to `_increment_dream_age`:
 
@@ -70,7 +70,7 @@ await self._increment_dream_age(final_ids)
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/second_brain/db.py:255`
-- **Status:** open
+- **Status:** resolved
 
 `update_node` unconditionally appends `updated_at = time::now()` to every update. When `_increment_dream_age` calls `update_node(rid, {"dream_age": N})`, it changes `updated_at` as a side effect. The old scheduler code (`UPDATE {rid} SET dream_age = dream_age + 1`) did not touch `updated_at`. This means every dream cycle now changes the `updated_at` timestamp on every processed node, even though no content changed. If anything uses `updated_at` for "last meaningful edit" semantics, dream cycles will pollute it.
 
@@ -79,7 +79,7 @@ await self._increment_dream_age(final_ids)
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/second_brain/tools/dream_tools.py:451-460`
-- **Status:** open
+- **Status:** resolved
 
 `merge_edges` deletes the original survivor edge and recreates it with new fields and a new ID, but `deleted_ids` only includes the loser IDs:
 

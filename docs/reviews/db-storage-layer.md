@@ -15,7 +15,7 @@ The plan was implemented faithfully across all 9 steps — every step is reflect
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/second_brain/tools/ingest_tools.py:19-21`
-- **Status:** open
+- **Status:** resolved
 
 The old `create_edges` validated all inputs: `validate_record_id(edge["from_id"])`, `validate_record_id(edge["to_id"])`, `validate_identifier(edge["edge_table"])`. The new version reads them directly from the dict without validation and passes them to `Storage.create_edge`, which interpolates them into SurrealQL via f-strings (`f"RELATE {from_id}->{edge_table}->{to_id}"`). The `store_knowledge` flow still validates upstream via `_resolve_ref` and `validate_identifier`, but the direct `create_edges` path — used by the dream_connect agent — has no validation. This is a regression from the pre-refactor code. While the blast radius is limited (embedded SurrealDB, semi-trusted LLM agents), a confused agent output like an edge_table containing spaces or special characters would cause query parse errors or unexpected behavior.
 
@@ -24,7 +24,7 @@ The old `create_edges` validated all inputs: `validate_record_id(edge["from_id"]
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/second_brain/db.py:253-254`
-- **Status:** open
+- **Status:** resolved
 
 Field keys are interpolated directly into the SET clause: `", ".join(f"{k} = ${k}" for k in fields)`. While field *values* are properly parameterized, the keys are not. The old `ingest_tools.update_node` called `validate_identifier(k)` for each field key before interpolation — that validation was removed in the refactor. Callers include the ingest agent's `update_node` tool (keys from LLM output) and the dedup agent's `merge_nodes` (keys from LLM `new_fields`). A malformed key could produce unexpected SurrealQL. Same blast-radius caveat as Finding 1.
 
@@ -33,7 +33,7 @@ Field keys are interpolated directly into the SET clause: `", ".join(f"{k} = ${k
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/second_brain/db.py:257`, `src/second_brain/db.py:280`
-- **Status:** open
+- **Status:** resolved
 
 Both methods access `result[0]` after `_check` without guarding for an empty list. The old code had `rec = result[0] if result else {}` as a fallback. The new code:
 

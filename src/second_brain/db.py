@@ -4,6 +4,7 @@ from surrealdb import AsyncSurreal
 
 from second_brain.config import settings
 from second_brain.models import make_serializable
+from second_brain.validation import validate_identifier, validate_record_id
 
 
 async def get_db() -> AsyncSurreal:  # pyright: ignore[reportGeneralTypeIssues]
@@ -258,10 +259,16 @@ class Storage:
             if embed_text:
                 embedding = await self._embedder.embed(embed_text)
                 fields["embedding"] = embedding
+        for k in fields:
+            if k != "embedding":
+                validate_identifier(k)
+        validate_record_id(record_id)
         set_clauses = ", ".join(f"{k} = ${k}" for k in fields)
         query = f"UPDATE {record_id} SET {set_clauses}, updated_at = time::now()"
         result = await self._db.query(query, fields)
         result = self._check(result, f"update_node({record_id})")
+        if not result:
+            return {}
         return self._normalize(result[0])
 
     async def delete_node(self, record_id: str) -> None:
@@ -302,6 +309,9 @@ class Storage:
         Does **not** deduplicate — that is business logic in callers.
         """
         assert self._db is not None
+        validate_record_id(from_id)
+        validate_record_id(to_id)
+        validate_identifier(edge_table)
         query = f"RELATE {from_id}->{edge_table}->{to_id}"
         if fields:
             set_parts = ", ".join(f"{k} = ${k}" for k in fields)
@@ -310,6 +320,8 @@ class Storage:
         else:
             result = await self._db.query(query)
         result = self._check(result, f"create_edge({from_id}->{edge_table}->{to_id})")
+        if not result:
+            return {}
         return self._normalize(result[0])
 
     async def delete_edge(self, edge_id: str) -> None:

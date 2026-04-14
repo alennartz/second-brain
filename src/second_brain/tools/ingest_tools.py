@@ -22,6 +22,11 @@ async def create_edges(
         to_id = edge["to_id"]
         context = edge.get("context")
 
+        # Validate inputs (prevents malformed SurrealQL)
+        validate_record_id(from_id)
+        validate_record_id(to_id)
+        validate_identifier(edge_table)
+
         # Reject self-edges
         if from_id == to_id:
             logger.warning(

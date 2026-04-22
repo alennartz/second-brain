@@ -12,7 +12,9 @@ make install
 
 # Configure your environment
 cp .env.example .env
-# Edit .env — at minimum set OPENAI_API_KEY (see Configuration below)
+# Edit .env — at minimum set OPENAI_API_KEY (see Configuration below).
+# Or skip credentials entirely: set BRAIN_TEST_MODE=true to use stub models
+# and an in-memory DB (great for a first look).
 
 # Start the server
 make dev
@@ -60,12 +62,12 @@ All settings live in a `.env` file (or environment variables). App-specific vari
 | Variable | Default | Description |
 |---|---|---|
 | `BRAIN_DB_PATH` | `data/brain.db` | SurrealDB file path |
-| `BRAIN_REASONING_MODEL` | `openai:gpt-4o-mini` | LLM for agents — any [PydanticAI model string](https://ai.pydantic.dev/models/) |
+| `BRAIN_REASONING_MODEL` | `openai:gpt-4o-mini` | LLM for agents — any [PydanticAI model string](https://pydantic.dev/docs/ai/models/overview/) |
 | `BRAIN_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | Embedding model |
-| `BRAIN_EMBEDDING_DIMENSIONS` | `1536` | Vector dimensions (must match your embedding model) |
+| `BRAIN_EMBEDDING_DIMENSIONS` | `1536` | Vector dimensions (must match your embedding model). ⚠️ Changing this after first run requires wiping `data/` — HNSW indexes bake in the dimension. |
 | `BRAIN_TEST_MODE` | `false` | Use stub models and in-memory DB (no API keys needed) |
 
-Model strings follow the `provider:model_name` format. Examples: `openai:gpt-4o`, `anthropic:claude-sonnet-4-5`, `groq:llama-3.3-70b`.
+Model strings follow the `provider:model_name` format (e.g. `openai:gpt-4o`, `anthropic:claude-sonnet-4-5`, `groq:llama-3.3-70b`, `google-gla:gemini-2.0-flash`).
 
 ### LLM provider configuration
 
@@ -73,7 +75,9 @@ There are three ways to connect to LLM providers, from simplest to most advanced
 
 #### Option 1: Direct API keys (simplest)
 
-Set the model string and the corresponding API key:
+Set `BRAIN_REASONING_MODEL` / `BRAIN_EMBEDDING_MODEL` to any [PydanticAI model string](https://pydantic.dev/docs/ai/models/overview/) and provide the credentials that provider expects. PydanticAI handles routing — the provider prefix in the model string determines which SDK is used and which env var it reads. See [PydanticAI's provider docs](https://pydantic.dev/docs/ai/models/overview/) for the exact env var per provider.
+
+The two most common examples:
 
 ```bash
 # OpenAI
@@ -89,7 +93,7 @@ BRAIN_EMBEDDING_MODEL=openai:text-embedding-3-small
 # Uses OPENAI_API_KEY from above
 ```
 
-PydanticAI handles the routing — the provider prefix in the model string determines which SDK and which API key env var is used.
+> **Custom base URLs are not wired up.** Pointing at non-Azure OpenAI-compatible endpoints (Ollama, OpenRouter, vLLM, LM Studio, etc.) isn't supported today — only the Azure Foundry path below overrides the endpoint. PRs welcome.
 
 #### Option 2: Azure AI Foundry with API key
 
@@ -160,7 +164,7 @@ BRAIN_EMBEDDING_AUTH=key
 | `BRAIN_DB_PATH` | `data/brain.db` | SurrealDB file path |
 | `BRAIN_REASONING_MODEL` | `openai:gpt-4o-mini` | LLM model string (`provider:name`) |
 | `BRAIN_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | Embedding model string |
-| `BRAIN_EMBEDDING_DIMENSIONS` | `1536` | Vector dimensions |
+| `BRAIN_EMBEDDING_DIMENSIONS` | `1536` | Vector dimensions (see note above) |
 | `BRAIN_TEST_MODE` | `false` | Stub models + in-memory DB |
 | `BRAIN_REASONING_FOUNDRY_URL` | — | Azure Foundry endpoint for reasoning |
 | `BRAIN_REASONING_AUTH` | `key` | `key` or `aad` |
@@ -168,8 +172,7 @@ BRAIN_EMBEDDING_AUTH=key
 | `BRAIN_EMBEDDING_FOUNDRY_URL` | — | Azure Foundry endpoint for embeddings |
 | `BRAIN_EMBEDDING_AUTH` | `key` | `key` or `aad` |
 | `BRAIN_EMBEDDING_KEY` | — | Explicit API key for embedding Foundry endpoint |
-| `OPENAI_API_KEY` | — | Required for `openai:` models without Foundry |
-| `ANTHROPIC_API_KEY` | — | Required for `anthropic:` models without Foundry |
+| Provider API keys | — | Whatever env vars the underlying provider SDK expects — see [PydanticAI's provider docs](https://pydantic.dev/docs/ai/models/overview/) (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, …). |
 
 ## Docker deployment
 

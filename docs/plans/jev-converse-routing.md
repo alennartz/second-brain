@@ -180,3 +180,111 @@ PydanticAI dependency.
 None. DR-001's reasoning is untouched (sub-agent loops preserved on every path) and
 DR-002's injection discipline is followed (routing model constructed at startup,
 injected per-run like `model_setting`).
+
+## Tests
+
+**Pre-test-write commit:** `e5ed3eb25693ac949334648f9f40e192268d89e6`
+
+### Interface Files
+
+- `src/second_brain/agents/routing.py` — `Route` (`StrEnum`: recall/ingest/converse),
+  `RoutingDecision` (the two Jev questions as `BoolCriteria`-annotated bools),
+  `RoutingRunResult` (decision + per-field confidence), `RoutingDeps`, and stubs for
+  `create_routing_agent()`, `route_message()`, `decide_route()` (all raise
+  `NotImplementedError`).
+- `src/second_brain/agents/converse.py` — added the `run_converse_turn()` orchestration
+  entry point (stub). Existing agent/tool code untouched.
+- `src/second_brain/config.py` — the `BRAIN_JEV_*` settings: `jev_enabled`,
+  `jev_model` (`typesafe:jev-1.13.0`, the current stable versioned id — never
+  `jev-latest`), `jev_key`, `jev_confidence_threshold`, `jev_history_turns`.
+- `pyproject.toml` / `uv.lock` — dependency changes required to materialize the
+  interfaces at all: `pydantic-ai[typesafe]` (resolves to 2.54.0 — `TypeSafeModel` and
+  `BoolCriteria` only exist on PydanticAI 2.x; the plan's "typesafe optional group of the
+  existing PydanticAI dependency" forces the 1.x → 2.x major bump, zero code fallout,
+  all 236 pre-existing tests green on the new stack) and `fastmcp` 3.x → 4.0.10 (2.x of
+  pydantic-ai-slim pulls `fastmcp-slim`, which collided with fastmcp 3.x's module;
+  fastmcp 4.x is the `fastmcp-slim[client,server]` metapackage and resolves the clash).
+- `test_scenario.py` — pre-existing basedpyright error (`resp` possibly unbound) fixed so
+  the pre-commit hook can pass; unrelated to this topic.
+
+Materialization notes:
+
+- The Jev question wording rides in `Field(description=...)` on each `RoutingDecision`
+  field (plus the `BoolCriteria` true/false criteria). Plain attribute docstrings — what
+  the plan's interface sketch shows — are not collected by Pydantic 2.12 and would never
+  reach the Jev schema; the field description is what the decision model sends as the
+  question.
+- `RoutingDeps` is an empty dataclass: the plan references the type but specifies no
+  fields, and the routing decision needs no Storage or tools. Threshold/history config is
+  read from `settings` where the policy needs it.
+- `Route` inherits `StrEnum` (ruff UP042 over the sketch's `str, Enum`).
+
+### Test Files
+
+- `tests/test_routing.py` — `decide_route` interpretation rules and `route_message`
+  behavior (route selection from a run result's `provider_details`, failure containment,
+  threshold source, routing-state composition). Model doubles are `FunctionModel`s that
+  answer the decision questions deterministically and carry per-field confidence through
+  `provider_details['confidence']` exactly as the TypeSafe decision model does.
+- `tests/test_converse_agent.py` (extended) — `run_converse_turn` orchestration: fast-path
+  equivalence against the converse tool path, fallback semantics, failure containment,
+  and routing-state bounds. Sub-agent runs use `TestModel`; the converse-tool path is
+  driven by a relay double (calls the sub-agent tool, relays its return verbatim — what
+  the system prompt instructs).
+
+### Behaviors Covered
+
+#### decide_route (pure interpretation)
+
+- Confident pure-recall decision routes `RECALL`; confident pure-ingest routes `INGEST`.
+- Mixed intent (both flags set) is `CONVERSE` regardless of confidences.
+- Neither flag (small talk/meta) is `CONVERSE`.
+- Confidence below the threshold is `CONVERSE`.
+- Confidence exactly equal to the threshold routes (`>=` is sufficient).
+- A confident flag is not blocked by the other flag set at low confidence (both
+  directions).
+
+#### route_message
+
+- A confident pure-recall run result yields `Route.RECALL`; confident pure-ingest yields
+  `Route.INGEST`.
+- Mixed intent takes no fast path (result is `None` or `Route.CONVERSE` — callers treat
+  both as the fallback).
+- Below-threshold confidence takes no fast path.
+- Confidence at `settings.jev_confidence_threshold` routes; raising the configured
+  threshold changes the outcome — the threshold comes from settings.
+- A routing run that raises (missing key, rate limit, network) returns `None`, logs the
+  failure at WARNING or above, and never raises to the caller.
+- The routing state includes the current message and the provided recent history.
+
+#### run_converse_turn
+
+- **Fast-path equivalence (recall):** a RECALL-routed turn returns the same response and
+  accumulates the same cited nodes/edges (deduplicated) onto `deps.context` as a turn
+  where the converse router invoked the `recall` tool; status events on
+  `deps.progress_queue` are emitted on both paths and are identical.
+- **Fast-path equivalence (ingest):** an INGEST-routed turn matches the converse `ingest`
+  tool path (response and context).
+- **Mixed intent** falls through to the converse agent even at maximum confidence.
+- **Routing failure** (routing model raises) still completes the turn through the converse
+  agent, never surfacing the error.
+- **`routing_model=None`** (test mode / `jev_enabled=False` call-site shape) always runs
+  the converse agent, even for a message that reads like pure recall.
+- **Fallback fidelity:** the converse agent is invoked with the full message history the
+  caller passed in.
+- **Bounded routing state:** the state given to the routing model is the current message
+  plus at most the configured `jev_history_turns` of history, taken as the most recent
+  contiguous stretch (never the oldest turns).
+
+Intentionally unpinned in this phase: pure data-shape contracts (the exact
+`RoutingDecision` field/criteria text, `Route` values, `jev_*` defaults) — they are
+materialized in code but any test of them would pass against interface-only code, which
+the Red Gate forbids; assert them once implementation exists. The app-level wiring
+(both endpoints calling `run_converse_turn`; lifespan passing `routing_model=None` in
+test mode / when disabled) is implementation scope.
+
+### Red Gate
+
+All 23 new tests fail with `NotImplementedError: not implemented` from the stubs (8 at
+`decide_route`, 8 at `route_message`, 7 at `run_converse_turn`); all 236 pre-existing
+tests pass. Suite runs clean; ruff and basedpyright pass.

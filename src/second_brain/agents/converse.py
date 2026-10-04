@@ -5,7 +5,11 @@ import logging
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.messages import FunctionToolCallEvent
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    ModelRequest,
+    ModelResponse,
+)
 from pydantic_ai.models import Model
 
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
@@ -154,3 +158,25 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         return result.output
 
     return agent
+
+
+async def run_converse_turn(
+    message: str,
+    message_history: list[ModelRequest | ModelResponse],
+    *,
+    deps: ConverseDeps,
+    model: Model | str,
+    routing_model: Model | str | None = None,
+) -> str:
+    """Single entry point for one conversational turn.
+
+    routing_model is not None -> try the fast path first:
+        Route.RECALL  -> run the recall pipeline directly (today's recall tool body)
+        Route.INGEST  -> run the ingest pipeline directly (today's ingest tool body)
+        None/CONVERSE -> run the converse agent exactly as today
+    routing_model is None -> always the converse agent.
+
+    Side effects identical on every path: status events on deps.progress_queue,
+    cited nodes/edges accumulated (deduplicated) onto deps.context.
+    """
+    raise NotImplementedError("not implemented")

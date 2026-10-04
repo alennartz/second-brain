@@ -701,6 +701,7 @@ def recall_all(client: httpx.Client) -> list[dict]:
 
 def find_entity(client: httpx.Client, name: str) -> str | None:
     """Search for an entity by name using recall, return its ID if found."""
+    resp: httpx.Response | None = None
     for attempt in range(3):
         resp = client.post(
             f"{BASE}/recall",
@@ -713,6 +714,8 @@ def find_entity(client: httpx.Client, name: str) -> str | None:
             f"  ⚠ Recall attempt {attempt + 1} failed ({resp.status_code}), retrying..."
         )
         time.sleep(3)
+    if resp is None:
+        raise RuntimeError(f"recall never attempted for {name!r}")
     resp.raise_for_status()
     data = resp.json()
     nodes = data.get("context", {}).get("nodes", [])

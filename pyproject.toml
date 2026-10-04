@@ -7,11 +7,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
     "surrealdb>=0.4.0",
-    "pydantic-ai>=1.0.0",
+    "pydantic-ai[typesafe]>=1.0.0",
     "pydantic-settings>=2.0.0",
     "azure-identity>=1.25.2",
     "anthropic>=0.82.0",
-    "fastmcp>=2.0.0",
+    "fastmcp>=4",
 ]
 
 [project.optional-dependencies]

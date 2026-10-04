@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 _storage: Storage | None = None
 _model: Any = None
+_routing_model: Any = None  # Optional optimization; startup failure leaves this unset.
 _scheduler: DreamScheduler | None = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()

@@ -100,6 +100,10 @@ async def route_message(
     Returns None when no fast-path route is warranted (low confidence, mixed
     intent) — callers then take the CONVERSE fallback. Raises nothing: any
     exception (missing key, 429/529, network) is logged and returns None.
+    Confidence absent, nonfinite, or outside [0, 1] is below threshold.
+    Routing state includes exactly the most recent configured history turns;
+    zero turns means only the current message. Emits a structured decision log
+    with route, confidence, threshold, and path (fast/fallback), even on failure.
     """
     raise NotImplementedError("not implemented")
 
@@ -109,8 +113,9 @@ def decide_route(
 ) -> Route:
     """Pure interpretation of a routing decision.
 
-    RECALL iff is_pure_recall and confidence['is_pure_recall'] >= threshold and
-    not (is_pure_ingest and confidence['is_pure_ingest'] >= threshold); symmetric
-    for INGEST; otherwise CONVERSE.
+    Both purity flags true always means CONVERSE, regardless of confidence.
+    Otherwise RECALL iff is_pure_recall and valid confidence >= threshold;
+    symmetric for INGEST. Missing, nonfinite, or out-of-range confidence is
+    below threshold. Otherwise CONVERSE.
     """
     raise NotImplementedError("not implemented")

@@ -25,7 +25,12 @@ converse agent itself is unchanged; it remains the fallback router.
 `_converse_agent.run` directly and call the single orchestration entry point.
 Lifespan constructs the routing model (a `TypeSafeModel`) alongside `_model`, unless
 `settings.test_mode` or `settings.jev_enabled` is false, in which case no routing model
-exists and every turn takes the fallback path.
+exists and every turn takes the fallback path. Routing model construction is explicitly
+failure-contained: missing/invalid credentials or any construction error logs a warning
+and leaves `_routing_model=None`; storage, MCP, and all endpoints still initialize.
+Resolve/construct the model during startup so missing credentials cannot escape before
+the per-turn safety net. `_routing_model: Model | str | None` is the materialized API
+wiring seam.
 
 **Core (`config.py`, `providers.py`)** — new `BRAIN_JEV_*` settings (below).
 `providers.py` handles the `typesafe:` model prefix: passthrough when no explicit key,
@@ -90,10 +95,10 @@ async def route_message(
 def decide_route(
     decision: RoutingDecision, confidence: dict[str, float], threshold: float,
 ) -> Route:
-    """Pure interpretation. RECALL iff is_pure_recall and
-    confidence['is_pure_recall'] >= threshold and not (is_pure_ingest and
-    confidence['is_pure_ingest'] >= threshold); symmetric for INGEST;
-    otherwise CONVERSE."""
+    """Pure interpretation. Both flags true always means CONVERSE.
+    Otherwise RECALL iff is_pure_recall and its valid confidence >= threshold;
+    symmetric for INGEST; otherwise CONVERSE. Missing, nonfinite, or outside
+    [0, 1] confidence is below threshold."""
 ```
 
 ```python
@@ -148,8 +153,12 @@ jev_history_turns: int = 3               # history turns included in the routing
 
 State for routing: the user message plus the last `jev_history_turns` user/assistant
 turns. The state counts against Jev's 32k-token limit once per request; 3 turns keeps
-us far under it. Routing observability is a structured log line per turn (route,
-per-field confidences, threshold, chosen path) — sufficient for later threshold tuning.
+us far under it. Retain exactly the most recent configured complete user/assistant
+turns when available; `jev_history_turns=0` means current message only. Routing
+observability is a structured log record per decision with fields `route` (recall,
+ingest, converse), `confidence` (per-field mapping; empty when unavailable), `threshold`,
+and `path` (fast or fallback). Success, policy fallback, and exceptions all emit this
+record. Human-readable log wording is not a contract.
 No response-shape changes (YAGNI).
 
 ### Technology Choices
@@ -226,6 +235,9 @@ Materialization notes:
   threshold source, routing-state composition). Model doubles are `FunctionModel`s that
   answer the decision questions deterministically and carry per-field confidence through
   `provider_details['confidence']` exactly as the TypeSafe decision model does.
+- `tests/test_converse_routing_http.py` — actual HTTP routing for both endpoints,
+  including response/context/history fidelity; real lifespan with deterministic local
+  model/storage doubles, bypass without a Typesafe key, and startup credential failure.
 - `tests/test_converse_agent.py` (extended) — `run_converse_turn` orchestration: fast-path
   equivalence against the converse tool path, fallback semantics, failure containment,
   and routing-state bounds. Sub-agent runs use `TestModel`; the converse-tool path is
@@ -241,8 +253,8 @@ Materialization notes:
 - Neither flag (small talk/meta) is `CONVERSE`.
 - Confidence below the threshold is `CONVERSE`.
 - Confidence exactly equal to the threshold routes (`>=` is sufficient).
-- A confident flag is not blocked by the other flag set at low confidence (both
-  directions).
+- Mixed flags fall back even when only one flag is confident (both directions).
+- Missing, null, nonfinite, or out-of-range confidence falls back (both routes).
 
 #### route_message
 
@@ -255,12 +267,18 @@ Materialization notes:
   threshold changes the outcome — the threshold comes from settings.
 - A routing run that raises (missing key, rate limit, network) returns `None`, logs the
   failure at WARNING or above, and never raises to the caller.
-- The routing state includes the current message and the provided recent history.
+- The routing state includes the current message and the provided recent history;
+  a zero history window excludes every earlier user/assistant message.
+- Absent provider details or missing/invalid confidence takes no fast path.
+- Success, mixed/low-confidence fallback, and exceptions emit structured logs carrying
+  route, per-field confidences, threshold, and path, without pinning message wording.
+- Routing-related settings are isolated from environment overrides in every new test.
 
 #### run_converse_turn
 
 - **Fast-path equivalence (recall):** a RECALL-routed turn returns the same response and
-  accumulates the same cited nodes/edges (deduplicated) onto `deps.context` as a turn
+  accumulates the same cited nodes/edges onto pre-populated `deps.context` (existing
+  citations remain once, new citations are added) as a turn
   where the converse router invoked the `recall` tool; status events on
   `deps.progress_queue` are emitted on both paths and are identical.
 - **Fast-path equivalence (ingest):** an INGEST-routed turn matches the converse `ingest`
@@ -273,18 +291,32 @@ Materialization notes:
 - **Fallback fidelity:** the converse agent is invoked with the full message history the
   caller passed in.
 - **Bounded routing state:** the state given to the routing model is the current message
-  plus at most the configured `jev_history_turns` of history, taken as the most recent
-  contiguous stretch (never the oldest turns).
+  plus exactly the configured `jev_history_turns` of history when available, taken as
+  the most recent contiguous stretch (never the oldest turns or an empty window).
+
+#### HTTP and lifespan
+
+- Both `/converse` and `/converse/stream` exercise recall/ingest fast paths, policy
+  fallback, and routing failure through real orchestration; preserve response shapes,
+  recall context, and full fallback history.
+- Test mode and disabled routing do not construct a Typesafe model and require no
+  `TYPESAFE_API_KEY`; both converse endpoints remain usable.
+- Missing routing credentials during startup degrades to `_routing_model=None` with
+  a warning; health, recall, and both converse endpoints remain usable.
 
 Intentionally unpinned in this phase: pure data-shape contracts (the exact
 `RoutingDecision` field/criteria text, `Route` values, `jev_*` defaults) — they are
 materialized in code but any test of them would pass against interface-only code, which
-the Red Gate forbids; assert them once implementation exists. The app-level wiring
-(both endpoints calling `run_converse_turn`; lifespan passing `routing_model=None` in
-test mode / when disabled) is implementation scope.
+the Red Gate forbids; assert them once implementation exists. App-level wiring and
+startup failure containment are covered by public HTTP/lifespan tests.
 
 ### Red Gate
 
-All 23 new tests fail with `NotImplementedError: not implemented` from the stubs (8 at
-`decide_route`, 8 at `route_message`, 7 at `run_converse_turn`); all 236 pre-existing
-tests pass. Suite runs clean; ruff and basedpyright pass.
+Original test-write gate: all 23 new tests failed against stubs; all 236 pre-existing
+tests passed. After approved review additions: full suite has **59 expected failures,
+242 passes**. Routing/orchestration remain stub failures; HTTP fast-path cases fail on
+missing wiring and startup credential containment fails on missing construction.
+Six added fallback/bypass cases pass against today's behavior, as expected for the LLM
+floor. No collection failures or live services are required.
+
+**Review status:** approved

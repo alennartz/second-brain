@@ -2,6 +2,7 @@ import asyncio
 import json
 from typing import Any
 
+import pytest
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -16,6 +17,13 @@ from pydantic_ai.models.test import TestModel
 
 from second_brain.agents.converse import ConverseDeps, run_converse_turn
 from second_brain.config import settings
+from second_brain.models import Context, normalize_edge, normalize_node
+
+
+@pytest.fixture(autouse=True)
+def routing_settings(monkeypatch):
+    monkeypatch.setattr(settings, "jev_confidence_threshold", 0.9)
+    monkeypatch.setattr(settings, "jev_history_turns", 3)
 
 
 async def test_converse_agent_has_tools():
@@ -151,7 +159,7 @@ async def test_run_converse_turn_fast_recall_matches_converse_tool_path(storage)
     edge = await storage.create_edge(note["id"], "references", entity["id"])
     recall_args = {
         "answer": RECALL_ANSWER,
-        "cited_node_ids": [str(note["id"])],
+        "cited_node_ids": [str(note["id"]), str(entity["id"])],
         "cited_edge_ids": [str(edge["id"])],
     }
     history = [
@@ -165,6 +173,7 @@ async def test_run_converse_turn_fast_recall_matches_converse_tool_path(storage)
         storage=storage,
         model_setting=TestModel(call_tools=[], custom_output_args=recall_args),
         progress_queue=q_fast,
+        context=Context(nodes=[normalize_node(note)], edges=[normalize_edge(edge)]),
     )
     resp_fast = await run_converse_turn(
         message,
@@ -182,6 +191,7 @@ async def test_run_converse_turn_fast_recall_matches_converse_tool_path(storage)
         storage=storage,
         model_setting=TestModel(call_tools=[], custom_output_args=recall_args),
         progress_queue=q_tool,
+        context=Context(nodes=[normalize_node(note)], edges=[normalize_edge(edge)]),
     )
     resp_tool = await run_converse_turn(
         message,
@@ -195,7 +205,7 @@ async def test_run_converse_turn_fast_recall_matches_converse_tool_path(storage)
 
     fast_nodes = sorted(str(n["id"]) for n in deps_fast.context.nodes)
     tool_nodes = sorted(str(n["id"]) for n in deps_tool.context.nodes)
-    assert fast_nodes == tool_nodes == [str(note["id"])]
+    assert fast_nodes == tool_nodes == sorted([str(note["id"]), str(entity["id"])])
     fast_edges = sorted(str(e["id"]) for e in deps_fast.context.edges)
     tool_edges = sorted(str(e["id"]) for e in deps_tool.context.edges)
     assert fast_edges == tool_edges == [str(edge["id"])]
@@ -210,11 +220,14 @@ async def test_run_converse_turn_fast_ingest_matches_converse_tool_path(storage)
     """An INGEST-routed turn is a shortcut to the same pipeline the converse
     ingest tool runs."""
     ingest_text = "Spaced repetition improves memory."
+    note = await storage.create_note(content="Earlier citation", source="test")
+    existing_context = Context(nodes=[normalize_node(note)])
 
     q_fast: asyncio.Queue = asyncio.Queue()
     deps_fast = ConverseDeps(
         storage=storage,
         model_setting=TestModel(call_tools=[], custom_output_text=INGEST_ANSWER),
+        context=existing_context.model_copy(deep=True),
         progress_queue=q_fast,
     )
     resp_fast = await run_converse_turn(
@@ -232,6 +245,7 @@ async def test_run_converse_turn_fast_ingest_matches_converse_tool_path(storage)
     deps_tool = ConverseDeps(
         storage=storage,
         model_setting=TestModel(call_tools=[], custom_output_text=INGEST_ANSWER),
+        context=existing_context.model_copy(deep=True),
         progress_queue=q_tool,
     )
     resp_tool = await run_converse_turn(
@@ -243,8 +257,7 @@ async def test_run_converse_turn_fast_ingest_matches_converse_tool_path(storage)
     )
 
     assert resp_fast == resp_tool == INGEST_ANSWER
-    assert deps_fast.context.nodes == deps_tool.context.nodes
-    assert deps_fast.context.edges == deps_tool.context.edges
+    assert deps_fast.context == deps_tool.context == existing_context
 
     statuses_fast = _drain(q_fast)
     statuses_tool = _drain(q_tool)
@@ -362,9 +375,7 @@ async def test_run_converse_turn_routing_state_is_bounded_by_configured_window(
     )
     texts = _state_texts(seen_routing[0])
     assert message in texts
-    retained = [t for t in texts if t != message]
-    # At most the configured number of user/assistant turns (2 messages each) of
-    # history, and never anything but the most recent contiguous stretch.
-    assert len(retained) <= 2 * settings.jev_history_turns
-    if retained:
-        assert retained == history_contents[-len(retained) :]
+    # Ignore any routing system prompt: assert the precise observable history,
+    # so an implementation dropping all history cannot satisfy the window test.
+    retained = [t for t in texts if t in history_contents]
+    assert retained == history_contents[-4:]

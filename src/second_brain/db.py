@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Protocol, runtime_checkable
 
 from surrealdb import AsyncSurreal
@@ -5,6 +6,8 @@ from surrealdb import AsyncSurreal
 from second_brain.config import settings
 from second_brain.models import make_serializable
 from second_brain.validation import validate_identifier, validate_record_id
+
+logger = logging.getLogger(__name__)
 
 
 async def get_db() -> AsyncSurreal:  # pyright: ignore[reportGeneralTypeIssues]
@@ -151,8 +154,13 @@ class Storage:
     # ── Nodes ──
 
     async def get_node(self, record_id: str) -> dict:
-        """Fetch a single node by record ID. Returns ``{}`` if not found. Excludes embeddings."""
+        """Fetch a single node by record ID. Returns ``{}`` if not found. Excludes embeddings.
+
+        Raises ``ValueError`` for a malformed record ID (agent output is not
+        trusted to be well-formed).
+        """
         assert self._db is not None
+        validate_record_id(record_id)
         result = await self._db.query(f"SELECT * OMIT embedding FROM {record_id}")
         result = self._check(result, f"get_node({record_id})")
         if not result:
@@ -160,12 +168,16 @@ class Storage:
         return self._normalize(result[0])
 
     async def get_nodes(self, record_ids: list[str]) -> list[dict]:
-        """Fetch multiple nodes by ID. Excludes embeddings. Skips missing."""
+        """Fetch multiple nodes by ID. Excludes embeddings. Skips missing or malformed IDs."""
         if not record_ids:
             return []
         results = []
         for rid in record_ids:
-            node = await self.get_node(rid)
+            try:
+                node = await self.get_node(rid)
+            except ValueError:
+                logger.warning("get_nodes: skipping malformed record ID %r", rid)
+                continue
             if node:
                 results.append(node)
         return results
@@ -287,13 +299,19 @@ class Storage:
     async def delete_node(self, record_id: str) -> None:
         """Delete a node by record ID."""
         assert self._db is not None
+        validate_record_id(record_id)
         await self._db.query(f"DELETE {record_id}")
 
     # ── Edges ──
 
     async def get_edge(self, edge_id: str) -> dict:
-        """Fetch a single edge by ID. Returns ``{}`` if not found."""
+        """Fetch a single edge by ID. Returns ``{}`` if not found.
+
+        Raises ``ValueError`` for a malformed record ID (agent output is not
+        trusted to be well-formed).
+        """
         assert self._db is not None
+        validate_record_id(edge_id)
         result = await self._db.query(f"SELECT * FROM {edge_id}")
         result = self._check(result, f"get_edge({edge_id})")
         if not result:
@@ -303,6 +321,7 @@ class Storage:
     async def get_outgoing_edges(self, record_id: str) -> list[dict]:
         """All edges from this node. Each has ``id``, ``in``, ``out`` as plain strings, plus edge-specific fields."""
         assert self._db is not None
+        validate_record_id(record_id)
         result = await self._db.query(f"SELECT * FROM {record_id}->?")
         result = self._check(result, f"get_outgoing_edges({record_id})")
         return [self._normalize(e) for e in result]
@@ -310,6 +329,7 @@ class Storage:
     async def get_incoming_edges(self, record_id: str) -> list[dict]:
         """All edges into this node."""
         assert self._db is not None
+        validate_record_id(record_id)
         result = await self._db.query(f"SELECT * FROM {record_id}<-?")
         result = self._check(result, f"get_incoming_edges({record_id})")
         return [self._normalize(e) for e in result]
@@ -340,6 +360,7 @@ class Storage:
     async def delete_edge(self, edge_id: str) -> None:
         """Delete an edge by ID."""
         assert self._db is not None
+        validate_record_id(edge_id)
         await self._db.query(f"DELETE {edge_id}")
 
     async def check_edge_exists(
@@ -447,6 +468,7 @@ class Storage:
     async def get_connections(self, record_id: str) -> list[dict]:
         """Edge neighborhood: ``[{edge_label, direction, adjacent_id}, ...]`` for a node."""
         assert self._db is not None
+        validate_record_id(record_id)
         outgoing = await self._db.query(f"SELECT * FROM {record_id}->?")
         outgoing = self._check(outgoing, f"get_connections outgoing({record_id})")
         incoming = await self._db.query(f"SELECT * FROM {record_id}<-?")

@@ -102,6 +102,31 @@ async def test_recall_response_with_context(client):
     assert len(body["context"]["edges"]) == 1
 
 
+async def test_recall_survives_malformed_citations(client, storage, monkeypatch):
+    """Weak models can emit placeholder citation IDs; recall must still answer."""
+    from second_brain.agents.recall import RecallOutput
+    from second_brain.app import _recall_agent
+    from tests.test_converse_agent import RECALL_ANSWER
+
+    async def fake_run(prompt, **kwargs):
+        class Result:
+            output = RecallOutput(
+                answer=RECALL_ANSWER,
+                cited_node_ids=["-none-"],
+                cited_edge_ids=["-none-"],
+            )
+
+        return Result()
+
+    monkeypatch.setattr("second_brain.app._storage", storage)
+    monkeypatch.setattr(_recall_agent, "run", fake_run)
+    resp = await client.post("/recall", json={"question": "who wrote notes?"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == RECALL_ANSWER
+    assert body["context"] in (None, {"nodes": [], "edges": []})
+
+
 async def test_graph_endpoint(client):
     with patch("second_brain.app.get_graph_data", new_callable=AsyncMock) as mock_graph:
         from second_brain.app import ConnectionItem, GraphResponse

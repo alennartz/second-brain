@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
@@ -114,13 +115,15 @@ def create_model(
     foundry_url: str | None,
     auth: Literal["key", "aad"] = "key",
     key: str | None = None,
+    base_url: str | None = None,
 ) -> Any:
     """Create a pydantic-ai model from a provider:model_name string.
 
-    When *foundry_url* is ``None`` the raw string is returned (pydantic-ai
-    resolves it via its built-in provider registry).  When a Foundry URL is
-    supplied, an authenticated Azure client is constructed and wrapped in the
-    appropriate pydantic-ai model class.
+    When *base_url* is set, an OpenAI-compatible client uses that endpoint and
+    *key* (or the placeholder ``"none"``). This mode supports ``openai:`` model
+    strings only and cannot be combined with *foundry_url*. When both URLs are
+    ``None``, PydanticAI resolves the raw model string. A Foundry URL constructs
+    an authenticated Azure client.
 
     *auth* selects the authentication strategy when talking to Foundry:
     ``"aad"`` uses ``DefaultAzureCredential``; ``"key"`` (default) uses
@@ -128,6 +131,42 @@ def create_model(
     (``AZURE_OPENAI_API_KEY`` for OpenAI, ``ANTHROPIC_API_KEY`` for
     Anthropic).
     """
+    if base_url is not None:
+        if foundry_url is not None:
+            raise ValueError("base_url and foundry_url cannot both be set")
+        provider_prefix, model_name = _parse_model_string(model_string)
+        if provider_prefix != "openai":
+            raise ValueError("OpenAI-compatible base_url requires an openai: model")
+        from openai import AsyncOpenAI
+        from openai.types.chat import ChatCompletion
+        from pydantic_ai.models.openai import OpenAIChatModel, _ChatCompletion
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        class TolerantOpenAIChatModel(OpenAIChatModel):
+            """Tolerates non-standard metadata from self-hosted servers.
+
+            SGLang reports ``metadata.weight_versions`` as a list, while the
+            OpenAI types declare ``metadata: dict[str, str]``. Malformed
+            metadata is dropped before validation.
+            """
+
+            def _validate_completion(self, response: ChatCompletion) -> Any:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    dump = response.model_dump()
+                metadata = dump.get("metadata")
+                if metadata is not None and not (
+                    isinstance(metadata, dict)
+                    and all(isinstance(v, str) for v in metadata.values())
+                ):
+                    dump["metadata"] = None
+                return _ChatCompletion.model_validate(dump)
+
+        client = AsyncOpenAI(base_url=base_url, api_key=key or "none")
+        return TolerantOpenAIChatModel(
+            model_name, provider=OpenAIProvider(openai_client=client)
+        )
+
     if foundry_url is None:
         return model_string
 
@@ -147,14 +186,17 @@ def create_embed_fn(
     auth: Literal["key", "aad"] = "key",
     key: str | None = None,
     dimensions: int | None = None,
+    base_url: str | None = None,
 ) -> Callable[[str], Awaitable[list[float]]]:
     """Create an async embedding function from a provider:model_name string.
 
     Returns an ``async def embed(text: str) -> list[float]`` callable.
 
-    When *foundry_url* is ``None`` the raw model string is handed to
-    :class:`pydantic_ai.Embedder` which resolves it via its built-in
-    provider registry (openai, cohere, google-gla, voyageai, …).
+    When *base_url* is set, an OpenAI-compatible client uses that endpoint and
+    *key* (or the placeholder ``"none"``). This mode supports ``openai:`` model
+    strings only and cannot be combined with *foundry_url*. When both URLs are
+    ``None``, PydanticAI resolves the raw model string through its built-in
+    provider registry.
 
     When a Foundry URL is supplied, any model string is accepted because
     Azure AI Services exposes an OpenAI-compatible API for all deployed
@@ -174,7 +216,23 @@ def create_embed_fn(
     if dimensions is not None:
         embed_settings = EmbeddingSettings(dimensions=dimensions)
 
-    if foundry_url is None:
+    if base_url is not None and foundry_url is not None:
+        raise ValueError("base_url and foundry_url cannot both be set")
+
+    if base_url is not None:
+        provider_prefix, model_name = _parse_model_string(model_string)
+        if provider_prefix != "openai":
+            raise ValueError("OpenAI-compatible base_url requires an openai: model")
+        from openai import AsyncOpenAI
+        from pydantic_ai.embeddings.openai import OpenAIEmbeddingModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        client = AsyncOpenAI(base_url=base_url, api_key=key or "none")
+        embedding_model = OpenAIEmbeddingModel(
+            model_name, provider=OpenAIProvider(openai_client=client)
+        )
+        embedder = Embedder(embedding_model, settings=embed_settings)
+    elif foundry_url is None:
         embedder = Embedder(model_string, settings=embed_settings)
     else:
         from openai import AsyncAzureOpenAI

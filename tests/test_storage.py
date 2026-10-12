@@ -5,6 +5,10 @@ All methods currently raise NotImplementedError — tests are expected to fail
 until the implementation phase.
 """
 
+from __future__ import annotations
+
+import pytest
+
 from second_brain.db import Storage
 
 # ── Node Operations ──────────────────────────────────────────────────────────
@@ -31,6 +35,10 @@ class TestGetNode:
         assert isinstance(result["id"], str)
         assert ":" in result["id"]
 
+    async def test_rejects_malformed_record_id(self, storage: Storage):
+        with pytest.raises(ValueError, match="Invalid record ID"):
+            await storage.get_node("-none-")
+
 
 class TestGetNodes:
     async def test_returns_multiple_nodes(self, storage: Storage):
@@ -49,6 +57,13 @@ class TestGetNodes:
         n1 = await storage.create_note(content="Exists")
         results = await storage.get_nodes([n1["id"], "note:missing"])
         assert len(results) == 1
+
+    async def test_skips_malformed_ids(self, storage: Storage):
+        """Malformed IDs (e.g. LLM-cited placeholders) are skipped, not raised."""
+        n1 = await storage.create_note(content="Exists")
+        results = await storage.get_nodes([n1["id"], "-none-"])
+        assert len(results) == 1
+        assert results[0]["id"] == n1["id"]
 
     async def test_returns_empty_for_empty_input(self, storage: Storage):
         results = await storage.get_nodes([])
@@ -223,6 +238,10 @@ class TestGetEdge:
     async def test_returns_empty_dict_when_not_found(self, storage: Storage):
         result = await storage.get_edge("references:nonexistent")
         assert result == {}
+
+    async def test_rejects_malformed_edge_id(self, storage: Storage):
+        with pytest.raises(ValueError, match="Invalid record ID"):
+            await storage.get_edge("-none-")
 
 
 class TestGetOutgoingEdges:

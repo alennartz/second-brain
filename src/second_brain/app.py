@@ -124,6 +124,7 @@ async def lifespan(app: FastAPI):
             settings.reasoning_foundry_url,
             settings.reasoning_auth,
             settings.reasoning_key,
+            base_url=settings.reasoning_base_url,
         )
         embed_fn = create_embed_fn(
             settings.embedding_model,
@@ -131,6 +132,7 @@ async def lifespan(app: FastAPI):
             settings.embedding_auth,
             settings.embedding_key,
             settings.embedding_dimensions,
+            base_url=settings.embedding_base_url,
         )
         embedder = _EmbedFnAdapter(embed_fn)
         _storage = Storage(
@@ -291,12 +293,19 @@ async def run_recall_agent(
         len(output.cited_edge_ids),
     )
 
-    # Fetch actual records for cited IDs
+    # Fetch actual records for cited IDs. Malformed IDs (weak models sometimes
+    # emit placeholders) are skipped so the answer still goes out.
     assert _storage is not None
     nodes = await _storage.get_nodes(output.cited_node_ids)
     edges: list[dict] = []
     for eid in output.cited_edge_ids:
-        edge = await _storage.get_edge(eid)
+        try:
+            edge = await _storage.get_edge(eid)
+        except ValueError as exc:
+            logger.warning(
+                "Recall citations: skipping malformed edge ID %r: %s", eid, exc
+            )
+            continue
         if edge:
             edges.append(edge)
 

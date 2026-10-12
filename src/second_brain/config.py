@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     db_path: str = "data/brain.db"
     embedding_model: str = "openai:text-embedding-3-small"
     reasoning_model: str = "openai:gpt-4o-mini"
+    reasoning_base_url: str | None = None
+    embedding_base_url: str | None = None
     embedding_dimensions: int = 1536
     test_mode: bool = False
     reasoning_foundry_url: str | None = None

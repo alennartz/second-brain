@@ -114,13 +114,20 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         logger.info("Converse → recall sub-agent completed")
         await _push(queue, "Search complete")
 
-        # Fetch actual records and accumulate onto deps.context (deduplicated)
+        # Fetch actual records and accumulate onto deps.context (deduplicated).
+        # Malformed cited IDs are skipped; agent output is not trusted.
         nodes = await ctx.deps.storage.get_nodes(output.cited_node_ids)
-        edges = [
-            e
-            for eid in output.cited_edge_ids
-            if (e := await ctx.deps.storage.get_edge(eid))
-        ]
+        edges = []
+        for eid in output.cited_edge_ids:
+            try:
+                edge = await ctx.deps.storage.get_edge(eid)
+            except ValueError as exc:
+                logger.warning(
+                    "Recall citations: skipping malformed edge ID %r: %s", eid, exc
+                )
+                continue
+            if edge:
+                edges.append(edge)
         existing_node_ids = {str(n["id"]) for n in ctx.deps.context.nodes}
         existing_edge_ids = {str(e["id"]) for e in ctx.deps.context.edges}
         ctx.deps.context.nodes.extend(

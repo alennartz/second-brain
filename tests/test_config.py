@@ -15,6 +15,8 @@ def test_foundry_url_fields_default_none():
     s = Settings(_env_file=None, db_path="data/brain.db")  # pyright: ignore[reportCallIssue]
     assert s.reasoning_foundry_url is None
     assert s.embedding_foundry_url is None
+    assert s.reasoning_base_url is None
+    assert s.embedding_base_url is None
 
 
 def test_auth_fields_default_key():
@@ -29,6 +31,14 @@ def test_foundry_url_from_env(monkeypatch):
     s = Settings(_env_file=None, db_path="data/brain.db")  # pyright: ignore[reportCallIssue]
     assert s.reasoning_foundry_url == "https://r.azure.com"
     assert s.embedding_foundry_url == "https://e.azure.com"
+
+
+def test_openai_compatible_base_urls_from_env(monkeypatch):
+    monkeypatch.setenv("BRAIN_REASONING_BASE_URL", "http://llm.local/v1")
+    monkeypatch.setenv("BRAIN_EMBEDDING_BASE_URL", "http://embed.local/v1")
+    s = Settings(_env_file=None, db_path="data/brain.db")  # pyright: ignore[reportCallIssue]
+    assert s.reasoning_base_url == "http://llm.local/v1"
+    assert s.embedding_base_url == "http://embed.local/v1"
 
 
 def test_auth_from_env(monkeypatch):

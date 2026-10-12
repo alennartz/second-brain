@@ -32,6 +32,33 @@ def test_create_model_no_foundry_any_provider():
     assert result == "groq:llama-3.3-70b-versatile"
 
 
+def test_create_model_openai_compatible_base_url():
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        key="none",
+        base_url="http://jetson.ordernet:8082/v1",
+    )
+    assert isinstance(result, OpenAIChatModel)
+    assert str(result.provider.client.base_url) == "http://jetson.ordernet:8082/v1/"
+
+
+def test_create_model_rejects_unsupported_custom_provider():
+    with pytest.raises(ValueError, match="requires an openai: model"):
+        create_model("groq:model", foundry_url=None, base_url="http://llm.local/v1")
+
+
+def test_create_model_rejects_two_endpoints():
+    with pytest.raises(ValueError, match="cannot both be set"):
+        create_model(
+            "openai:model",
+            foundry_url="https://foundry.local",
+            base_url="http://llm.local/v1",
+        )
+
+
 @patch("second_brain.providers._get_token_provider")
 def test_create_model_foundry_openai(mock_token):
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -76,6 +103,26 @@ def test_create_embed_fn_foundry(mock_token):
         auth="aad",
     )
     assert callable(fn)
+
+
+def test_create_embed_fn_openai_compatible_base_url():
+    fn = create_embed_fn(
+        "openai:harrier-oss-v1-0.6b",
+        foundry_url=None,
+        key="none",
+        dimensions=1024,
+        base_url="http://jetson.ordernet:8084/v1",
+    )
+    assert callable(fn)
+
+
+def test_create_embed_fn_rejects_two_endpoints():
+    with pytest.raises(ValueError, match="cannot both be set"):
+        create_embed_fn(
+            "openai:embedding",
+            foundry_url="https://foundry.local",
+            base_url="http://embed.local/v1",
+        )
 
 
 def test_create_embed_fn_no_foundry_cohere(monkeypatch):

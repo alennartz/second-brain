@@ -112,7 +112,7 @@ Business logic layer consumed by agents. Composes `Storage` primitives from Core
 
 ### Agents
 
-Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). The scheduler manages dream cycle timing with exponential backoff between cycles and a convergence cutoff — it stops after `ceil(sqrt(total_nodes / batch_size))` cycles per idle period and waits for new user activity before resuming.
+Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). A fast-path Jev routing pass (routing.py) classifies pure recall/ingest turns and dispatches them straight to their sub-agent, skipping the converse router LLM round-trip; everything else falls through to the converse agent. The scheduler manages dream cycle timing with exponential backoff between cycles and a convergence cutoff — it stops after `ceil(sqrt(total_nodes / batch_size))` cycles per idle period and waits for new user activity before resuming.
 
 **Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses holding `storage: Storage`), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware, with `DreamCycleState` managing exponential backoff delays and per-idle-period cycle cutoff), progress streaming via async queues
 
@@ -122,6 +122,7 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 - `src/second_brain/agents/ingest.py`
 - `src/second_brain/agents/recall.py`
 - `src/second_brain/agents/converse.py`
+- `src/second_brain/agents/routing.py`
 - `src/second_brain/agents/dream_dedup.py`
 - `src/second_brain/agents/dream_connect.py`
 - `src/second_brain/agents/__init__.py`
@@ -129,6 +130,8 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 - `tests/test_ingest_agent.py`
 - `tests/test_recall_agent.py`
 - `tests/test_converse_agent.py`
+- `tests/test_converse_routing_http.py`
+- `tests/test_routing.py`
 - `tests/test_dream_dedup_agent.py`
 - `tests/test_dream_connect_agent.py`
 - `tests/test_scheduler.py`
@@ -137,7 +140,7 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 
 HTTP and MCP entry points. FastAPI app with lifespan management (DB init, dream scheduler start/stop), request/response models, and route handlers. MCP server exposes ingest/recall/graph as Model Context Protocol tools for external AI clients.
 
-**Responsibilities:** REST endpoints (/health, /ingest, /recall, /converse, /converse/stream, /dream, /graph/{id}), SSE streaming for converse, app lifespan (constructs `Storage` at startup, injects into all Deps and scheduler), request validation and response shaping, MCP tool definitions wrapping agent runners
+**Responsibilities:** REST endpoints (/health, /ingest and /dream as async 202 jobs with polling via /ingest/jobs/{id} and /dream/jobs/{id}, /recall, /converse, /converse/stream, /graph/{id}), SSE streaming for converse, app lifespan (constructs `Storage` at startup, injects into all Deps and scheduler), request validation and response shaping, MCP tool definitions wrapping agent runners
 
 **Dependencies:** Core (config, Storage + Embedder, models, providers, validation), Agents (all five agents + scheduler)
 

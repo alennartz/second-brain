@@ -3,17 +3,23 @@
 Automated experiment runner for ingest quality evaluation.
 
 Usage:
-    python experiments/run_experiment.py <experiment_name> [notes]
+    experiments/benchctl.sh start <experiment_name> [notes]
+    experiments/benchctl.sh status <experiment_name>
+    experiments/benchctl.sh stop <experiment_name>
+    experiments/benchctl.sh resume <experiment_name>
 
-Wipes DB, starts server, ingests two independent knowledge domains (Space Race
-and Florentine Renaissance), runs recall + graph probes, uses an LLM judge to
-evaluate graph quality, and appends results to the experiment journal.
+Runs resumably against an isolated scratch DB. It ingests Space Race and
+Florentine Renaissance snippets, runs recall and graph probes, and uses an LLM
+judge to score quality. State and timing data persist after each operation.
 """
 
+import contextlib
+import hashlib
 import json
 import os
 import shutil
 import signal
+import statistics
 import subprocess
 import sys
 import time
@@ -21,7 +27,7 @@ from datetime import UTC, datetime
 
 import httpx
 
-DEFAULT_PORT = 8000
+DEFAULT_PORT = int(os.environ.get("EXPERIMENT_PORT", "8000"))
 EXPERIMENTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(EXPERIMENTS_DIR)
 
@@ -555,123 +561,394 @@ CROSS_DOMAIN_ASSERTIONS = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# RESUMABLE RUNTIME
+#
+# Properties:
+#   - resumable: state.json persists after EVERY operation; rerun skips done work
+#   - interruptible: SIGINT/SIGTERM finish the current op, save state, stop server
+#   - monitorable: state.json is a live view (phase, counts, last op, elapsed);
+#     run log is unbuffered and append-only
+#   - resilient: per-op deadline + one retry; server restarts if it dies
+# ════════════════════════════════════════════════════════════════════════════
+
+OP_TIMEOUT_S = float(os.environ.get("BENCH_OP_TIMEOUT", "900"))
+POLL_INTERVAL_S = 2.0
+
+
+class BenchInterrupt(Exception):
+    """Raised on SIGINT/SIGTERM to exit cleanly with saved state."""
+
+
+class BenchState:
+    """Durable run state. Saved after every completed operation."""
+
+    def __init__(self, path: str, name: str, notes: str):
+        self.path = path
+        if os.path.exists(path):
+            with open(path) as f:
+                self.data = json.load(f)
+        else:
+            self.data = {
+                "name": name,
+                "notes": notes,
+                "started_utc": datetime.now(UTC).isoformat(),
+                "phase": "ingest",
+                "ingest": [],  # one record per completed snippet
+                "recall": [],  # one record per answered question
+                "graph": [],  # one record per probed entity
+                "judge": {},  # section name -> results
+                "inflight_ingest": {},  # snippet index -> submitted job metadata
+                "current": None,
+                "interrupted": False,
+            }
+            self.save()
+        self.data.setdefault("inflight_ingest", {})
+        self.data.setdefault("current", None)
+        self.data.setdefault("interrupted", False)
+        self.data["interrupted"] = False
+
+    @property
+    def fresh(self) -> bool:
+        return not (
+            self.data["ingest"]
+            or self.data["recall"]
+            or self.data["graph"]
+            or self.data.get("inflight_ingest")
+            or self.data.get("current")
+        )
+
+    def save(self) -> None:
+        tmp = self.path + ".tmp"
+        self.data["updated_utc"] = datetime.now(UTC).isoformat()
+        with open(tmp, "w") as f:
+            json.dump(self.data, f, indent=2)
+        os.replace(tmp, self.path)
+        # Keep phase artifacts current during the run, not only at the end.
+        for phase in ("ingest", "recall", "graph"):
+            artifact_tmp = os.path.join(os.path.dirname(self.path), f"{phase}.json.tmp")
+            with open(artifact_tmp, "w") as f:
+                json.dump(self.data[phase], f, indent=2, default=str)
+            os.replace(
+                artifact_tmp, os.path.join(os.path.dirname(self.path), f"{phase}.json")
+            )
+        if self.data["judge"]:
+            artifact_tmp = os.path.join(
+                os.path.dirname(self.path), "llm_scores.json.tmp"
+            )
+            with open(artifact_tmp, "w") as f:
+                json.dump(self.data["judge"], f, indent=2)
+            os.replace(
+                artifact_tmp,
+                os.path.join(os.path.dirname(self.path), "llm_scores.json"),
+            )
+
+    def monitor_line(self) -> str:
+        d = self.data
+        current = d.get("current") or {}
+        elapsed = None
+        if current.get("started_epoch"):
+            elapsed = round(time.time() - current["started_epoch"], 1)
+        active = (
+            f" current={current.get('label')} elapsed_s={elapsed}" if current else ""
+        )
+        return (
+            f"phase={d['phase']} ingest={len(d['ingest'])}/{len(SNIPPETS)} "
+            f"recall={len(d['recall'])}/{len(RECALL_QUESTIONS)} "
+            f"graph={len(d['graph'])}/{len(GRAPH_PROBES)}{active}"
+        )
+
+
 def make_client():
     return httpx.Client(timeout=180)
 
 
-def wait_for_server(port, max_wait=30):
+def wait_for_server(port, max_wait=60):
     client = httpx.Client(timeout=5)
     for _ in range(max_wait):
         try:
             r = client.get(f"http://localhost:{port}/health")
             if r.status_code == 200:
                 return True
+        except BenchInterrupt:
+            raise
         except Exception:
             pass
         time.sleep(1)
     return False
 
 
-def start_server(port=DEFAULT_PORT, db_suffix=""):
-    """Kill existing on port, wipe DB, start fresh server."""
-    subprocess.run(
-        f"kill $(lsof -ti:{port}) 2>/dev/null", shell=True, capture_output=True
-    )
-    time.sleep(1)
-
-    db_name = f"brain{db_suffix}.db" if db_suffix else "brain.db"
-    db_path = os.path.join(PROJECT_DIR, "data", db_name)
-    if os.path.exists(db_path):
-        shutil.rmtree(db_path)
-
-    env = os.environ.copy()
-    env["BRAIN_DB_PATH"] = os.path.join("data", db_name)
-    proc = subprocess.Popen(
-        [
-            os.path.expanduser("~/.local/bin/uv"),
-            "run",
-            "uvicorn",
-            "second_brain.app:app",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            str(port),
-        ],
-        cwd=PROJECT_DIR,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env=env,
-        preexec_fn=os.setpgrp,
-    )
-
-    if not wait_for_server(port):
-        raise RuntimeError(f"Server on port {port} failed to start")
-
-    return proc
+def server_healthy(port) -> bool:
+    try:
+        r = httpx.get(f"http://localhost:{port}/health", timeout=5)
+        return r.status_code == 200
+    except BenchInterrupt:
+        raise
+    except Exception:
+        return False
 
 
-def ingest_all(client, base, label=""):
-    results = []
-    for i, snippet in enumerate(SNIPPETS, 1):
-        domain = "SPACE" if i <= len(SPACE_SNIPPETS) else "RENAISSANCE"
-        t0 = time.time()
-        try:
-            resp = client.post(f"{base}/ingest", json={"text": snippet}, timeout=10)
-            if resp.status_code != 202:
-                print(f"  {label}⚠ Ingest {i}: unexpected status {resp.status_code}")
-                continue
-            job = resp.json()
-            job_id = job["job_id"]
+class ServerSupervisor:
+    """Owns the experiment server process. Restarts it if it dies.
 
-            # Poll for completion (no timeout — the server does the work)
-            while True:
-                time.sleep(2)
-                poll = client.get(f"{base}/ingest/jobs/{job_id}", timeout=10)
-                status = poll.json()["status"]
-                if status in ("complete", "failed"):
-                    results.append(poll.json())
-                    break
+    Wipes the DB only on a FRESH run (no resume state) — a resumed run
+    keeps the DB written by prior snippets.
+    """
 
-            elapsed = time.time() - t0
-            status_icon = "✓" if status == "complete" else "✗"
-            print(
-                f"  {label}[{i}/{len(SNIPPETS)} {domain}] {elapsed:.0f}s {status_icon}"
+    def __init__(self, name: str, port: int, db_suffix: str, wipe: bool, log_path: str):
+        self.name = name
+        self.port = port
+        self.db_suffix = db_suffix
+        self.wipe = wipe
+        self.log_path = log_path
+        self.unit = f"brain-benchmark-api-{port}.service"
+        self.owner_path = os.path.join(
+            PROJECT_DIR, "data", f"brain-experiment-{port}.owner"
+        )
+
+    def start(self):
+        healthy = server_healthy(self.port)
+        owner = None
+        if os.path.exists(self.owner_path):
+            with open(self.owner_path) as f:
+                owner = f.read().strip()
+        if owner is not None and owner != self.name:
+            raise RuntimeError(
+                f"port {self.port} is already used by benchmark {owner or 'an unmanaged server'}"
             )
-        except Exception as e:
-            elapsed = time.time() - t0
-            print(f"  {label}⚠ Ingest {i} failed: {e} ({elapsed:.0f}s)")
-        time.sleep(0.5)
-    return results
+        if healthy and not self.wipe:
+            print(f"server: reusing healthy server on :{self.port}")
+            return
+        if healthy and self.wipe:
+            self.stop_proc()
+
+        db_name = f"brain{self.db_suffix}.db" if self.db_suffix else "brain.db"
+        db_path = os.path.join(PROJECT_DIR, "data", db_name)
+        if self.wipe and os.path.exists(db_path):
+            shutil.rmtree(db_path)
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+
+        subprocess.run(
+            ["systemctl", "--user", "reset-failed", self.unit],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        command = [
+            "systemd-run",
+            "--user",
+            f"--unit={self.unit.removesuffix('.service')}",
+            "--property=Restart=on-failure",
+            "--property=RestartSec=10s",
+            f"--property=WorkingDirectory={PROJECT_DIR}",
+            f"--property=StandardOutput=append:{self.log_path}",
+            f"--property=StandardError=append:{self.log_path}",
+            "--collect",
+            "--",
+            "/usr/bin/env",
+            f"BRAIN_DB_PATH=data/{db_name}",
+        ]
+        for key in (
+            "BRAIN_TEST_MODE",
+            "BRAIN_REASONING_MODEL",
+            "BRAIN_EMBEDDING_MODEL",
+            "BRAIN_REASONING_BASE_URL",
+            "BRAIN_EMBEDDING_BASE_URL",
+        ):
+            if key in os.environ:
+                command.append(f"{key}={os.environ[key]}")
+        command.extend(
+            [
+                os.path.join(PROJECT_DIR, ".venv", "bin", "uvicorn"),
+                "second_brain.app:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                str(self.port),
+            ]
+        )
+        with open(self.owner_path, "w") as f:
+            f.write(self.name + "\n")
+        subprocess.run(command, cwd=PROJECT_DIR, check=True)
+        if not wait_for_server(self.port):
+            raise RuntimeError(f"server on port {self.port} failed to start")
+
+    def ensure(self):
+        if not server_healthy(self.port):
+            print("server: unhealthy — restarting")
+            self.stop_proc()
+            self.wipe = False  # keep DB on restart
+            self.start()
+
+    def stop_proc(self):
+        subprocess.run(
+            ["systemctl", "--user", "stop", self.unit],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(self.owner_path)
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.stop_proc()
+        # On pause/failure, leave the separate API unit and its job registry up.
+        # Resume reattaches to the same server and preserves submitted jobs.
 
 
-def recall_all(client, base, label=""):
-    results = []
-    for i, question in enumerate(RECALL_QUESTIONS, 1):
-        t0 = time.time()
-        for attempt in range(3):
-            try:
-                resp = client.post(f"{base}/recall", json={"question": question})
-                resp.raise_for_status()
-                data = resp.json()
-                results.append({"question": question, **data})
+# --- Phase runners (resumable: skip work already in state) ---
+
+
+def _ingest_one(client, base, snippet, deadline, state: BenchState, index: int) -> dict:
+    key = str(index)
+    while time.time() < deadline:
+        inflight = state.data["inflight_ingest"].get(key)
+        if inflight:
+            job_id = inflight["job_id"]
+            started_epoch = inflight["started_epoch"]
+            print(f"  resuming submitted job {job_id} for snippet {index + 1}")
+        else:
+            resp = client.post(f"{base}/ingest", json={"text": snippet}, timeout=30)
+            if resp.status_code != 202:
+                raise RuntimeError(f"unexpected status {resp.status_code}")
+            job_id = resp.json()["job_id"]
+            started_epoch = time.time()
+            state.data["inflight_ingest"][key] = {
+                "job_id": job_id,
+                "started_epoch": started_epoch,
+                "snippet_hash": hashlib.sha256(snippet.encode()).hexdigest(),
+            }
+            state.save()
+        while time.time() < deadline:
+            time.sleep(POLL_INTERVAL_S)
+            poll = client.get(f"{base}/ingest/jobs/{job_id}", timeout=10)
+            if poll.status_code == 404:
+                # The API keeps job state in memory. If it restarted, submit again.
+                state.data["inflight_ingest"].pop(key, None)
+                state.save()
                 break
+            poll.raise_for_status()
+            job = poll.json()
+            if job["status"] in ("complete", "failed"):
+                job["elapsed_s"] = round(time.time() - started_epoch, 2)
+                state.data["inflight_ingest"].pop(key, None)
+                state.save()
+                return job
+        else:
+            break
+    raise TimeoutError(f"ingest job for snippet {index + 1} exceeded op deadline")
+
+
+def ingest_phase(client, sup: ServerSupervisor, base, state: BenchState):
+    done = {
+        r["snippet_index"]
+        for r in state.data["ingest"]
+        if r.get("status") == "complete"
+    }
+    results = state.data["ingest"]
+    for i, snippet in enumerate(SNIPPETS):
+        if i in done:
+            continue
+        domain = "SPACE" if i < len(SPACE_SNIPPETS) else "RENAISSANCE"
+        t0 = time.time()
+        state.data["current"] = {
+            "phase": "ingest",
+            "index": i,
+            "label": f"snippet {i + 1}/{len(SNIPPETS)} ({domain})",
+            "started_epoch": t0,
+        }
+        state.save()
+        record = None
+        for attempt in (1, 2):
+            try:
+                sup.ensure()
+                deadline = time.time() + OP_TIMEOUT_S
+                record = _ingest_one(client, base, snippet, deadline, state, i)
+                if record.get("status") == "failed":
+                    raise RuntimeError(record.get("error") or "ingest job failed")
+                record["elapsed_s"] = round(time.time() - t0, 2)
+                break
+            except BenchInterrupt:
+                raise
             except Exception as e:
-                print(f"  {label}⚠ Recall {i} attempt {attempt + 1} failed: {e}")
+                print(
+                    f"  [{i + 1}/{len(SNIPPETS)} {domain}] attempt {attempt} failed: {e}"
+                )
+        if record is None:
+            record = {"status": "failed", "elapsed_s": round(time.time() - t0, 2)}
+        record["snippet_index"] = i
+        record["domain"] = domain
+        old_record = next((r for r in results if r["snippet_index"] == i), None)
+        if old_record:
+            old_record.update(record)
+        else:
+            results.append(record)
+        state.data["current"] = None
+        state.save()
+        icon = "✓" if record.get("status") == "complete" else "✗"
+        print(f"  [{i + 1}/{len(SNIPPETS)} {domain}] {record['elapsed_s']}s {icon}")
+    state.data["phase"] = "recall"
+    state.save()
+
+
+def recall_phase(client, sup: ServerSupervisor, base, state: BenchState):
+    done = {
+        r["question_index"]
+        for r in state.data["recall"]
+        if not str(r.get("answer", "")).startswith("ERROR:")
+    }
+    results = state.data["recall"]
+    for i, question in enumerate(RECALL_QUESTIONS):
+        if i in done:
+            continue
+        t0 = time.time()
+        state.data["current"] = {
+            "phase": "recall",
+            "index": i,
+            "label": f"question {i + 1}/{len(RECALL_QUESTIONS)}",
+            "started_epoch": t0,
+        }
+        state.save()
+        record = None
+        for attempt in (1, 2):
+            try:
+                sup.ensure()
+                resp = client.post(
+                    f"{base}/recall", json={"question": question}, timeout=OP_TIMEOUT_S
+                )
+                resp.raise_for_status()
+                record = resp.json()
+                break
+            except BenchInterrupt:
+                raise
+            except Exception as e:
+                print(f"  recall {i + 1} attempt {attempt} failed: {e}")
                 time.sleep(10)
-                if attempt == 2:
-                    results.append(
-                        {"question": question, "answer": f"ERROR: {e}", "context": None}
-                    )
-        elapsed = time.time() - t0
-        print(f"  {label}[{i}/{len(RECALL_QUESTIONS)}] {elapsed:.0f}s")
-    return results
+        if record is None:
+            record = {"answer": "ERROR: exhausted retries", "context": None}
+        record["question"] = question
+        record["question_index"] = i
+        record["elapsed_s"] = round(time.time() - t0, 2)
+        results.append(record)
+        state.data["current"] = None
+        state.save()
+        print(f"  [{i + 1}/{len(RECALL_QUESTIONS)}] {record['elapsed_s']}s")
+    state.data["phase"] = "graph"
+    state.save()
 
 
 def find_entity_id(client, base, name):
     for _attempt in range(3):
         try:
             resp = client.post(
-                f"{base}/recall", json={"question": f"Find the entity: {name}"}
+                f"{base}/recall",
+                json={"question": f"Find the entity: {name}"},
+                timeout=OP_TIMEOUT_S,
             )
             if resp.status_code != 200:
                 time.sleep(5)
@@ -687,54 +964,129 @@ def find_entity_id(client, base, name):
             for node in nodes:
                 if node.get("table") == "entity":
                     return node["id"]
+        except BenchInterrupt:
+            raise
         except Exception:
             time.sleep(5)
     return None
 
 
-def graph_probe_all(client, base, label=""):
-    results = []
+def graph_phase(client, sup: ServerSupervisor, base, state: BenchState):
+    done = {r["name"] for r in state.data["graph"]}
+    results = state.data["graph"]
     for name in GRAPH_PROBES:
+        if name in done:
+            continue
         domain = "SPACE" if name in SPACE_PROBES else "RENAISSANCE"
         t0 = time.time()
+        state.data["current"] = {
+            "phase": "graph",
+            "label": name,
+            "started_epoch": t0,
+        }
+        state.save()
+        sup.ensure()
         entity_id = find_entity_id(client, base, name)
-        if not entity_id:
-            print(f"  {label}⚠ {name} [{domain}]: not found")
-            results.append(
-                {
-                    "name": name,
-                    "domain": domain,
-                    "id": None,
-                    "node": None,
-                    "connections": [],
-                }
-            )
+        record = {
+            "name": name,
+            "domain": domain,
+            "id": entity_id,
+            "node": None,
+            "connections": [],
+        }
+        if entity_id:
+            try:
+                resp = client.get(f"{base}/graph/{entity_id}", timeout=60)
+                resp.raise_for_status()
+                data = resp.json()
+                data["name"] = name
+                data["domain"] = domain
+                data["id"] = entity_id
+                record = data
+            except BenchInterrupt:
+                raise
+            except Exception as e:
+                print(f"  ⚠ {name} [{domain}]: error {e}")
+        else:
+            print(f"  ⚠ {name} [{domain}]: not found")
+        record["elapsed_s"] = round(time.time() - t0, 2)
+        results.append(record)
+        state.data["current"] = None
+        state.save()
+        n = len(record.get("connections", []))
+        print(f"  {name} [{domain}]: {n} connections ({record['elapsed_s']}s)")
+    state.data["phase"] = "judge"
+    state.save()
+
+
+def judge_phase(state: BenchState, graph_results) -> dict:
+    """LLM-judged scoring, resumable per section."""
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.join(PROJECT_DIR, "src"))
+    from pydantic_ai import Agent
+
+    model = _create_judge_model()
+
+    def judge_call(graph_text, assertions, section):
+        numbered = "\n".join(f"{i + 1}. {a}" for i, a in enumerate(assertions))
+        prompt = (
+            f"You are evaluating a knowledge graph. Below is the graph neighborhood data "
+            f"for key entities, followed by a list of assertions about relationships that "
+            f"should exist in the graph.\n\n## Graph Data\n\n{graph_text}\n\n"
+            f"## {section} — Assertions to evaluate\n\n{numbered}\n\n## Instructions\n\n"
+            f"For each numbered assertion, determine whether the graph data supports it. "
+            f"A relationship counts as captured if there is a DIRECT edge between the "
+            f"relevant entities (in either direction, with any reasonable edge name) OR if "
+            f"the entities are clearly connected through a short path (1-2 hops).\n\n"
+            f"Respond with a JSON array. Each element must have:\n"
+            f'- "n": the assertion number (integer)\n'
+            f'- "pass": true if the relationship is captured, false if not\n'
+            f'- "reason": brief explanation (what edge or path you found, or what is missing)\n\n'
+            f"Respond ONLY with the JSON array, no other text."
+        )
+        judge = Agent(output_type=str)
+        answer = judge.run_sync(prompt, model=model).output
+        json_start = answer.find("[")
+        json_end = answer.rfind("]") + 1
+        parsed = json.loads(answer[json_start:json_end])
+        result_map = {r.get("n", 0): r for r in parsed}
+        return [
+            {
+                "assertion": a,
+                "pass": bool(result_map.get(i + 1, {}).get("pass", False)),
+                "reason": result_map.get(i + 1, {}).get(
+                    "reason", "No judgment returned"
+                ),
+            }
+            for i, a in enumerate(assertions)
+        ]
+
+    graph_text = _format_graph_neighborhood(graph_results)
+    stored = state.data["judge"]
+    sections = {
+        "space": ("Space Race Relationships", SPACE_ASSERTIONS),
+        "renaissance": ("Renaissance Relationships", RENAISSANCE_ASSERTIONS),
+        "cross_domain": ("Cross-Domain Isolation", CROSS_DOMAIN_ASSERTIONS),
+    }
+    for key, (label, assertions) in sections.items():
+        if key in stored and not any(
+            "LLM call failed" in str(r.get("reason", "")) for r in stored[key]
+        ):
             continue
+        print(f"  Judging {label}...")
         try:
-            resp = client.get(f"{base}/graph/{entity_id}")
-            resp.raise_for_status()
-            data = resp.json()
-            data["name"] = name
-            data["domain"] = domain
-            data["id"] = entity_id
-            elapsed = time.time() - t0
-            print(
-                f"  {label}{name} [{domain}]: {len(data['connections'])} connections ({elapsed:.0f}s)"
-            )
-            results.append(data)
+            stored[key] = judge_call(graph_text, assertions, label)
+        except BenchInterrupt:
+            raise
         except Exception as e:
-            elapsed = time.time() - t0
-            print(f"  {label}⚠ {name} [{domain}]: error {e} ({elapsed:.0f}s)")
-            results.append(
-                {
-                    "name": name,
-                    "domain": domain,
-                    "id": entity_id,
-                    "node": None,
-                    "connections": [],
-                }
-            )
-    return results
+            print(f"    ⚠ judge call failed: {e}")
+            stored[key] = [
+                {"assertion": a, "pass": False, "reason": f"LLM call failed: {e}"}
+                for a in assertions
+            ]
+        state.save()
+    return stored
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -790,108 +1142,57 @@ def _create_judge_model():
     )
 
 
-def _call_llm_judge(
-    model,
-    graph_text: str,
-    assertions: list[str],
-    section_name: str,
-) -> list[dict]:
-    """Ask the LLM to judge assertions against graph data.
-
-    Uses PydanticAI Agent directly — no server endpoint involved.
-    Returns list of {"assertion": str, "pass": bool, "reason": str}.
-    """
-    from pydantic_ai import Agent
-
-    numbered = "\n".join(f"{i + 1}. {a}" for i, a in enumerate(assertions))
-    prompt = (
-        f"You are evaluating a knowledge graph. Below is the graph neighborhood data "
-        f"for key entities, followed by a list of assertions about relationships that "
-        f"should exist in the graph.\n\n"
-        f"## Graph Data\n\n{graph_text}\n\n"
-        f"## {section_name} — Assertions to evaluate\n\n{numbered}\n\n"
-        f"## Instructions\n\n"
-        f"For each numbered assertion, determine whether the graph data supports it. "
-        f"A relationship counts as captured if there is a DIRECT edge between the "
-        f"relevant entities (in either direction, with any reasonable edge name) OR if "
-        f"the entities are clearly connected through a short path (1-2 hops).\n\n"
-        f"Respond with a JSON array. Each element must have:\n"
-        f'- "n": the assertion number (integer)\n'
-        f'- "pass": true if the relationship is captured, false if not\n'
-        f'- "reason": brief explanation (what edge or path you found, or what is missing)\n\n'
-        f"Respond ONLY with the JSON array, no other text."
-    )
-
-    judge = Agent(output_type=str)
-    try:
-        result = judge.run_sync(prompt, model=model)
-        answer = result.output
-    except Exception as e:
-        print(f"    ⚠ LLM judge call failed: {e}")
-        return [
-            {"assertion": a, "pass": False, "reason": f"LLM call failed: {e}"}
-            for a in assertions
-        ]
-
-    # Parse JSON from response (may be wrapped in markdown code fences)
-    try:
-        json_start = answer.find("[")
-        json_end = answer.rfind("]") + 1
-        if json_start >= 0 and json_end > json_start:
-            results = json.loads(answer[json_start:json_end])
-        else:
-            raise ValueError("No JSON array found")
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"    ⚠ Failed to parse LLM judge response: {e}")
-        print(f"    Response: {answer[:500]}")
-        return [
-            {"assertion": a, "pass": False, "reason": "Failed to parse LLM response"}
-            for a in assertions
-        ]
-
-    result_map = {}
-    for r in results:
-        n = r.get("n", 0)
-        result_map[n] = r
-
-    final = []
-    for i, assertion in enumerate(assertions):
-        r = result_map.get(i + 1, {})
-        final.append(
-            {
-                "assertion": assertion,
-                "pass": bool(r.get("pass", False)),
-                "reason": r.get("reason", "No judgment returned"),
-            }
-        )
-    return final
-
-
-def score_with_llm(graph_results: list[dict]) -> dict:
-    """Run LLM-judged evaluation on graph quality. Returns structured scores."""
-    model = _create_judge_model()
-    graph_text = _format_graph_neighborhood(graph_results)
-
-    print("  Judging Space Race assertions...")
-    space_results = _call_llm_judge(
-        model, graph_text, SPACE_ASSERTIONS, "Space Race Relationships"
-    )
-
-    print("  Judging Renaissance assertions...")
-    ren_results = _call_llm_judge(
-        model, graph_text, RENAISSANCE_ASSERTIONS, "Renaissance Relationships"
-    )
-
-    print("  Judging cross-domain isolation...")
-    cross_results = _call_llm_judge(
-        model, graph_text, CROSS_DOMAIN_ASSERTIONS, "Cross-Domain Isolation"
-    )
-
+def latency_stats(values: list[float]) -> dict:
+    """Summary statistics over per-operation durations in seconds."""
+    if not values:
+        return {"count": 0}
+    ordered = sorted(values)
+    n = len(ordered)
+    p95_idx = min(n - 1, max(0, round(0.95 * (n - 1))))
     return {
-        "space": space_results,
-        "renaissance": ren_results,
-        "cross_domain": cross_results,
+        "count": n,
+        "min_s": round(ordered[0], 2),
+        "mean_s": round(sum(values) / n, 2),
+        "median_s": round(statistics.median(ordered), 2),
+        "p95_s": round(ordered[p95_idx], 2),
+        "max_s": round(ordered[-1], 2),
+        "total_s": round(sum(values), 2),
     }
+
+
+def collect_latency(ingest_results, recall_results, graph_results) -> dict:
+    """Extract per-phase latency stats from result dicts (elapsed_s fields)."""
+    return {
+        "ingest": latency_stats(
+            [r["elapsed_s"] for r in ingest_results if "elapsed_s" in r]
+        ),
+        "recall": latency_stats(
+            [r["elapsed_s"] for r in recall_results if "elapsed_s" in r]
+        ),
+        "graph": latency_stats(
+            [r["elapsed_s"] for r in graph_results if "elapsed_s" in r]
+        ),
+    }
+
+
+def format_latency_section(latency: dict) -> list[str]:
+    """Journal markdown table for the latency summary."""
+    lines = [
+        "### Latency",
+        "| Phase | n | min | median | mean | p95 | max | total |",
+        "|-------|---|-----|--------|------|-----|-----|-------|",
+    ]
+    for phase in ("ingest", "recall", "graph"):
+        s = latency.get(phase, {})
+        if not s.get("count"):
+            lines.append(f"| {phase} | 0 | — | — | — | — | — | — |")
+        else:
+            lines.append(
+                f"| {phase} | {s['count']} | {s['min_s']}s | {s['median_s']}s "
+                f"| {s['mean_s']}s | {s['p95_s']}s | {s['max_s']}s | {s['total_s']}s |"
+            )
+    lines.append("")
+    return lines
 
 
 def score_recall(recall_results):
@@ -909,7 +1210,9 @@ def score_recall(recall_results):
     }
 
 
-def format_report(name, notes, llm_scores, recall_scores, graph_results):
+def format_report(
+    name, notes, llm_scores, recall_scores, graph_results, latency, total_elapsed
+):
     space_pass = sum(1 for r in llm_scores["space"] if r["pass"])
     space_total = len(llm_scores["space"])
     ren_pass = sum(1 for r in llm_scores["renaissance"] if r["pass"])
@@ -936,8 +1239,11 @@ def format_report(name, notes, llm_scores, recall_scores, graph_results):
         f"| Total graph connections | **{total_connections}** |",
         f"| Recall with context | **{recall_scores['with_context']}/{recall_scores['total']}** |",
         f"| Recall total nodes cited | **{recall_scores['total_nodes']}** |",
+        f"| Total wall time | **{total_elapsed:.0f}s** |",
         "",
     ]
+
+    lines.extend(format_latency_section(latency))
 
     for section_label, results in [
         ("Space Race Relationships", llm_scores["space"]),
@@ -976,14 +1282,26 @@ def format_report(name, notes, llm_scores, recall_scores, graph_results):
     return "\n".join(lines)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # MAIN
-# ══════════════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _install_signal_handlers(state: BenchState):
+    def handler(signum, frame):
+        state.data["interrupted"] = True
+        state.save()
+        print(f"\n!! signal {signum} — saving resumable state and stopping")
+        raise BenchInterrupt()
+
+    signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
 
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: python experiments/run_experiment.py <name> [notes]")
+        print("Resumable: rerun the same <name> to continue an interrupted run.")
         sys.exit(1)
 
     name = sys.argv[1]
@@ -991,66 +1309,84 @@ def main():
     data_dir = os.path.join(EXPERIMENTS_DIR, "data", name)
     os.makedirs(data_dir, exist_ok=True)
 
-    print(f"=== Experiment: {name} ===")
+    state = BenchState(os.path.join(data_dir, "state.json"), name, notes)
+    notes = notes or state.data.get("notes", "")
+    if state.data.get("phase") == "done":
+        print(f"Experiment {name} is already complete. Use a new name for another run.")
+        return
+    resuming = not state.fresh
+    now = time.time()
+    previous_session = state.data.get("session_started_epoch")
+    if previous_session:
+        state.data["accumulated_s"] = state.data.get("accumulated_s", 0) + max(
+            0, now - previous_session
+        )
+    state.data["session_started_epoch"] = now
+    state.data["current"] = None
+    state.save()
+    print(f"=== Experiment: {name} {'(RESUMING) ' if resuming else ''}===")
     print(
         f"=== {len(SPACE_SNIPPETS)} space + {len(RENAISSANCE_SNIPPETS)} renaissance snippets ==="
     )
-    print("=== Starting server ===")
-    server_proc = start_server()
-    print("Server ready ✓")
+    print(f"=== monitor: {state.path} | log is line-buffered ===")
 
+    _install_signal_handlers(state)
     client = make_client()
     base = f"http://localhost:{DEFAULT_PORT}"
     total_t0 = time.time()
 
     try:
-        # Phase 1: Ingest
-        print(f"\n=== INGEST ({len(SNIPPETS)} snippets) ===")
-        t0 = time.time()
-        ingest_results = ingest_all(client, base)
-        with open(os.path.join(data_dir, "ingest.json"), "w") as f:
-            json.dump(ingest_results, f, indent=2)
-        print(f"Ingest done in {time.time() - t0:.0f}s")
+        with ServerSupervisor(
+            name,
+            DEFAULT_PORT,
+            "-experiment",
+            wipe=not resuming,
+            log_path=os.path.join(data_dir, "server.log"),
+        ) as sup:
+            # Phase 1: Ingest
+            print(f"\n=== INGEST ({len(SNIPPETS)} snippets) ===")
+            ingest_phase(client, sup, base, state)
 
-        # Phase 2: Recall
-        print(f"\n=== RECALL ({len(RECALL_QUESTIONS)} questions) ===")
-        t0 = time.time()
-        recall_results = recall_all(client, base)
-        with open(os.path.join(data_dir, "recall.json"), "w") as f:
-            json.dump(recall_results, f, indent=2)
-        print(f"Recall done in {time.time() - t0:.0f}s")
+            # Phase 2: Recall
+            print(f"\n=== RECALL ({len(RECALL_QUESTIONS)} questions) ===")
+            recall_phase(client, sup, base, state)
 
-        # Phase 3: Graph probes
-        print(f"\n=== GRAPH PROBES ({len(GRAPH_PROBES)} entities) ===")
-        t0 = time.time()
-        graph_results = graph_probe_all(client, base)
-        with open(os.path.join(data_dir, "graph.json"), "w") as f:
-            json.dump(graph_results, f, indent=2, default=str)
-        print(f"Graph probes done in {time.time() - t0:.0f}s")
+            # Phase 3: Graph probes
+            print(f"\n=== GRAPH PROBES ({len(GRAPH_PROBES)} entities) ===")
+            graph_phase(client, sup, base, state)
 
-        # Phase 4: LLM-judged scoring
+        ingest_results = state.data["ingest"]
+        recall_results = state.data["recall"]
+        graph_results = state.data["graph"]
+
+        # Write phase artifacts (idempotent; also available mid-run via state.json)
+        for fname, payload in (
+            ("ingest.json", ingest_results),
+            ("recall.json", recall_results),
+            ("graph.json", graph_results),
+        ):
+            with open(os.path.join(data_dir, fname), "w") as f:
+                json.dump(payload, f, indent=2, default=str)
+
+        # Phase 4: LLM-judged scoring (resumable per section)
         print(
             f"\n=== LLM JUDGE ({len(SPACE_ASSERTIONS) + len(RENAISSANCE_ASSERTIONS) + len(CROSS_DOMAIN_ASSERTIONS)} assertions) ==="
         )
-        t0 = time.time()
-        llm_scores = score_with_llm(graph_results)
+        llm_scores = judge_phase(state, graph_results)
         with open(os.path.join(data_dir, "llm_scores.json"), "w") as f:
             json.dump(llm_scores, f, indent=2)
-        print(f"LLM judging done in {time.time() - t0:.0f}s")
-
-        # Copy server log
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            shutil.copy(
-                os.path.join(PROJECT_DIR, "server.log"),
-                os.path.join(data_dir, "server.log"),
-            )
 
         # Summarize
         recall_scores = score_recall(recall_results)
+        latency = collect_latency(ingest_results, recall_results, graph_results)
+        session_start = state.data.get("session_started_epoch", total_t0)
+        total_elapsed = state.data.get("accumulated_s", 0) + max(
+            0, time.time() - session_start
+        )
 
-        total_elapsed = time.time() - total_t0
+        with open(os.path.join(data_dir, "latency.json"), "w") as f:
+            json.dump({"total_s": round(total_elapsed, 2), **latency}, f, indent=2)
+
         s_pass = sum(1 for r in llm_scores["space"] if r["pass"])
         r_pass = sum(1 for r in llm_scores["renaissance"] if r["pass"])
         c_pass = sum(1 for r in llm_scores["cross_domain"] if r["pass"])
@@ -1062,26 +1398,56 @@ def main():
         print(
             f"Recall w/ context:         {recall_scores['with_context']}/{recall_scores['total']}"
         )
+        print(
+            f"Latency: ingest p95 {latency['ingest'].get('p95_s', '—')}s, "
+            f"recall p95 {latency['recall'].get('p95_s', '—')}s"
+        )
 
-        # Write journal
+        # Write journal (only once per completed run)
+        journal_path = os.path.join(EXPERIMENTS_DIR, "JOURNAL.md")
         report = format_report(
             name,
             notes,
             llm_scores,
             recall_scores,
             graph_results,
+            latency,
+            total_elapsed,
         )
-        journal_path = os.path.join(EXPERIMENTS_DIR, "JOURNAL.md")
-        with open(journal_path, "a") as f:
-            f.write(report)
+        heading = f"## {name}\n"
+        if os.path.exists(journal_path):
+            with open(journal_path) as f:
+                existing = f.read()
+        else:
+            existing = ""
+        if heading in existing:
+            start = existing.index(heading)
+            next_heading = existing.find("\n## ", start + len(heading))
+            end = len(existing) if next_heading < 0 else next_heading + 1
+            existing = existing[:start] + report + existing[end:]
+        else:
+            existing = existing.rstrip() + "\n\n" + report
+        with open(journal_path, "w") as f:
+            f.write(existing)
+        state.data["accumulated_s"] = round(total_elapsed, 2)
+        state.data["session_started_epoch"] = None
+        state.data["phase"] = "done"
+        state.save()
         print(f"\n✓ Journal updated: {journal_path}")
         print(f"✓ Data saved: {data_dir}/")
 
+    except BenchInterrupt:
+        state.data["accumulated_s"] = state.data.get("accumulated_s", 0) + round(
+            time.time() - state.data.get("session_started_epoch", total_t0), 2
+        )
+        state.data["session_started_epoch"] = None
+        state.save()
+        print(
+            f"✓ Interrupted — state is saved. Resume with: experiments/benchctl.sh resume {name}"
+        )
+        return
     finally:
-        import contextlib
-
-        with contextlib.suppress(Exception):
-            os.killpg(os.getpgid(server_proc.pid), signal.SIGTERM)
+        client.close()
 
 
 if __name__ == "__main__":

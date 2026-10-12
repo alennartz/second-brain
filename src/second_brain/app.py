@@ -115,8 +115,9 @@ async def lifespan(app: FastAPI):
         from second_brain.providers import create_embed_fn, create_model
 
         logger.info(
-            "Starting with model=%s, embedding=%s",
+            "Starting with model=%s, effort=%s, embedding=%s",
             settings.reasoning_model,
+            settings.reasoning_effort or "provider default",
             settings.embedding_model,
         )
         _model = create_model(
@@ -125,6 +126,7 @@ async def lifespan(app: FastAPI):
             settings.reasoning_auth,
             settings.reasoning_key,
             base_url=settings.reasoning_base_url,
+            reasoning_effort=settings.reasoning_effort,
         )
         embed_fn = create_embed_fn(
             settings.embedding_model,

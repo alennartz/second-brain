@@ -21,6 +21,16 @@ type SSEEvent struct {
 	Data  json.RawMessage
 }
 
+const (
+	// ingestTimeout is the default bound for a full blocking ingest flow.
+	ingestTimeout = 5 * time.Minute
+	// submitTimeout bounds the fire-and-forget submit POST.
+	submitTimeout = 30 * time.Second
+	// Poll interval backoff for job status checks.
+	pollInitialInterval = 250 * time.Millisecond
+	pollMaxInterval     = 2 * time.Second
+)
+
 // Client is an HTTP client for the second-brain API server.
 type Client struct {
 	baseURL      string
@@ -37,14 +47,140 @@ func New(baseURL string) *Client {
 	}
 }
 
-// Ingest sends text to the server for ingestion into the knowledge graph.
+// Ingest sends text to the server and blocks until the result is ready.
+// It handles both server shapes: synchronous (200 + summary) and job-based
+// (202 + job_id, then poll GET /ingest/jobs/{id} until completion).
 func (c *Client) Ingest(text string, hints []string) (*types.IngestResponse, error) {
-	req := types.IngestRequest{Text: text, Hints: hints}
-	var resp types.IngestResponse
-	if err := c.post("/ingest", req, &resp, 0); err != nil {
+	return c.IngestWithTimeout(text, hints, ingestTimeout)
+}
+
+// IngestWithTimeout is Ingest bounded by an explicit overall timeout.
+func (c *Client) IngestWithTimeout(text string, hints []string, timeout time.Duration) (*types.IngestResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	job, err := c.submitIngest(ctx, text, hints)
+	if err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	if job.Status == types.JobComplete {
+		summary := ""
+		if job.Summary != nil {
+			summary = *job.Summary
+		}
+		return &types.IngestResponse{Summary: summary}, nil
+	}
+	return c.awaitIngestJob(ctx, job.JobID)
+}
+
+// SubmitIngest sends text to the server and returns the job state without
+// waiting for completion. A synchronous 200 response is returned as an
+// already-complete job.
+func (c *Client) SubmitIngest(text string, hints []string) (*types.IngestJobResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), submitTimeout)
+	defer cancel()
+	return c.submitIngest(ctx, text, hints)
+}
+
+// submitIngest performs the POST and interprets the initial response.
+func (c *Client) submitIngest(ctx context.Context, text string, hints []string) (*types.IngestJobResponse, error) {
+	req := types.IngestRequest{Text: text, Hints: hints}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/ingest", c.baseURL)
+	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq = httpReq.WithContext(ctx)
+
+	httpResp, err := c.streamClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	switch httpResp.StatusCode {
+	case http.StatusOK:
+		var resp types.IngestResponse
+		if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
+			return nil, fmt.Errorf("decode response: %w", err)
+		}
+		return &types.IngestJobResponse{Status: types.JobComplete, Summary: &resp.Summary}, nil
+	case http.StatusAccepted:
+		var job types.IngestJobResponse
+		if err := json.NewDecoder(httpResp.Body).Decode(&job); err != nil {
+			return nil, fmt.Errorf("decode job response: %w", err)
+		}
+		return &job, nil
+	default:
+		body, _ := io.ReadAll(httpResp.Body)
+		return nil, fmt.Errorf("server returned %d: %s", httpResp.StatusCode, body)
+	}
+}
+
+// awaitIngestJob polls GET /ingest/jobs/{id} until the job completes, fails,
+// or ctx expires. Poll interval grows from pollInitialInterval to pollMaxInterval.
+func (c *Client) awaitIngestJob(ctx context.Context, jobID string) (*types.IngestResponse, error) {
+	interval := pollInitialInterval
+	for {
+		job, err := c.getIngestJob(jobID)
+		if err != nil {
+			return nil, err
+		}
+		switch job.Status {
+		case types.JobComplete:
+			summary := ""
+			if job.Summary != nil {
+				summary = *job.Summary
+			}
+			return &types.IngestResponse{Summary: summary}, nil
+		case types.JobFailed:
+			msg := "unknown error"
+			if job.Error != nil {
+				msg = *job.Error
+			}
+			return nil, fmt.Errorf("ingest job %s failed: %s", jobID, msg)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("ingest job %s timed out (status %s): %w", jobID, job.Status, ctx.Err())
+		case <-time.After(interval):
+			interval *= 2
+			if interval > pollMaxInterval {
+				interval = pollMaxInterval
+			}
+		}
+	}
+}
+
+// getIngestJob fetches the current state of an ingest job.
+func (c *Client) getIngestJob(jobID string) (*types.IngestJobResponse, error) {
+	url := fmt.Sprintf("%s/ingest/jobs/%s", c.baseURL, url.PathEscape(jobID))
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	httpResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+	if httpResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(httpResp.Body)
+		return nil, fmt.Errorf("server returned %d: %s", httpResp.StatusCode, body)
+	}
+	var job types.IngestJobResponse
+	if err := json.NewDecoder(httpResp.Body).Decode(&job); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	return &job, nil
 }
 
 // Recall asks the server a question and returns a synthesized answer with context.

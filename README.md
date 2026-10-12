@@ -63,6 +63,7 @@ All settings live in a `.env` file (or environment variables). App-specific vari
 |---|---|---|
 | `BRAIN_DB_PATH` | `data/brain.db` | SurrealDB file path |
 | `BRAIN_REASONING_MODEL` | `openai:gpt-4o-mini` | LLM for agents — any [PydanticAI model string](https://pydantic.dev/docs/ai/models/overview/) |
+| `BRAIN_REASONING_EFFORT` | unset | Optional OpenAI `reasoning_effort`: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` |
 | `BRAIN_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | Embedding model |
 | `BRAIN_EMBEDDING_DIMENSIONS` | `1536` | Vector dimensions (must match your embedding model). ⚠️ Changing this after first run requires wiping `data/` — HNSW indexes bake in the dimension. |
 | `BRAIN_TEST_MODE` | `false` | Use stub models and in-memory DB (no API keys needed) |
@@ -93,7 +94,7 @@ BRAIN_EMBEDDING_MODEL=openai:text-embedding-3-small
 # Uses OPENAI_API_KEY from above
 ```
 
-> **Custom base URLs are not wired up.** Pointing at non-Azure OpenAI-compatible endpoints (Ollama, OpenRouter, vLLM, LM Studio, etc.) isn't supported today — only the Azure Foundry path below overrides the endpoint. PRs welcome.
+For an OpenAI-compatible endpoint (such as vLLM or a local inference server), set `BRAIN_REASONING_BASE_URL` and/or `BRAIN_EMBEDDING_BASE_URL`. This route requires an `openai:` model string. Leave `BRAIN_REASONING_EFFORT` unset to use the provider default. When set, it sends the requested effort on every reasoning chat-completion call. The endpoint must support `reasoning_effort`.
 
 #### Option 2: Azure AI Foundry with API key
 
@@ -163,6 +164,9 @@ BRAIN_EMBEDDING_AUTH=key
 |---|---|---|
 | `BRAIN_DB_PATH` | `data/brain.db` | SurrealDB file path |
 | `BRAIN_REASONING_MODEL` | `openai:gpt-4o-mini` | LLM model string (`provider:name`) |
+| `BRAIN_REASONING_EFFORT` | — | Optional OpenAI request effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; requires an `openai:` model |
+| `BRAIN_REASONING_BASE_URL` | — | OpenAI-compatible endpoint for reasoning chat completions |
+| `BRAIN_EMBEDDING_BASE_URL` | — | OpenAI-compatible endpoint for embeddings |
 | `BRAIN_EMBEDDING_MODEL` | `openai:text-embedding-3-small` | Embedding model string |
 | `BRAIN_EMBEDDING_DIMENSIONS` | `1536` | Vector dimensions (see note above) |
 | `BRAIN_TEST_MODE` | `false` | Stub models + in-memory DB |

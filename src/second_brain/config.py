@@ -2,11 +2,14 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+
 
 class Settings(BaseSettings):
     db_path: str = "data/brain.db"
     embedding_model: str = "openai:text-embedding-3-small"
     reasoning_model: str = "openai:gpt-4o-mini"
+    reasoning_effort: ReasoningEffort | None = None
     reasoning_base_url: str | None = None
     embedding_base_url: str | None = None
     embedding_dimensions: int = 1536

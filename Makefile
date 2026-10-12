@@ -65,6 +65,56 @@ docker-up: ## Start the production server in Docker
 docker-down: ## Stop all Docker services
 	docker compose down
 
+# --- Benchmark runner ---
+
+.PHONY: bench-start
+bench-start: ## Start a supervised benchmark: make bench-start NAME=run-id NOTES="..."
+	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
+	experiments/benchctl.sh start "$(NAME)" "$(NOTES)"
+
+.PHONY: bench-resume
+bench-resume: ## Resume a stopped or failed benchmark: make bench-resume NAME=run-id
+	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
+	experiments/benchctl.sh resume "$(NAME)"
+
+.PHONY: bench-status
+bench-status: ## Show benchmark service and live progress
+	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
+	experiments/benchctl.sh status "$(NAME)"
+
+.PHONY: bench-stop
+bench-stop: ## Interrupt benchmark safely: make bench-stop NAME=run-id
+	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
+	experiments/benchctl.sh stop "$(NAME)"
+
+.PHONY: bench-log
+bench-log: ## Follow benchmark log: make bench-log NAME=run-id
+	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
+	experiments/benchctl.sh log "$(NAME)"
+
+# --- Systemd user deployment (machine-specific config lives in deploy/deploy.env, gitignored) ---
+
+DEPLOY_ENV := deploy/deploy.env
+
+.PHONY: deploy
+deploy: ## Install/update the systemd user service from deploy/deploy.env
+	bash deploy/install.sh
+
+.PHONY: deploy-undeploy
+deploy-undeploy: ## Stop, disable, and remove the systemd user service
+	@test -f $(DEPLOY_ENV) || { echo "$(DEPLOY_ENV) missing" >&2; exit 1; }
+	. $(DEPLOY_ENV) && systemctl --user disable --now "$${BRAIN_DEPLOY_NAME}.service" && rm -f "$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}.service" && systemctl --user daemon-reload
+
+.PHONY: deploy-status
+deploy-status: ## Show systemd status for the deployed service
+	@test -f $(DEPLOY_ENV) || { echo "$(DEPLOY_ENV) missing" >&2; exit 1; }
+	. $(DEPLOY_ENV) && systemctl --user status "$${BRAIN_DEPLOY_NAME}.service" --no-pager
+
+.PHONY: deploy-logs
+deploy-logs: ## Follow logs of the deployed service
+	@test -f $(DEPLOY_ENV) || { echo "$(DEPLOY_ENV) missing" >&2; exit 1; }
+	. $(DEPLOY_ENV) && journalctl --user -u "$${BRAIN_DEPLOY_NAME}.service" -f
+
 # --- E2E ---
 
 .PHONY: e2e-up

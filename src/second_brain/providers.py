@@ -5,6 +5,8 @@ import warnings
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
+from second_brain.config import ReasoningEffort
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,11 +45,20 @@ def _get_token_provider() -> Callable[[], str]:
 # ---------------------------------------------------------------------------
 
 
+def _openai_model_settings(reasoning_effort: ReasoningEffort | None) -> Any:
+    if reasoning_effort is None:
+        return None
+    from pydantic_ai.models.openai import OpenAIChatModelSettings
+
+    return OpenAIChatModelSettings(openai_reasoning_effort=reasoning_effort)
+
+
 def _create_openai_foundry_model(
     model_name: str,
     foundry_url: str,
     auth: Literal["key", "aad"],
     key: str | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> Any:
     from openai import AsyncAzureOpenAI
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -67,7 +78,11 @@ def _create_openai_foundry_model(
         if key is not None:
             kwargs["api_key"] = key
         client = AsyncAzureOpenAI(**kwargs)
-    return OpenAIChatModel(model_name, provider=OpenAIProvider(openai_client=client))
+    return OpenAIChatModel(
+        model_name,
+        provider=OpenAIProvider(openai_client=client),
+        settings=_openai_model_settings(reasoning_effort),
+    )
 
 
 def _create_anthropic_foundry_model(
@@ -116,20 +131,23 @@ def create_model(
     auth: Literal["key", "aad"] = "key",
     key: str | None = None,
     base_url: str | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> Any:
     """Create a pydantic-ai model from a provider:model_name string.
 
     When *base_url* is set, an OpenAI-compatible client uses that endpoint and
     *key* (or the placeholder ``"none"``). This mode supports ``openai:`` model
-    strings only and cannot be combined with *foundry_url*. When both URLs are
-    ``None``, PydanticAI resolves the raw model string. A Foundry URL constructs
-    an authenticated Azure client.
+    strings only and cannot be combined with *foundry_url*. With both URLs
+    unset, a missing *reasoning_effort* leaves provider resolution to PydanticAI.
+    If effort is set, this function builds an OpenAI model with that default.
+    A Foundry URL constructs an authenticated Azure client.
 
     *auth* selects the authentication strategy when talking to Foundry:
     ``"aad"`` uses ``DefaultAzureCredential``; ``"key"`` (default) uses
     *key* when provided, otherwise the SDK reads its own default env var
     (``AZURE_OPENAI_API_KEY`` for OpenAI, ``ANTHROPIC_API_KEY`` for
-    Anthropic).
+    Anthropic). *reasoning_effort* sets the OpenAI ``reasoning_effort`` request
+    parameter and is valid only for OpenAI models.
     """
     if base_url is not None:
         if foundry_url is not None:
@@ -164,11 +182,22 @@ def create_model(
 
         client = AsyncOpenAI(base_url=base_url, api_key=key or "none")
         return TolerantOpenAIChatModel(
-            model_name, provider=OpenAIProvider(openai_client=client)
+            model_name,
+            provider=OpenAIProvider(openai_client=client),
+            settings=_openai_model_settings(reasoning_effort),
         )
 
     if foundry_url is None:
-        return model_string
+        if reasoning_effort is None:
+            return model_string
+        provider_prefix, model_name = _parse_model_string(model_string)
+        if provider_prefix != "openai":
+            raise ValueError("reasoning_effort requires an openai: model")
+        from pydantic_ai.models.openai import OpenAIChatModel
+
+        return OpenAIChatModel(
+            model_name, settings=_openai_model_settings(reasoning_effort)
+        )
 
     provider_prefix, model_name = _parse_model_string(model_string)
     builder = _FOUNDRY_BUILDERS.get(provider_prefix)
@@ -176,6 +205,12 @@ def create_model(
         supported = ", ".join(sorted(_FOUNDRY_BUILDERS))
         raise ValueError(
             f"Unsupported Foundry provider '{provider_prefix}'. Supported: {supported}"
+        )
+    if reasoning_effort is not None:
+        if provider_prefix != "openai":
+            raise ValueError("reasoning_effort requires an openai: model")
+        return _create_openai_foundry_model(
+            model_name, foundry_url, auth, key, reasoning_effort
         )
     return builder(model_name, foundry_url, auth, key)
 

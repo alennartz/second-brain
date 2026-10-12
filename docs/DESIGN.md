@@ -68,7 +68,7 @@ The hybrid search is a single tool (`search_knowledge`) exposed to both agents. 
 
 ### Model resolution
 
-The reasoning model and embedding model are configured independently via model strings (`BRAIN_REASONING_MODEL`, `BRAIN_EMBEDDING_MODEL`). When no Foundry URL is set, the string passes through to PydanticAI untouched — any provider the library supports works natively with its own API keys.
+The reasoning model and embedding model are configured independently via model strings (`BRAIN_REASONING_MODEL`, `BRAIN_EMBEDDING_MODEL`). Without a Foundry URL or custom base URL, model strings pass through to PydanticAI unless `BRAIN_REASONING_EFFORT` is set. The optional effort setting binds OpenAI reasoning effort to each model request and requires an `openai:` model. OpenAI-compatible base URLs are available independently for reasoning and embeddings.
 
 ### Azure Foundry support
 

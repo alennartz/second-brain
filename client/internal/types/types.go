@@ -61,9 +61,27 @@ type ConverseRequest struct {
 
 // --- Response types ---
 
-// IngestResponse is returned by POST /ingest.
+// IngestResponse is returned by POST /ingest on servers that answer synchronously.
 type IngestResponse struct {
 	Summary string `json:"summary"`
+}
+
+// JobStatus is the lifecycle state of an async ingest job.
+type JobStatus string
+
+const (
+	JobPending  JobStatus = "pending"
+	JobRunning  JobStatus = "running"
+	JobComplete JobStatus = "complete"
+	JobFailed   JobStatus = "failed"
+)
+
+// IngestJobResponse is returned by POST /ingest (202) and GET /ingest/jobs/{id}.
+type IngestJobResponse struct {
+	JobID   string    `json:"job_id"`
+	Status  JobStatus `json:"status"`
+	Summary *string   `json:"summary"`
+	Error   *string   `json:"error"`
 }
 
 // RecallResponse is returned by POST /recall.

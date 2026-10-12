@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"second-brain-client/internal/api"
@@ -35,6 +36,64 @@ func TestIngest(t *testing.T) {
 	}
 	if resp.Summary != "Stored 1 note." {
 		t.Errorf("got summary %q", resp.Summary)
+	}
+}
+
+func TestIngestJob(t *testing.T) {
+	polls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/ingest":
+			w.WriteHeader(http.StatusAccepted)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(types.IngestJobResponse{JobID: "job-1", Status: types.JobPending})
+		case r.Method == http.MethodGet && r.URL.Path == "/ingest/jobs/job-1":
+			polls++
+			status := types.JobRunning
+			if polls >= 3 {
+				status = types.JobComplete
+			}
+			var resp = types.IngestJobResponse{JobID: "job-1", Status: status}
+			if status == types.JobComplete {
+				summary := "Stored 2 notes."
+				resp.Summary = &summary
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := api.New(srv.URL)
+	resp, err := c.Ingest("test thought", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Summary != "Stored 2 notes." {
+		t.Errorf("got summary %q", resp.Summary)
+	}
+}
+
+func TestIngestJobFailed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/ingest" {
+			w.WriteHeader(http.StatusAccepted)
+			_ = json.NewEncoder(w).Encode(types.IngestJobResponse{JobID: "job-2", Status: types.JobPending})
+			return
+		}
+		msg := "model unavailable"
+		_ = json.NewEncoder(w).Encode(types.IngestJobResponse{JobID: "job-2", Status: types.JobFailed, Error: &msg})
+	}))
+	defer srv.Close()
+
+	c := api.New(srv.URL)
+	_, err := c.Ingest("test thought", nil)
+	if err == nil {
+		t.Fatal("expected error for failed job")
+	}
+	if !strings.Contains(err.Error(), "model unavailable") {
+		t.Errorf("error should carry job error, got %q", err.Error())
 	}
 }
 

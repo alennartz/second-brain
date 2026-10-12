@@ -1,0 +1,33 @@
+# Second Brain systemd deployment (template — do not edit; rendered by install.sh)
+#
+# Runs the pinned release image under Docker as a systemd USER service
+# (systemctl --user). Rendered placeholders:
+# {{NAME}}, {{IMAGE}}, {{PORT}}, {{ENV_FILE}}, {{DATA_DIR}}
+
+[Unit]
+Description=Second Brain server ({{IMAGE}})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=5
+
+# Let systemd own the container lifecycle under a fixed name.
+ExecStartPre=-/usr/bin/docker rm -f {{NAME}}
+ExecStartPre=-/usr/bin/docker pull {{IMAGE}}
+ExecStart=/usr/bin/docker run --name {{NAME}} \
+  --pull never \
+  --env-file {{ENV_FILE}} \
+  -p {{PORT}}:8000 \
+  -v {{DATA_DIR}}:/data \
+  {{IMAGE}}
+ExecStop=/usr/bin/docker stop {{NAME}}
+ExecStopPost=-/usr/bin/docker rm {{NAME}}
+
+# Harden the unit itself; the container isolates the rest.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

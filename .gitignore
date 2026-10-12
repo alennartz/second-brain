@@ -15,3 +15,4 @@ run.local.sh
 test_*.json
 test_*_output.txt
 server.log
+deploy/deploy.env

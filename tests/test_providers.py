@@ -45,6 +45,36 @@ def test_create_model_openai_compatible_base_url():
     assert str(result.provider.client.base_url) == "http://jetson.ordernet:8082/v1/"
 
 
+def test_create_model_openai_compatible_effort_setting():
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        base_url="http://jetson.ordernet:8082/v1",
+        reasoning_effort="low",
+    )
+    assert result.settings["openai_reasoning_effort"] == "low"
+
+
+def test_create_model_direct_effort_builds_openai_model(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    from pydantic_ai.models.openai import OpenAIChatModel
+
+    result = create_model(
+        "openai:gpt-4o-mini", foundry_url=None, reasoning_effort="medium"
+    )
+    assert isinstance(result, OpenAIChatModel)
+    assert result.settings["openai_reasoning_effort"] == "medium"
+
+
+def test_create_model_effort_rejects_non_openai_provider():
+    with pytest.raises(ValueError, match="requires an openai: model"):
+        create_model(
+            "anthropic:claude-sonnet-4-5",
+            foundry_url=None,
+            reasoning_effort="low",
+        )
+
+
 def test_create_model_rejects_unsupported_custom_provider():
     with pytest.raises(ValueError, match="requires an openai: model"):
         create_model("groq:model", foundry_url=None, base_url="http://llm.local/v1")
@@ -68,6 +98,16 @@ def test_create_model_foundry_openai(mock_token):
         "openai:gpt-4o-mini", foundry_url="https://my.azure.com", auth="aad"
     )
     assert isinstance(result, OpenAIChatModel)
+
+
+def test_create_model_foundry_openai_effort_setting():
+    result = create_model(
+        "openai:gpt-4o-mini",
+        foundry_url="https://my.azure.com",
+        key="test-key",
+        reasoning_effort="high",
+    )
+    assert result.settings["openai_reasoning_effort"] == "high"
 
 
 @patch("second_brain.providers._get_token_provider")

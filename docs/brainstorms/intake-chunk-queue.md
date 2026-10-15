@@ -39,11 +39,11 @@ Use an in-app worker pool with configurable concurrency and a default of one. Wo
 
 Claimed chunks use leases so a crashed process becomes recoverable. Failures retry forever with exponential backoff and fair scheduling; delayed failures do not block ready work. Operators can pause or discard a permanently failing intake. Aggregate operations data exposes identifiers for stuck work.
 
-### 6. Graph writes and chunk deletion commit atomically
+### 6. Processing is intentionally at least once
 
-After an agent batch succeeds, generated notes, entities, and edges and deletion of the batch chunks must commit as one operation. No provenance fields are added to graph records. Atomic commit prevents a crash between output writes and queue acknowledgement from creating duplicate effects.
+Graph writes and chunk deletion are not one atomic operation. If a worker crashes after graph writes but before deleting the batch, the same chunks are replayed. The ingest agent runs its normal search and matching against existing knowledge, and the dreamer later consolidates any duplicates.
 
-This decision requires an architecture for transaction-scoped agent writes or staged agent output. The current tool-driven ingest flow writes during the agent loop, so the transaction boundary must be designed explicitly.
+No provenance fields or transaction-scoped agent writes are required. This keeps the existing tool-driven ingest loop and avoids turning queue acknowledgement into a new persistence protocol.
 
 ### 7. Staging participates in recall
 
@@ -64,8 +64,8 @@ The ingest route no longer needs an asynchronous job lifecycle. Add aggregate pi
 5. Let always-on workers claim the next contiguous chunks per intake.
 6. Pack each processing batch to the model context budget.
 7. Run the existing ingest reasoning flow against that batch.
-8. Atomically commit organized graph writes and delete successful chunk rows.
-9. Retry failures forever with leases and backoff, while allowing other intakes to proceed.
+8. Commit organized graph writes, then delete successful chunk rows.
+9. Retry failures forever with leases and backoff, while allowing other intakes to proceed. A crash between these steps replays the batch.
 10. Include remaining chunks in recall as labeled unprocessed context.
 
 ## Open questions

@@ -2,7 +2,9 @@ import logging
 from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models import Model
 
+from second_brain.agents.ingestion_pipeline import IngestBatchOutcome
 from second_brain.db import Storage
 from second_brain.tools import ingest_tools, recall_tools
 
@@ -13,6 +15,30 @@ logger = logging.getLogger(__name__)
 class IngestDeps:
     storage: Storage
     storage_errors: list[str] = field(default_factory=list)
+
+
+class AgentIngestBatchRunner:
+    """Run one independent processing batch through the ingest agent."""
+
+    def __init__(
+        self, agent: Agent[IngestDeps, str], storage: Storage, model: Model | str
+    ) -> None:
+        self.agent = agent
+        self.storage = storage
+        self.model = model
+
+    async def run(self, text: str, hints: list[str]) -> IngestBatchOutcome:
+        prompt = text
+        if hints:
+            hint_str = ", ".join(hints)
+            prompt = f"Possibly related nodes: {hint_str}\n\n{text}"
+        deps = IngestDeps(storage=self.storage)
+        result = await self.agent.run(prompt, deps=deps, model=self.model)
+        return IngestBatchOutcome(
+            completed=True,
+            summary=result.output,
+            errors=list(deps.storage_errors),
+        )
 
 
 def create_ingest_agent() -> Agent[IngestDeps, str]:
@@ -130,10 +156,13 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 notes,
                 edges,
             )
+            ctx.deps.storage_errors.extend(result.get("storage_errors", []))
             return result
         except Exception as e:
             logger.error("ingest: store_knowledge failed: %s", e)
-            return {"error": str(e)}
+            message = str(e)
+            ctx.deps.storage_errors.append(message)
+            return {"error": message}
 
     @agent.tool
     async def update_node(
@@ -148,6 +177,8 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             return result
         except Exception as e:
             logger.error("ingest: update_node failed: %s", e)
-            return {"error": str(e)}
+            message = str(e)
+            ctx.deps.storage_errors.append(message)
+            return {"error": message}
 
     return agent

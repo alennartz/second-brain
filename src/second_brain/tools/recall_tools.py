@@ -1,7 +1,11 @@
 import logging
 
 from second_brain.db import Storage
-from second_brain.models import MemorySearchResult
+from second_brain.models import (
+    MemorySearchCandidates,
+    MemorySearchResult,
+    normalize_node,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +53,53 @@ async def fetch_records_by_ids(storage: Storage, record_ids: list[str]) -> list[
     return await storage.get_nodes(record_ids)
 
 
-async def search_memory(storage: Storage, query: str, k: int = 5) -> MemorySearchResult:
-    """Search both memory layers with one candidate request and global RRF.
+def fuse_memory_candidates(candidates: MemorySearchCandidates, k: int) -> list[dict]:
+    """Fuse capped search paths into one globally ranked result list.
 
-    Cap each candidate path at k before fusion. Use RRF offset 60, weight
-    note/entity paths at 0.5 and intake paths at 1. Return at most k records
-    across both collections. Enrich only graph nodes with connections.
+    Organized paths each contribute half the weight of an intake path. The
+    ordered path traversal gives ties a stable first-seen order.
     """
-    raise NotImplementedError("not implemented")
+    if k <= 0:
+        return []
+
+    paths = (
+        (candidates.note.bm25, 0.5),
+        (candidates.note.vector, 0.5),
+        (candidates.entity.bm25, 0.5),
+        (candidates.entity.vector, 0.5),
+        (candidates.intake_chunk.bm25, 1.0),
+        (candidates.intake_chunk.vector, 1.0),
+    )
+    scores: dict[str, float] = {}
+    records: dict[str, dict] = {}
+    for path, weight in paths:
+        for rank, candidate in enumerate(path[:k]):
+            if "id" not in candidate:
+                continue
+            record = normalize_node(candidate)
+            record_id = str(record["id"])
+            if record_id not in scores:
+                scores[record_id] = 0.0
+                records[record_id] = record
+            scores[record_id] += weight / (60 + rank + 1)
+
+    ranked_ids = sorted(scores, key=lambda record_id: scores[record_id], reverse=True)
+    return [records[record_id] for record_id in ranked_ids[:k]]
+
+
+async def search_memory(storage: Storage, query: str, k: int = 5) -> MemorySearchResult:
+    """Search organized and unprocessed memory with one global fusion pass."""
+    candidates = await storage.search_memory_candidates(query, k)
+    fused = fuse_memory_candidates(candidates, k)
+
+    nodes: list[dict] = []
+    unprocessed: list[dict] = []
+    for record in fused:
+        if record.get("table") == "intake_chunk":
+            evidence = dict(record)
+            evidence.pop("connections", None)
+            evidence["unprocessed"] = True
+            unprocessed.append(evidence)
+        else:
+            nodes.append(await enrich_with_connections(storage, record))
+    return MemorySearchResult(nodes=nodes, unprocessed=unprocessed)

@@ -423,7 +423,7 @@ In `src/second_brain/tools/recall_tools.py`:
 - Implement `search_memory(storage, query, k)`. Call `storage.search_memory_candidates(query, k)` once and fuse. Copy `intake_chunk` records into `unprocessed` with `"unprocessed": True` and no `connections`. Enrich the other records once each with `enrich_with_connections` into `nodes`. Return `MemorySearchResult(nodes, unprocessed)`. Do not call `hybrid_search`, `search_intake_chunks`, `vector_search`, or `fulltext_search`.
 
 **Verify:** `uv run pytest tests/test_intake_recall.py tests/test_recall_tools.py` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 11: Write-failure reporting and the production batch runner
 
@@ -440,7 +440,7 @@ In `src/second_brain/tools/recall_tools.py`:
   `run` builds the prompt (`"Possibly related nodes: …\n\n{text}"` when `hints` is not empty, as the old `app.run_ingest_agent` did). It runs the agent with a fresh `IngestDeps(storage=…)` and returns `IngestBatchOutcome(completed=True, summary=result.output, errors=list(deps.storage_errors))`. Agent exceptions propagate to the pipeline. Import `IngestBatchOutcome` from `second_brain.agents.ingestion_pipeline`.
 
 **Verify:** `uv run pytest tests/test_ingest_agent.py tests/test_store_knowledge.py tests/test_ingest_tools.py` passes. `uv run basedpyright src/` passes with no import cycle.
-**Status:** not started
+**Status:** done
 
 ### Step 12: Recall agent search tool and citation fetch
 
@@ -457,7 +457,7 @@ In `src/second_brain/agents/recall.py`:
   It filters `cited_node_ids` to `note`/`entity` IDs and fetches them with `storage.get_nodes`. It fetches each `cited_edge_ids` entry with `storage.get_edge`, skipping `ValueError` and empty results. When `cited_unprocessed_ids` is not empty, it calls `storage.get_intake_chunks(cited_unprocessed_ids)` and marks each chunk with `"unprocessed": True`. Deleted chunks are skipped. It returns `Context` with normalized nodes and edges plus the unprocessed list.
 
 **Verify:** `uv run pytest tests/test_recall_agent.py` passes. Steps 13 and 15 exercise the helper.
-**Status:** not started
+**Status:** done
 
 ### Step 13: Converse staging and unprocessed context
 

@@ -102,6 +102,7 @@ async def store_knowledge(
     edges_created, edges_skipped, and errors.
     """
     errors: list[str] = []
+    storage_errors: list[str] = []
 
     # 1. Create entities and collect IDs
     entity_records = await storage.create_entities(entities) if entities else []
@@ -120,7 +121,9 @@ async def store_knowledge(
             ref = f"new_note:{i}"
             notes_created.append({"ref": ref, "id": rec["id"]})
     except Exception as e:
-        errors.append(f"Note creation failed: {e}")
+        message = f"Note creation failed: {e}"
+        errors.append(message)
+        storage_errors.append(message)
 
     # 3. Build ref map
     ref_map: dict[str, str] = {}
@@ -169,7 +172,9 @@ async def store_knowledge(
                 else:
                     edges_created += 1
     except Exception as e:
-        errors.append(f"Edge creation failed: {e}")
+        message = f"Edge creation failed: {e}"
+        errors.append(message)
+        storage_errors.append(message)
 
     # 6. Return summary
     return {
@@ -178,4 +183,5 @@ async def store_knowledge(
         "edges_created": edges_created,
         "edges_skipped": edges_skipped,
         "errors": errors,
+        "storage_errors": storage_errors,
     }

@@ -37,7 +37,7 @@ Each batch is an independent ingest-agent input. There is no document-level cons
 
 Use an in-app worker pool with configurable concurrency and a default of one. Workers process ready chunks continuously rather than waiting for the dream scheduler's idle periods.
 
-Claimed chunks use leases so a crashed process becomes recoverable. Failures retry forever with exponential backoff and fair scheduling; delayed failures do not block ready work. Operators can pause or discard a permanently failing intake. Aggregate operations data exposes identifiers for stuck work.
+Claimed chunks use leases so a crashed process becomes recoverable. Workers claim any eligible queue work with configurable parallelism. Failures return to the queue after a base delay with exponential backoff to a configured cap; other ready work proceeds while a failed batch waits. Queue order is not a contract. Operators can pause or discard a permanently failing intake. Aggregate operations data exposes identifiers for stuck work.
 
 ### 6. Processing is intentionally at least once
 

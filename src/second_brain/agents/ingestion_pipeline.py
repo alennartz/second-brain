@@ -44,7 +44,6 @@ class IngestionPipeline:
         poll_interval_seconds: float = 1,
         retry_base_delay_seconds: float = 5,
         retry_max_delay_seconds: float = 3_600,
-        pause_dream: bool = False,
         activity_callback: Callable[[], None] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -59,7 +58,6 @@ class IngestionPipeline:
         self.poll_interval_seconds = poll_interval_seconds
         self.retry_base_delay_seconds = retry_base_delay_seconds
         self.retry_max_delay_seconds = retry_max_delay_seconds
-        self.pause_dream = pause_dream
         self.activity_callback = activity_callback
         self.clock = clock if clock is not None else lambda: datetime.now(UTC)
 

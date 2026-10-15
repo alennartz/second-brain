@@ -267,6 +267,8 @@ The reviewed Python contract contains **104 tests: 98 fail and 6 pass**. All col
 
 ## Steps
 
+**Pre-implementation commit:** `ddf80cc552dead6f41fe02f079981b27c927e5f2`
+
 ### Planning Decisions
 
 The user approved these scope decisions during planning:
@@ -289,7 +291,7 @@ Pre-existing failures (59 Jev tests in `test_converse_agent.py`, `test_converse_
 In `src/second_brain/config.py`, delete `intake_pause_dream`. In `src/second_brain/agents/ingestion_pipeline.py`, delete the `pause_dream` keyword parameter and the `self.pause_dream` attribute from `IngestionPipeline.__init__`.
 
 **Verify:** `rg pause_dream src tests` returns nothing. `uv run basedpyright src/` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 2: Intake schema and search specification in `Storage`
 
@@ -302,7 +304,7 @@ In `src/second_brain/db.py`:
 - Rewrite `hybrid_search`, `vector_search`, and `fulltext_search` on these helpers. Move the existing RRF loop into a private pure function `_rrf_fuse(paths: list[list[dict]], k: int) -> list[dict]`. Keep public signatures and behavior unchanged.
 
 **Verify:** `uv run pytest tests/test_db.py tests/test_storage.py tests/test_recall_tools.py` passes. `Storage("mem://", …).init()` succeeds twice on the same connection (idempotent schema).
-**Status:** not started
+**Status:** done
 
 ### Step 3: Transaction helper and atomic staging
 
@@ -318,7 +320,7 @@ In `src/second_brain/db.py`:
   5. Treat a `CREATE` "already exists" failure on the key record as a duplicate and return `0`. A retried conflict re-runs from the transaction. It sees the winner's key and returns `0`.
 
 **Verify:** These tests in `tests/test_intake_storage.py` pass: `test_create_intake_chunks_persists_every_chunk_and_returns_count`, `test_create_intake_chunks_is_all_or_nothing_when_embedding_fails`, and `test_concurrent_idempotent_staging_stores_one_intake`. They also need Step 5 search and Step 6 snapshot.
-**Status:** not started
+**Status:** done
 
 ### Step 4: Claim, release, and delete leases
 
@@ -343,7 +345,7 @@ In `src/second_brain/db.py`:
 - Implement `delete_intake_batch(lease_token) -> int` in one transaction. Delete rows with `lease_token = $token AND state = 'leased'`, and count them. When no row remains for that intake, delete its `intake_key` records. A stale token matches nothing and returns `0`.
 
 **Verify:** These tests in `tests/test_intake_storage.py` pass: the claim, lease-expiry, stale-lease, release, retry-head, delete, and idempotency tests (`test_idempotency_key_*`, `test_claim_*`, `test_concurrent_claims_*`, `test_stale_lease_*`, `test_release_*`, `test_delete_intake_batch_*`).
-**Status:** not started
+**Status:** done
 
 ### Step 5: Intake evidence fetch and search candidates
 
@@ -354,7 +356,7 @@ In `src/second_brain/db.py`:
 - Implement `search_memory_candidates(query, k) -> MemorySearchCandidates`. Call `self._embedder.embed(query)` exactly once, even when tables are empty. For each of `note`, `entity`, and `intake_chunk`, build `RankedSearchCandidates(bm25=…, vector=…)` from the helpers, capped at `k`. Do not fuse.
 
 **Verify:** `test_get_intake_chunks_*`, `test_search_intake_chunks_*`, and `test_search_memory_candidates_*` in `tests/test_intake_storage.py` pass.
-**Status:** not started
+**Status:** done
 
 ### Step 6: Queue snapshot and intake controls in `Storage`
 
@@ -366,7 +368,7 @@ In `src/second_brain/db.py`:
 - Add `async def delete_intake(self, intake_id: str) -> int`. In one transaction, delete every row of the intake and its `intake_key` records. Return the deleted row count.
 
 **Verify:** `uv run pytest tests/test_intake_storage.py` passes in full.
-**Status:** not started
+**Status:** done
 
 ### Step 7: Chunking and retry policy functions
 

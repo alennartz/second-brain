@@ -518,5 +518,5 @@ In `client/`:
 
 Run `uv run ruff check src tests`, `uv run ruff format --check src tests`, `uv run basedpyright src/`, `uv run pytest`, and `cd client && go test ./...`.
 
-**Verify:** Ruff, Basedpyright, and Go pass. Pytest fails only the 59 pre-existing Jev tests plus `tests/test_intake_converse.py::test_converse_ingest_stages_original_text_without_calling_old_agent[fast]`. All other intake tests pass.
-**Status:** not started
+**Verify:** Ruff, Basedpyright, and Go pass. Pytest reports 358 passed and 60 failures: the 59 pre-existing Jev tests plus `tests/test_intake_converse.py::test_converse_ingest_stages_original_text_without_calling_old_agent[fast]`. All other intake tests pass.
+**Status:** done

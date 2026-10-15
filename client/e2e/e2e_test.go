@@ -56,8 +56,8 @@ func TestIngest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ingest failed: %v", err)
 	}
-	if resp.Summary == "" {
-		t.Error("expected non-empty summary")
+	if resp.ChunksStored <= 0 {
+		t.Errorf("expected stored chunks, got %d", resp.ChunksStored)
 	}
 }
 

@@ -24,7 +24,6 @@ from second_brain.db import Storage
 from second_brain.models import Context, EnqueueResult, IntakeRequest
 from tests.test_converse_agent import relay_converse_model, routing_model
 
-converse_module = importlib.import_module("second_brain.agents.converse")
 app_module = importlib.import_module("second_brain.app")
 
 
@@ -33,10 +32,8 @@ def converse_staging(monkeypatch):
     pipeline = Mock(spec=IngestionPipeline)
     pipeline.enqueue.return_value = EnqueueResult(chunks_stored=7)
     storage = Mock(spec=Storage)
-    legacy_ingest = Mock(run=AsyncMock(return_value=Mock(output="Old agent output")))
     monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", False)
-    monkeypatch.setattr(converse_module, "create_ingest_agent", lambda: legacy_ingest)
-    return pipeline, storage, legacy_ingest
+    return pipeline, storage
 
 
 async def run_ingest_turn(path, text, deps):
@@ -65,7 +62,7 @@ async def run_ingest_turn(path, text, deps):
 async def test_converse_ingest_stages_original_text_without_calling_old_agent(
     converse_staging, path
 ):
-    pipeline, storage, legacy_ingest = converse_staging
+    pipeline, storage = converse_staging
     existing_context = Context(
         nodes=[{"id": "note:earlier", "table": "note", "content": "Earlier recall"}],
         edges=[
@@ -85,7 +82,6 @@ async def test_converse_ingest_stages_original_text_without_calling_old_agent(
 
     result = await run_ingest_turn(path, text, deps)
 
-    legacy_ingest.run.assert_not_awaited()
     pipeline.enqueue.assert_awaited_once_with(
         IntakeRequest(text=text, source="converse")
     )
@@ -108,7 +104,7 @@ async def test_converse_ingest_stages_original_text_without_calling_old_agent(
 async def test_converse_ingest_tool_waits_for_searchable_staging_before_acknowledging(
     converse_staging,
 ):
-    pipeline, storage, legacy_ingest = converse_staging
+    pipeline, storage = converse_staging
     entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -140,7 +136,6 @@ async def test_converse_ingest_tool_waits_for_searchable_staging_before_acknowle
 
         assert re.search(r"\b2\b", result)
         assert "queue" in result.lower() or "unprocessed" in result.lower()
-        legacy_ingest.run.assert_not_awaited()
     finally:
         release.set()
         for task in (run_task, entered_task):
@@ -153,7 +148,7 @@ async def test_converse_ingest_tool_waits_for_searchable_staging_before_acknowle
 async def test_converse_ingest_staging_failure_does_not_fall_back_to_old_agent(
     converse_staging,
 ):
-    pipeline, storage, legacy_ingest = converse_staging
+    pipeline, storage = converse_staging
     pipeline.enqueue.side_effect = RuntimeError("Intake embedding failed")
     deps = ConverseDeps(
         storage=storage,
@@ -167,7 +162,6 @@ async def test_converse_ingest_staging_failure_does_not_fall_back_to_old_agent(
     pipeline.enqueue.assert_awaited_once_with(
         IntakeRequest(text="The intake must fail", source="converse")
     )
-    legacy_ingest.run.assert_not_awaited()
     assert storage.method_calls == []
 
 
@@ -175,7 +169,7 @@ async def test_converse_ingest_staging_failure_does_not_fall_back_to_old_agent(
 async def test_http_converse_injects_the_shared_staging_pipeline(
     converse_staging, monkeypatch, endpoint
 ):
-    pipeline, storage, legacy_ingest = converse_staging
+    pipeline, storage = converse_staging
     captured_deps = []
 
     async def converse_turn(message, *args, deps, **kwargs):
@@ -223,4 +217,3 @@ async def test_http_converse_injects_the_shared_staging_pipeline(
         body = response.json()
     assert body["response"] == "The staging pipeline is available."
     pipeline.enqueue.assert_not_awaited()
-    legacy_ingest.run.assert_not_awaited()

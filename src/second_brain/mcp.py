@@ -38,13 +38,17 @@ def configure(
 
 @mcp.tool
 async def ingest(text: str, hints: list[str] | None = None) -> str:
-    """Store new knowledge in the brain.
+    """Stage new knowledge for immediate search and background organization.
 
-    Notes, entities, and relationships are extracted automatically.
-    The brain deduplicates against existing knowledge and creates
-    semantic connections between concepts.
+    The source text is chunked and embedded before this call returns. A
+    background worker later organizes the chunks into notes, entities, and
+    relationships.
     """
-    return await _run_ingest(text, hints)
+    result = await _run_ingest(text, hints)
+    return (
+        f"Queued {result.chunks_stored} chunks as unprocessed intake. "
+        "They are searchable now and will be organized in the background."
+    )
 
 
 @mcp.tool
@@ -60,6 +64,9 @@ async def recall(question: str, hints: list[str] | None = None) -> str:
     if result.context and result.context.nodes:
         ids = [n.get("id", "") for n in result.context.nodes]
         parts.append(f"\nCited nodes: {', '.join(ids)}")
+    if result.context and result.context.unprocessed:
+        ids = [chunk.get("id", "") for chunk in result.context.unprocessed]
+        parts.append(f"\nUnprocessed evidence: {', '.join(ids)}")
     return "\n".join(parts)
 
 

@@ -470,7 +470,7 @@ In `src/second_brain/agents/converse.py`:
 - Edit `tests/test_intake_converse.py` (user-approved). Remove the `create_ingest_agent` monkeypatch, the `legacy_ingest` mock, and every `legacy_ingest.run.assert_not_awaited()`. The fixture returns `(pipeline, storage)`. Remove the unused `converse_module` import.
 
 **Verify:** `uv run pytest tests/test_intake_converse.py tests/test_converse_agent.py::test_converse_agent_runs tests/test_converse_agent.py::test_converse_agent_has_tools` passes, except the `[fast]` case and the HTTP cases that need Step 15. `[fast]` stays red because of the Jev stub.
-**Status:** not started
+**Status:** done
 
 ### Step 14: MCP staging acknowledgement and citations
 
@@ -481,7 +481,7 @@ In `src/second_brain/mcp.py`:
 - Edit `tests/test_intake_mcp.py` (user-approved). Remove the `app_module.run_ingest_agent` monkeypatch, the `legacy_ingest` mock, and its assertion. Adjust the fixture tuple and remove the unused `app_module` import if nothing else uses it.
 
 **Verify:** `uv run pytest tests/test_intake_mcp.py tests/test_mcp.py` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 15: App wiring, routes, and job removal
 
@@ -499,7 +499,7 @@ In `src/second_brain/app.py`:
 - Edit `tests/test_app.py` (user-approved). Delete `test_ingest_returns_202_with_location`, `test_ingest_job_completes`, `test_ingest_with_hints`, and `test_ingest_job_not_found`. Edit `tests/test_intake_http.py`. Remove the `app_module.run_ingest_agent` monkeypatch line. Keep the `_ingest_agent` patch, which still guards that `POST /ingest` never runs the agent.
 
 **Verify:** `uv run pytest tests/test_intake_http.py tests/test_intake_recall_http.py tests/test_intake_converse.py tests/test_intake_mcp.py tests/test_app.py` passes, except `test_intake_converse.py::…[fast]`. Starting the server with `BRAIN_TEST_MODE=true` and running `POST /ingest` returns `{"chunks_stored": n}`, and `GET /ingest/pipeline` shows the rows drain.
-**Status:** not started
+**Status:** done
 
 ### Step 16: Go client synchronous ingest
 
@@ -512,7 +512,7 @@ In `client/`:
 - The TUI needs no change. `types.Context.Unprocessed` already exists, and the TUI intake tests pass.
 
 **Verify:** `cd client && go test ./... && go vet -tags e2e ./... && golangci-lint run` pass.
-**Status:** not started
+**Status:** done
 
 ### Step 17: Full verification
 

@@ -12,30 +12,7 @@ import (
 
 func TestIngestCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(types.IngestResponse{Summary: "Stored 1 note."})
-	}))
-	defer srv.Close()
-
-	var buf bytes.Buffer
-	cmd := newRootCmd()
-	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"ingest", "--wait", "--server", srv.URL, "my test thought"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(buf.Bytes(), []byte("Stored 1 note.")) {
-		t.Errorf("output: %s", buf.String())
-	}
-}
-
-func TestIngestCommandNoWait(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/ingest" {
-			w.WriteHeader(http.StatusAccepted)
-			_ = json.NewEncoder(w).Encode(types.IngestJobResponse{JobID: "job-9", Status: types.JobPending})
-			return
-		}
-		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		_ = json.NewEncoder(w).Encode(types.IngestResponse{ChunksStored: 3})
 	}))
 	defer srv.Close()
 
@@ -46,8 +23,8 @@ func TestIngestCommandNoWait(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("job-9")) {
-		t.Errorf("output should mention job ID: %s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte("3")) {
+		t.Errorf("output: %s", buf.String())
 	}
 }
 

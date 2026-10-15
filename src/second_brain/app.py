@@ -10,20 +10,28 @@ from contextlib import asynccontextmanager
 from enum import StrEnum
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 
 from second_brain.agents.converse import ConverseDeps, create_converse_agent
-from second_brain.agents.ingest import IngestDeps, create_ingest_agent
-from second_brain.agents.recall import RecallDeps, create_recall_agent
+from second_brain.agents.ingest import AgentIngestBatchRunner, create_ingest_agent
+from second_brain.agents.ingestion_pipeline import IngestionPipeline
+from second_brain.agents.recall import (
+    RecallDeps,
+    create_recall_agent,
+    fetch_cited_context,
+)
 from second_brain.config import settings
 from second_brain.db import Embedder, Storage
 from second_brain.mcp import configure as configure_mcp
 from second_brain.mcp import mcp
 from second_brain.models import (
     Context,
+    EnqueueResult,
+    IntakeRequest,
+    PipelineSnapshot,
     normalize_edge,
     normalize_node,
 )
@@ -51,6 +59,7 @@ _storage: Storage | None = None
 _model: Any = None
 _routing_model: Any = None  # Optional optimization; startup failure leaves this unset.
 _scheduler: DreamScheduler | None = None
+_ingestion_pipeline: IngestionPipeline | None = None
 _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()
@@ -65,7 +74,6 @@ class JobStatus(StrEnum):
     failed = "failed"
 
 
-_ingest_jobs: dict[str, dict[str, Any]] = {}
 _background_tasks: set[asyncio.Task[None]] = set()
 
 
@@ -99,7 +107,7 @@ class _EmbedFnAdapter:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _storage, _model
+    global _storage, _model, _ingestion_pipeline
     if settings.test_mode:
         from pydantic_ai.models.test import TestModel
 
@@ -168,9 +176,28 @@ async def lifespan(app: FastAPI):
                 _scheduler.start()
                 logger.info("Dream scheduler started")
 
+        assert _storage is not None
+        _ingestion_pipeline = IngestionPipeline(
+            storage=_storage,
+            runner=AgentIngestBatchRunner(_ingest_agent, _storage, _model),
+            max_request_chars=settings.intake_max_request_chars,
+            chunk_chars=settings.intake_chunk_chars,
+            processing_batch_chars=settings.intake_processing_batch_chars,
+            worker_concurrency=settings.intake_worker_concurrency,
+            lease_seconds=settings.intake_lease_seconds,
+            poll_interval_seconds=settings.intake_poll_interval_seconds,
+            retry_base_delay_seconds=settings.intake_retry_base_delay_seconds,
+            retry_max_delay_seconds=settings.intake_retry_max_delay_seconds,
+            activity_callback=(
+                _scheduler.touch_activity if _scheduler is not None else None
+            ),
+        )
+        await _ingestion_pipeline.start()
+        logger.info("Ingestion pipeline started")
+
         configure_mcp(
             run_recall=run_recall_agent,
-            run_ingest=run_ingest_agent,
+            run_ingest=stage_mcp_ingest,
             get_graph=get_graph_data,
         )
 
@@ -183,19 +210,34 @@ async def lifespan(app: FastAPI):
         ]
         app.mount("/mcp", mcp_app)
     except Exception:
+        if _ingestion_pipeline is not None:
+            with contextlib.suppress(Exception):
+                await _ingestion_pipeline.stop()
+            _ingestion_pipeline = None
+        if _scheduler is not None:
+            with contextlib.suppress(Exception):
+                await _scheduler.stop()
+            _scheduler = None
         await _storage.close()
         _storage = None
         raise
 
-    async with mcp_app.router.lifespan_context(app):
-        yield
-
-    if _scheduler:
-        await _scheduler.stop()
-        _scheduler = None
-    if _storage:
-        await _storage.close()
-        _storage = None
+    try:
+        async with mcp_app.router.lifespan_context(app):
+            yield
+    finally:
+        pipeline = _ingestion_pipeline
+        _ingestion_pipeline = None
+        try:
+            if pipeline is not None:
+                await pipeline.stop()
+        finally:
+            if _scheduler:
+                await _scheduler.stop()
+                _scheduler = None
+            if _storage:
+                await _storage.close()
+                _storage = None
 
 
 app = FastAPI(title="Second Brain", lifespan=lifespan)
@@ -204,17 +246,11 @@ app = FastAPI(title="Second Brain", lifespan=lifespan)
 class IngestRequest(BaseModel):
     text: str
     hints: list[str] = []
+    source: str = "api"
 
 
 class IngestResponse(BaseModel):
-    summary: str
-
-
-class IngestJobResponse(BaseModel):
-    job_id: str
-    status: JobStatus
-    summary: str | None = None
-    error: str | None = None
+    chunks_stored: int
 
 
 class RecallRequest(BaseModel):
@@ -257,20 +293,14 @@ class ConverseResponse(BaseModel):
     context: Context | None = None
 
 
-async def run_ingest_agent(text: str, hints: list[str] | None = None) -> str:
-    assert _storage is not None
-    prompt = text
-    if hints:
-        hint_str = ", ".join(hints)
-        prompt = f"Possibly related nodes: {hint_str}\n\n{text}"
-    logger.info("Ingest agent starting (text length=%d)", len(text))
-    result = await _ingest_agent.run(
-        prompt,
-        deps=IngestDeps(storage=_storage),
-        model=_model,
+async def stage_mcp_ingest(text: str, hints: list[str] | None = None) -> EnqueueResult:
+    """Stage an intake submitted through the MCP server."""
+    pipeline = _ingestion_pipeline
+    if pipeline is None:
+        raise RuntimeError("Intake staging is unavailable")
+    return await pipeline.enqueue(
+        IntakeRequest(text=text, hints=tuple(hints or ()), source="mcp")
     )
-    logger.info("Ingest agent completed")
-    return result.output
 
 
 async def run_recall_agent(
@@ -290,35 +320,19 @@ async def run_recall_agent(
     )
     output = result.output  # RecallOutput
     logger.info(
-        "Recall agent completed (cited %d nodes, %d edges)",
+        "Recall agent completed (cited %d nodes, %d edges, %d unprocessed chunks)",
         len(output.cited_node_ids),
         len(output.cited_edge_ids),
+        len(output.cited_unprocessed_ids),
     )
 
-    # Fetch actual records for cited IDs. Malformed IDs (weak models sometimes
-    # emit placeholders) are skipped so the answer still goes out.
+    # Fetch actual records for cited IDs. Malformed IDs and intake chunks deleted
+    # while the answer was being generated are skipped.
     assert _storage is not None
-    nodes = await _storage.get_nodes(output.cited_node_ids)
-    edges: list[dict] = []
-    for eid in output.cited_edge_ids:
-        try:
-            edge = await _storage.get_edge(eid)
-        except ValueError as exc:
-            logger.warning(
-                "Recall citations: skipping malformed edge ID %r: %s", eid, exc
-            )
-            continue
-        if edge:
-            edges.append(edge)
-
-    ctx = None
-    if nodes or edges:
-        ctx = Context(
-            nodes=[normalize_node(n) for n in nodes],
-            edges=[normalize_edge(e) for e in edges],
-        )
-
-    return RecallResponse(answer=output.answer, context=ctx)
+    context = await fetch_cited_context(_storage, output)
+    if context.nodes or context.edges or context.unprocessed:
+        return RecallResponse(answer=output.answer, context=context)
+    return RecallResponse(answer=output.answer, context=None)
 
 
 async def run_converse_agent(
@@ -328,6 +342,7 @@ async def run_converse_agent(
     deps = ConverseDeps(
         storage=_storage,
         model_setting=_model,
+        ingestion_pipeline=_ingestion_pipeline,
     )
 
     # Build PydanticAI message history
@@ -351,7 +366,11 @@ async def run_converse_agent(
     )
     logger.info("Converse agent completed")
 
-    ctx = deps.context if (deps.context.nodes or deps.context.edges) else None
+    ctx = (
+        deps.context
+        if (deps.context.nodes or deps.context.edges or deps.context.unprocessed)
+        else None
+    )
     return ConverseResponse(response=result.output, context=ctx)
 
 
@@ -416,43 +435,69 @@ async def get_dream_job(job_id: str):
     return DreamJobResponse(job_id=job_id, status=job["status"], error=job["error"])
 
 
-@app.post("/ingest", status_code=202, response_model=IngestJobResponse)
-async def ingest(req: IngestRequest, response: Response):
+@app.post("/ingest", response_model=IngestResponse)
+async def ingest(
+    req: IngestRequest,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+) -> IngestResponse:
+    """Synchronously stage intake chunks for search and background processing."""
+    pipeline = _ingestion_pipeline
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Intake staging is unavailable")
     if _scheduler:
         _scheduler.touch_activity()
-    job_id = str(uuid.uuid4())
-    _ingest_jobs[job_id] = {"status": JobStatus.pending, "summary": None, "error": None}
-    logger.info("POST /ingest → job %s (text length=%d)", job_id, len(req.text))
-
-    async def _run_job() -> None:
-        _ingest_jobs[job_id]["status"] = JobStatus.running
-        try:
-            summary = await run_ingest_agent(req.text, req.hints if req.hints else None)
-            _ingest_jobs[job_id]["status"] = JobStatus.complete
-            _ingest_jobs[job_id]["summary"] = summary
-        except Exception as exc:
-            logger.exception("Ingest job %s failed", job_id)
-            _ingest_jobs[job_id]["status"] = JobStatus.failed
-            _ingest_jobs[job_id]["error"] = str(exc)
-
-    task = asyncio.create_task(_run_job())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    response.headers["Location"] = f"/ingest/jobs/{job_id}"
-    return IngestJobResponse(job_id=job_id, status=JobStatus.pending)
+    logger.info("POST /ingest (text length=%d)", len(req.text))
+    try:
+        result = await pipeline.enqueue(
+            IntakeRequest(
+                text=req.text,
+                hints=tuple(req.hints),
+                source=req.source,
+                idempotency_key=idempotency_key,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return IngestResponse(chunks_stored=result.chunks_stored)
 
 
-@app.get("/ingest/jobs/{job_id}", response_model=IngestJobResponse)
-async def get_ingest_job(job_id: str):
-    job = _ingest_jobs.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-    return IngestJobResponse(
-        job_id=job_id,
-        status=job["status"],
-        summary=job["summary"],
-        error=job["error"],
-    )
+@app.get("/ingest/pipeline", response_model=PipelineSnapshot)
+async def get_ingestion_pipeline_snapshot() -> PipelineSnapshot:
+    """Return aggregate queue and worker visibility."""
+    pipeline = _ingestion_pipeline
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
+    return await pipeline.snapshot()
+
+
+@app.post("/ingest/pipeline/{intake_id}/pause")
+async def pause_ingestion(intake_id: str) -> dict[str, str]:
+    """Pause ready and retrying chunks for one intake."""
+    pipeline = _ingestion_pipeline
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
+    await pipeline.pause_intake(intake_id)
+    return {"intake_id": intake_id}
+
+
+@app.post("/ingest/pipeline/{intake_id}/resume")
+async def resume_ingestion(intake_id: str) -> dict[str, str]:
+    """Resume paused chunks for one intake."""
+    pipeline = _ingestion_pipeline
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
+    await pipeline.resume_intake(intake_id)
+    return {"intake_id": intake_id}
+
+
+@app.post("/ingest/pipeline/{intake_id}/discard")
+async def discard_ingestion(intake_id: str) -> dict[str, str | int]:
+    """Discard remaining chunks for one intake."""
+    pipeline = _ingestion_pipeline
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
+    chunks_discarded = await pipeline.discard_intake(intake_id)
+    return {"intake_id": intake_id, "chunks_discarded": chunks_discarded}
 
 
 @app.post("/recall", response_model=RecallResponse)
@@ -512,6 +557,7 @@ async def converse_stream(req: ConverseRequest):
         storage=_storage,
         model_setting=_model,
         progress_queue=queue,
+        ingestion_pipeline=_ingestion_pipeline,
     )
 
     # Build PydanticAI message history
@@ -530,7 +576,13 @@ async def converse_stream(req: ConverseRequest):
                 model=_model,
                 message_history=pydantic_history,
             )
-            ctx = deps.context if (deps.context.nodes or deps.context.edges) else None
+            ctx = (
+                deps.context
+                if (
+                    deps.context.nodes or deps.context.edges or deps.context.unprocessed
+                )
+                else None
+            )
             resp = ConverseResponse(response=result.output, context=ctx)
             await queue.put(
                 {"type": "done", "data": json.loads(resp.model_dump_json())}

@@ -47,15 +47,13 @@ async def intake_app(monkeypatch):
     monkeypatch.setattr(app_module, "_ingestion_pipeline", pipeline, raising=False)
     monkeypatch.setattr(app_module, "_storage", storage)
     monkeypatch.setattr(app_module, "_scheduler", scheduler)
-    monkeypatch.setattr(app_module, "run_ingest_agent", legacy_ingest)
     monkeypatch.setattr(app_module, "_ingest_agent", Mock(run=legacy_ingest))
-    monkeypatch.setattr(app_module, "_ingest_jobs", {}, raising=False)
     monkeypatch.setattr(app_module, "_background_tasks", background_tasks)
 
     try:
         yield pipeline, storage, legacy_ingest, scheduler
     finally:
-        # Keep the old route's background tasks inside the mocked test scope.
+        # Keep any background tasks inside the mocked test scope.
         for task in background_tasks:
             task.cancel()
         await asyncio.gather(*background_tasks, return_exceptions=True)
@@ -274,20 +272,7 @@ async def test_pipeline_intake_controls_delegate_only_to_the_selected_operation(
     legacy_ingest.assert_not_awaited()
 
 
-async def test_old_ingest_job_polling_route_is_removed(client, monkeypatch):
-    monkeypatch.setattr(
-        app_module,
-        "_ingest_jobs",
-        {
-            "old-receipt": {
-                "status": "complete",
-                "summary": "Old organized result",
-                "error": None,
-            }
-        },
-        raising=False,
-    )
-
+async def test_old_ingest_job_polling_route_is_removed(client):
     response = await client.get("/ingest/jobs/old-receipt")
 
     assert response.status_code == 404

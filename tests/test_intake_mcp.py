@@ -13,7 +13,6 @@ from second_brain.app import RecallResponse
 from second_brain.models import Context, EnqueueResult, IntakeRequest
 
 mcp_module = importlib.import_module("second_brain.mcp")
-app_module = importlib.import_module("second_brain.app")
 
 
 @pytest.fixture
@@ -29,20 +28,18 @@ def configured_mcp(monkeypatch):
     staging = AsyncMock(side_effect=stage_ingest)
     recall = AsyncMock()
     graph = AsyncMock()
-    legacy_ingest = AsyncMock(side_effect=AssertionError("The old agent must not run"))
     monkeypatch.setattr(models, "ALLOW_MODEL_REQUESTS", False)
-    monkeypatch.setattr(app_module, "run_ingest_agent", legacy_ingest)
     for name in ("_run_ingest", "_run_recall", "_get_graph"):
         monkeypatch.setattr(mcp_module, name, None)
     mcp_module.configure(run_ingest=staging, run_recall=recall, get_graph=graph)
-    return pipeline, staging, recall, legacy_ingest
+    return pipeline, staging, recall
 
 
 @pytest.mark.parametrize("hints", [None, ["entity:one", "note:two"]])
 async def test_mcp_ingest_reports_queued_count_from_configured_staging(
     configured_mcp, hints
 ):
-    pipeline, staging, _, legacy_ingest = configured_mcp
+    pipeline, staging, _ = configured_mcp
 
     result = await mcp_module.ingest(text="Original MCP intake text.", hints=hints)
 
@@ -70,14 +67,13 @@ async def test_mcp_ingest_reports_queued_count_from_configured_staging(
             source="mcp",
         )
     )
-    legacy_ingest.assert_not_awaited()
 
 
 @pytest.mark.parametrize("unprocessed_only", [False, True])
 async def test_mcp_recall_labels_unprocessed_citations_separately(
     configured_mcp, unprocessed_only
 ):
-    _, _, recall, _ = configured_mcp
+    _, _, recall = configured_mcp
     recall.return_value = RecallResponse(
         answer="The intake evidence is not organized yet.",
         context=Context(

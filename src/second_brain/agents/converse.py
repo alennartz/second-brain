@@ -12,15 +12,15 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models import Model
 
-from second_brain.agents.ingest import IngestDeps, create_ingest_agent
 from second_brain.agents.ingestion_pipeline import IngestionPipeline
-from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
-from second_brain.db import Storage
-from second_brain.models import (
-    Context,
-    normalize_edge,
-    normalize_node,
+from second_brain.agents.recall import (
+    RecallDeps,
+    RecallOutput,
+    create_recall_agent,
+    fetch_cited_context,
 )
+from second_brain.db import Storage
+from second_brain.models import Context, EnqueueResult, IntakeRequest
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +30,6 @@ _RECALL_STATUS: dict[str, str] = {
     "get_node": "Fetching node...",
     "get_connections": "Following connections...",
     "graph_traverse": "Traversing graph...",
-}
-
-# Status messages for ingest sub-agent tool calls
-_INGEST_STATUS: dict[str, str] = {
-    "create_note": "Creating note...",
-    "create_entity": "Extracting entity...",
-    "create_edge": "Linking knowledge...",
-    "update_node": "Updating node...",
-    "search_knowledge": "Checking existing knowledge...",
 }
 
 
@@ -72,6 +63,26 @@ def _make_stream_handler(
     return handler
 
 
+async def stage_converse_ingest(deps: ConverseDeps, text: str) -> str:
+    """Stage a conversational intake through the shared pipeline."""
+    pipeline = deps.ingestion_pipeline
+    if pipeline is None:
+        return "Intake staging is unavailable."
+
+    await _push(deps.progress_queue, "Staging intake...")
+    result: EnqueueResult = await pipeline.enqueue(
+        IntakeRequest(text=text, source="converse")
+    )
+    await _push(
+        deps.progress_queue,
+        f"Queued {result.chunks_stored} chunks as unprocessed intake",
+    )
+    return (
+        f"Queued {result.chunks_stored} chunks for background processing. "
+        "They are searchable now as unprocessed evidence."
+    )
+
+
 def create_converse_agent() -> Agent[ConverseDeps, str]:
     """Create a conversation agent that wraps recall and ingest as tools."""
     agent = Agent(
@@ -93,7 +104,6 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
     )
 
     _recall_agent = create_recall_agent()
-    _ingest_agent = create_ingest_agent()
 
     @agent.tool
     async def recall(ctx: RunContext[ConverseDeps], question: str) -> str:
@@ -117,54 +127,40 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         await _push(queue, "Search complete")
 
         # Fetch actual records and accumulate onto deps.context (deduplicated).
-        # Malformed cited IDs are skipped; agent output is not trusted.
-        nodes = await ctx.deps.storage.get_nodes(output.cited_node_ids)
-        edges = []
-        for eid in output.cited_edge_ids:
-            try:
-                edge = await ctx.deps.storage.get_edge(eid)
-            except ValueError as exc:
-                logger.warning(
-                    "Recall citations: skipping malformed edge ID %r: %s", eid, exc
-                )
-                continue
-            if edge:
-                edges.append(edge)
-        existing_node_ids = {str(n["id"]) for n in ctx.deps.context.nodes}
-        existing_edge_ids = {str(e["id"]) for e in ctx.deps.context.edges}
+        # Malformed cited IDs and deleted intake chunks are skipped; agent output
+        # is not trusted.
+        fetched = await fetch_cited_context(ctx.deps.storage, output)
+        existing_node_ids = {str(node["id"]) for node in ctx.deps.context.nodes}
+        existing_edge_ids = {str(edge["id"]) for edge in ctx.deps.context.edges}
+        existing_unprocessed_ids = {
+            str(chunk["id"]) for chunk in ctx.deps.context.unprocessed
+        }
         ctx.deps.context.nodes.extend(
-            normalize_node(n)
-            for n in nodes
-            if str(n.get("id")) not in existing_node_ids
+            node
+            for node in fetched.nodes
+            if str(node.get("id")) not in existing_node_ids
         )
         ctx.deps.context.edges.extend(
-            normalize_edge(e)
-            for e in edges
-            if str(e.get("id")) not in existing_edge_ids
+            edge
+            for edge in fetched.edges
+            if str(edge.get("id")) not in existing_edge_ids
+        )
+        ctx.deps.context.unprocessed.extend(
+            chunk
+            for chunk in fetched.unprocessed
+            if str(chunk.get("id")) not in existing_unprocessed_ids
         )
 
         return output.answer
 
     @agent.tool
     async def ingest(ctx: RunContext[ConverseDeps], text: str) -> str:
-        """Delegate new knowledge to the ingest agent, which will parse it into
-        notes and entities, find connections, and store everything. Pass the user's
-        input as-is — the ingest agent handles all structuring internally."""
-        queue = ctx.deps.progress_queue
-        logger.info("Converse → ingest sub-agent starting")
-        await _push(queue, "Storing new knowledge...")
+        """Stage raw knowledge for immediate search and background organization.
 
-        kwargs: dict = dict(
-            deps=IngestDeps(storage=ctx.deps.storage),
-            model=ctx.deps.model_setting,
-        )
-        if queue is not None:
-            kwargs["event_stream_handler"] = _make_stream_handler(queue, _INGEST_STATUS)
-
-        result = await _ingest_agent.run(text, **kwargs)
-        logger.info("Converse → ingest sub-agent completed")
-        await _push(queue, "Knowledge stored")
-        return result.output
+        Pass the user's input as-is. Staging preserves the source text and makes
+        it searchable before the ingest agent organizes it.
+        """
+        return await stage_converse_ingest(ctx.deps, text)
 
     return agent
 

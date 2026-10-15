@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Protocol
 
 from second_brain.db import Storage
@@ -45,7 +46,9 @@ class IngestionPipeline:
         retry_max_delay_seconds: float = 3_600,
         pause_dream: bool = False,
         activity_callback: Callable[[], None] | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
+        """Inject a timezone-aware UTC clock for retry deadlines, or use UTC now."""
         self.storage = storage
         self.runner = runner
         self.max_request_chars = max_request_chars
@@ -58,6 +61,7 @@ class IngestionPipeline:
         self.retry_max_delay_seconds = retry_max_delay_seconds
         self.pause_dream = pause_dream
         self.activity_callback = activity_callback
+        self.clock = clock if clock is not None else lambda: datetime.now(UTC)
 
     async def enqueue(self, request: IntakeRequest) -> EnqueueResult:
         """Chunk, embed, and atomically stage one intake request."""

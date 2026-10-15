@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any, Protocol, runtime_checkable
 
 from surrealdb import AsyncSurreal
@@ -9,6 +10,7 @@ from second_brain.models import (
     ClaimedBatch,
     IntakeChunkDraft,
     IntakeQueueSnapshot,
+    MemorySearchCandidates,
     make_serializable,
 )
 from second_brain.validation import validate_identifier, validate_record_id
@@ -104,17 +106,27 @@ class Storage:
     SurrealDB SDK types leak out.
     """
 
-    def __init__(self, url: str, embedder: Embedder, dimensions: int) -> None:
+    def __init__(
+        self,
+        url: str,
+        embedder: Embedder,
+        dimensions: int,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         """Wrap a DB connection.
 
         Args:
             url: ``'mem://'`` for tests, ``'surrealkv://path'`` for prod.
             embedder: Embedding provider conforming to the Embedder protocol.
             dimensions: Vector dimensions for HNSW indexes.
+            clock: Timezone-aware UTC clock for queue lease and retry decisions.
+                Defaults to the current UTC time.
         """
         self._url = url
         self._embedder = embedder
         self._dimensions = dimensions
+        self._clock = clock if clock is not None else lambda: datetime.now(UTC)
         self._db: AsyncSurreal | None = None  # pyright: ignore[reportGeneralTypeIssues]
 
     async def init(self) -> None:
@@ -384,6 +396,16 @@ class Storage:
 
     # ── Search ──
 
+    async def search_memory_candidates(
+        self, query: str, k: int
+    ) -> MemorySearchCandidates:
+        """Embed once and return best-first BM25/vector lists for each memory table.
+
+        Each table/path contains at most ``k`` records without embedding arrays.
+        Results remain unfused for layer-balanced ranking in recall tools.
+        """
+        raise NotImplementedError("not implemented")
+
     async def hybrid_search(
         self, table: str, query_text: str, k: int = 5
     ) -> list[dict]:
@@ -562,7 +584,11 @@ class Storage:
         max_chars: int,
         lease_seconds: float,
     ) -> ClaimedBatch | None:
-        """Atomically lease one eligible processing batch."""
+        """Atomically lease contiguous chunks from one eligible intake document.
+
+        A live lease excludes other claims for that intake. Expired leases replay
+        with a new token. Lease and retry eligibility use the injected UTC clock.
+        """
         raise NotImplementedError("not implemented")
 
     async def release_intake_batch(
@@ -571,11 +597,15 @@ class Storage:
         error: str,
         next_attempt_at: datetime,
     ) -> None:
-        """Return a failed lease to retry-wait state."""
+        """Return a failed lease to retry-wait without changing newer leases."""
         raise NotImplementedError("not implemented")
 
     async def delete_intake_batch(self, lease_token: str) -> int:
-        """Delete all rows belonging to a successful lease."""
+        """Delete a successful lease's rows without changing newer leases."""
+        raise NotImplementedError("not implemented")
+
+    async def get_intake_chunks(self, record_ids: list[str]) -> list[dict]:
+        """Fetch intake evidence by ID, omitting deleted rows and embeddings."""
         raise NotImplementedError("not implemented")
 
     async def search_intake_chunks(self, query: str, k: int) -> list[dict]:

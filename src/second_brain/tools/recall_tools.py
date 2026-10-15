@@ -50,5 +50,10 @@ async def fetch_records_by_ids(storage: Storage, record_ids: list[str]) -> list[
 
 
 async def search_memory(storage: Storage, query: str, k: int = 5) -> MemorySearchResult:
-    """Search organized graph memory and explicitly unprocessed intake evidence."""
+    """Search both memory layers with one candidate request and global RRF.
+
+    Cap each candidate path at k before fusion. Use RRF offset 60, weight
+    note/entity paths at 0.5 and intake paths at 1. Return at most k records
+    across both collections. Enrich only graph nodes with connections.
+    """
     raise NotImplementedError("not implemented")

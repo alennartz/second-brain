@@ -73,7 +73,7 @@ class EnqueueResult:
 async def enqueue(request: IntakeRequest) -> EnqueueResult
 ```
 
-`enqueue` rejects empty or over-limit input, creates natural-boundary disjoint chunks using the configured character limit, asks `Storage` to embed and persist all chunks, and returns only after every row is searchable. Persistence is all-or-nothing. An idempotency key collapses duplicate requests only while matching rows remain in the queue. After the final row is deleted, the same key is a new request.
+`enqueue` rejects empty or over-limit input, creates natural-boundary disjoint chunks using the configured character limit, asks `Storage` to embed and persist all chunks, and returns only after every row is searchable. Natural boundaries are preferences, not a requirement to split every short paragraph into a separate row. Persistence is all-or-nothing. An idempotency key collapses duplicate requests only while matching rows remain in the queue. After the final row is deleted, the same key is a new request.
 
 #### Intake chunk persistence
 
@@ -141,11 +141,13 @@ async def resume_intake(intake_id: str) -> None
 async def discard_intake(intake_id: str) -> int
 ```
 
-Workers claim any eligible ready batches with configurable parallelism. A failed batch returns to the queue after a configured base delay; the delay backs off exponentially to a configured cap. Other ready work proceeds while a failed batch waits. Queue order and fairness are not contracts. Pause changes ready and retry-wait rows to paused. Resume makes them ready. Discard deletes remaining rows and never rolls back graph records already produced by earlier batches.
+Workers claim any eligible ready batches with configurable parallelism. A failed batch returns to the queue after a configured base delay; the delay backs off exponentially to a configured cap. Other ready work proceeds while a failed batch waits. Queue order and fairness are not contracts. At most one processing batch per intake can hold a live lease. Different intakes can run concurrently. Storage and the pipeline accept an optional UTC clock callback for lease and retry decisions. Production uses the current UTC time. Tests advance the injected clock without elapsed-time assumptions. Pause changes ready and retry-wait rows to paused. Resume makes them ready. Discard deletes remaining rows and never rolls back graph records already produced by earlier batches.
 
 The snapshot reports ready, leased, retry-wait, and paused counts; oldest ready/retry time; worker count and active leases; an explicit bounded `stuck_intakes` list; and recent errors with intake identifiers. A stuck intake is a retrying or paused intake surfaced by its age and latest error, not a terminal state. Queue metrics are operational visibility only and do not change the dream scheduler's existing timer policy.
 
 #### Memory recall
+
+`Storage.search_memory_candidates(query: str, k: int) -> MemorySearchCandidates` returns best-first, unfused BM25 and vector lists for `note`, `entity`, and `intake_chunk`. `RankedSearchCandidates` holds the two lists. `MemorySearchCandidates` holds one ranked-candidate value per table. Storage embeds the query once and caps each table/path at `k`. It removes embedding arrays before returning candidates. The tools perform global layer-balanced fusion with RRF offset 60. Each note/entity path has half the weight of each intake path. Thus both memory layers have equal total contribution. `Storage.get_intake_chunks(record_ids: list[str]) -> list[dict]` fetches citation evidence without embeddings and skips deleted records. Intake citation IDs never pass through graph-node or graph-edge fetch operations.
 
 ```python
 @dataclass
@@ -158,7 +160,7 @@ async def search_memory(query: str, k: int = 5) -> MemorySearchResult
 
 The operation searches `note`, `entity`, and `intake_chunk` candidates, embeds the query once, caps candidates per layer, and performs layer-balanced RRF with equal organized and unprocessed contribution after those caps. It returns graph nodes separately from unprocessed chunks. Recall tools enrich only graph nodes. The recall agent cites `cited_node_ids`, `cited_edge_ids`, and `cited_unprocessed_ids`.
 
-`Context` gains an `unprocessed` collection. The HTTP and MCP response models and Go client mirror that shape. A chunk that disappears between search and citation fetch is skipped without failing the answer.
+`Context` gains an `unprocessed` collection. The HTTP and MCP response models and Go client mirror that shape. A chunk that disappears between search and citation fetch is skipped without failing the answer. The final result contains at most `k` records across both collections. Organized and unprocessed layers contribute equally, regardless of the organized layer's two tables. Candidate caps apply before fusion. Ranking ties do not define a queue or search ordering contract.
 
 #### HTTP and MCP
 
@@ -175,7 +177,7 @@ POST /ingest/pipeline/{intake_id}/resume
 POST /ingest/pipeline/{intake_id}/discard
 ```
 
-The `Idempotency-Key` header is optional. The old `/ingest/jobs/{id}` routes and asynchronous job models are removed. All HTTP, converse, and MCP ingest entry points call the same staging interface. Only the background pipeline invokes the LLM ingest agent.
+The `Idempotency-Key` header is optional. Intake controls identify the selected intake in their response. Discard reports `chunks_discarded`. No graph rollback response field is required. The old `/ingest/jobs/{id}` routes and asynchronous job models are removed. All HTTP, converse, and MCP ingest entry points call the same staging interface. Only the background pipeline invokes the LLM ingest agent.
 
 ### Technology Choices
 
@@ -192,10 +194,12 @@ The `Idempotency-Key` header is optional. The old `/ingest/jobs/{id}` routes and
 
 - `src/second_brain/models.py` — typed intake requests, enqueue results, chunk drafts and records, claimed batches, queue and pipeline snapshots, cross-layer memory results, and the unprocessed collection on `Context`.
 - `src/second_brain/config.py` — provider-neutral intake limits, lease and polling settings, retry backoff settings, worker concurrency, and dream-pause configuration.
-- `src/second_brain/db.py` — queue persistence, lease, deletion, search, and snapshot method stubs on `Storage`.
+- `src/second_brain/db.py` — queue persistence, lease, deletion, search, citation fetch, multi-table ranked candidates, and snapshot stubs on `Storage`, plus an injectable UTC clock.
 - `src/second_brain/agents/ingestion_pipeline.py` — `IngestBatchOutcome`, `IngestBatchRunner`, and the application-facing `IngestionPipeline` lifecycle and intake-control interface. Every operation is a `not implemented` stub.
 - `src/second_brain/agents/ingest.py` — per-run storage-error collection on `IngestDeps`.
 - `src/second_brain/agents/recall.py` — `cited_unprocessed_ids` on `RecallOutput`.
+- `src/second_brain/agents/converse.py` — optional shared staging pipeline dependency.
+- `client/internal/types/types.go` — stored chunk counts and separate unprocessed evidence types. Legacy wire fields remain until implementation replaces their consumers.
 - `src/second_brain/tools/recall_tools.py` — fixed cross-layer `search_memory` operation stub.
 
 ### Test Files
@@ -203,7 +207,13 @@ The `Idempotency-Key` header is optional. The old `/ingest/jobs/{id}` routes and
 - `tests/test_intake_storage.py` — queue row staging, all-or-nothing embedding, idempotency, claims and lease expiry, retry release, successful deletion, search evidence, and operational snapshots.
 - `tests/test_ingestion_pipeline.py` — synchronous chunk enqueueing, request validation, idempotency, ordered batch packing, success deletion, failure retry, independent ready work, intake controls, snapshots, and scheduler activity callbacks.
 - `tests/test_intake_recall.py` — separate organized and unprocessed evidence, per-layer caps, balanced fusion, and graph-only enrichment.
-- `tests/test_intake_http.py` — synchronous `/ingest`, aggregate pipeline visibility and intake controls, and queued chunk counts through MCP.
+- `tests/test_intake_http.py` — synchronous `/ingest`, metadata, validation, staging failures, aggregate visibility, intake controls, and removed job polling.
+- `tests/test_intake_mcp.py` — direct configured MCP staging and separate unprocessed citations.
+- `tests/test_intake_converse.py` — shared staging dependency, synchronous acknowledgement, errors, and HTTP dependency injection.
+- `tests/test_intake_recall_http.py` — separate citation collections, disappearing chunks, and unprocessed-only HTTP/SSE context.
+- `client/internal/api/intake_test.go` — chunk-count response propagation and recall/SSE evidence decoding.
+- `client/internal/types/intake_test.go` — wire shapes and separate unprocessed evidence.
+- `client/internal/tui/intake_test.go` — document chunks stay outside graph rendering.
 
 ### Behaviors Covered
 
@@ -245,6 +255,12 @@ The `Idempotency-Key` header is optional. The old `/ingest/jobs/{id}` routes and
 - Pause, resume, and discard routes expose intake controls. Discard does not report graph rollback.
 - MCP ingest reports queued chunk counts rather than an asynchronous job receipt.
 
+### Reviewed Behaviors
+
+The approved review expands the contract to deterministic capped retries, raised and recorded failures, multi-batch independence, per-intake lease exclusion, cross-intake concurrency, in-flight idempotency, immediate evidence deletion, graph retention, graceful shutdown, and activity-free retry waiting. Search tests cover one query embedding, adversarial candidate caps, normalized global RRF, a final total `k`, and graph-only enrichment. Integration tests cover all ingest entry points and citation disappearance. Natural-boundary tests enforce disjoint content and size limits without prescribing a split for every short paragraph.
+
 ### Red Gate
 
-All **34** new tests fail against the interface stubs or the pre-existing asynchronous HTTP routes. They execute without collection errors. The baseline suite had **259 passed and 59 failed**. With this phase, the full suite reports **259 passed and 93 failed**: 34 failures are from this phase, and 59 are pre-existing failures from the earlier Jev interface stubs and their expected HTTP wiring gaps. No new test passes.
+The reviewed Python contract contains **104 tests: 98 fail and 6 pass**. All collect without errors. Passing cases cover existing request validation and MCP callback forwarding. The full Python suite reports **265 passed and 157 failed**, including the same **59 pre-existing failures**. All queue/pipeline/search behavior remains red against interface stubs. `go test ./...` has one expected failure: the current ingest client drops `chunks_stored`. Other Go packages pass. Ruff, Basedpyright, and commit hooks validate the interface changes.
+
+**Review status:** approved

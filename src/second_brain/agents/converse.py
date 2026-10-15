@@ -13,6 +13,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models import Model
 
 from second_brain.agents.ingest import IngestDeps, create_ingest_agent
+from second_brain.agents.ingestion_pipeline import IngestionPipeline
 from second_brain.agents.recall import RecallDeps, RecallOutput, create_recall_agent
 from second_brain.db import Storage
 from second_brain.models import (
@@ -47,6 +48,7 @@ class ConverseDeps:
     model_setting: Model | str  # model string or TestModel for sub-agent calls
     context: Context = field(default_factory=Context)  # mutable accumulator
     progress_queue: asyncio.Queue[dict | None] | None = None
+    ingestion_pipeline: IngestionPipeline | None = None
 
 
 async def _push(queue: asyncio.Queue[dict | None] | None, msg: str) -> None:

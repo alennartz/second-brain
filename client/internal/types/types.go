@@ -21,10 +21,24 @@ type Edge struct {
 	Context string `json:"context,omitempty"`
 }
 
-// Context is the curated subset of nodes/edges the agent deemed relevant.
+// UnprocessedChunk is source evidence that has not entered the knowledge graph.
+type UnprocessedChunk struct {
+	ID          string   `json:"id"`
+	Table       string   `json:"table,omitempty"`
+	IntakeID    string   `json:"intake_id"`
+	ChunkIndex  int      `json:"chunk_index"`
+	TotalChunks int      `json:"total_chunks"`
+	Content     string   `json:"content"`
+	Source      string   `json:"source,omitempty"`
+	Hints       []string `json:"hints,omitempty"`
+	Unprocessed bool     `json:"unprocessed"`
+}
+
+// Context keeps graph records separate from unprocessed intake evidence.
 type Context struct {
-	Nodes []Node `json:"nodes"`
-	Edges []Edge `json:"edges"`
+	Nodes       []Node             `json:"nodes"`
+	Edges       []Edge             `json:"edges"`
+	Unprocessed []UnprocessedChunk `json:"unprocessed"`
 }
 
 // AssistantResponse is the assistant's part of a conversation exchange.
@@ -61,9 +75,10 @@ type ConverseRequest struct {
 
 // --- Response types ---
 
-// IngestResponse is returned by POST /ingest on servers that answer synchronously.
+// IngestResponse is returned after synchronous intake staging.
 type IngestResponse struct {
-	Summary string `json:"summary"`
+	ChunksStored int    `json:"chunks_stored"`
+	Summary      string `json:"summary"`
 }
 
 // JobStatus is the lifecycle state of an async ingest job.

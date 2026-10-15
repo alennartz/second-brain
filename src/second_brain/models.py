@@ -136,6 +136,23 @@ class PipelineSnapshot(IntakeQueueSnapshot):
     """Aggregate worker-pipeline snapshot exposed to operators."""
 
 
+@dataclass(frozen=True)
+class RankedSearchCandidates:
+    """Best-first, unfused BM25 and vector records for one table."""
+
+    bm25: list[dict] = field(default_factory=list)
+    vector: list[dict] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class MemorySearchCandidates:
+    """Ranked search paths for organized and unprocessed memory tables."""
+
+    note: RankedSearchCandidates = field(default_factory=RankedSearchCandidates)
+    entity: RankedSearchCandidates = field(default_factory=RankedSearchCandidates)
+    intake_chunk: RankedSearchCandidates = field(default_factory=RankedSearchCandidates)
+
+
 @dataclass
 class MemorySearchResult:
     """Graph evidence and explicitly unprocessed intake evidence."""

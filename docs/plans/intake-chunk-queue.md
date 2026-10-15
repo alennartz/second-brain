@@ -384,7 +384,7 @@ def retry_delay(failed_attempts: int, base: float, cap: float) -> float: ...
 `retry_delay` returns `min(base * 2 ** (failed_attempts - 1), cap)`. The sequence for base 2 and cap 5 is 2, 4, 5, 5.
 
 **Verify:** The functions are pure and importable. The behavior surfaces through Step 8's enqueue tests.
-**Status:** not started
+**Status:** done
 
 ### Step 8: `IngestionPipeline` staging, snapshot, and controls
 
@@ -395,7 +395,7 @@ In `src/second_brain/agents/ingestion_pipeline.py`:
 - `pause_intake` and `resume_intake` call `storage.set_intake_paused(intake_id, True/False)`. `discard_intake` returns `storage.delete_intake(intake_id)`.
 
 **Verify:** These tests in `tests/test_ingestion_pipeline.py` pass: `test_enqueue_*`, `test_idempotency_key_collapses_duplicate_requests_while_queued`, `test_concurrent_idempotent_requests_stage_one_intake`, and the `ready` case of `test_pause_and_resume_change_only_the_selected_intake`.
-**Status:** not started
+**Status:** done
 
 ### Step 9: Worker pool lifecycle
 
@@ -413,7 +413,7 @@ In `src/second_brain/agents/ingestion_pipeline.py`, add private instance state: 
   6. Never pass summaries or state from one batch to the next.
 
 **Verify:** `uv run pytest tests/test_ingestion_pipeline.py` passes in full. This covers packing, independence, success deletion, unclean runs, capped retries, cross-intake concurrency, pause in `retry_wait`, discard, snapshots, graceful stop, and activity callbacks.
-**Status:** not started
+**Status:** done
 
 ### Step 10: Cross-layer `search_memory`
 

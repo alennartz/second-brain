@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     # High bar: only confident fast paths skip the LLM router.
     jev_confidence_threshold: float = 0.9
     jev_history_turns: int = 3  # history turns included in the routing state
+    # Intake staging and worker-pipeline limits.
+    intake_max_request_chars: int = 100_000
+    intake_chunk_chars: int = 4_000
+    intake_processing_batch_chars: int = 12_000
+    intake_worker_concurrency: int = 1
+    intake_lease_seconds: float = 300
+    intake_poll_interval_seconds: float = 1
+    intake_retry_base_delay_seconds: float = 5
+    intake_retry_max_delay_seconds: float = 3_600
+    intake_pause_dream: bool = False
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}
 

@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic_ai import Agent, RunContext
 
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class IngestDeps:
     storage: Storage
+    storage_errors: list[str] = field(default_factory=list)
 
 
 def create_ingest_agent() -> Agent[IngestDeps, str]:

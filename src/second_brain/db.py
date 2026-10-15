@@ -1,10 +1,16 @@
 import logging
+from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from surrealdb import AsyncSurreal
 
 from second_brain.config import settings
-from second_brain.models import make_serializable
+from second_brain.models import (
+    ClaimedBatch,
+    IntakeChunkDraft,
+    IntakeQueueSnapshot,
+    make_serializable,
+)
 from second_brain.validation import validate_identifier, validate_record_id
 
 logger = logging.getLogger(__name__)
@@ -538,3 +544,44 @@ class Storage:
         if not result:
             return None
         return result[0].get(field)
+
+    # ── Intake queue ──
+
+    async def create_intake_chunks(
+        self,
+        intake_id: str,
+        chunks: list[IntakeChunkDraft],
+        idempotency_key: str | None,
+    ) -> int:
+        """Persist and embed all chunks for one intake document atomically."""
+        raise NotImplementedError("not implemented")
+
+    async def claim_intake_batch(
+        self,
+        worker_id: str,
+        max_chars: int,
+        lease_seconds: float,
+    ) -> ClaimedBatch | None:
+        """Atomically lease one eligible processing batch."""
+        raise NotImplementedError("not implemented")
+
+    async def release_intake_batch(
+        self,
+        lease_token: str,
+        error: str,
+        next_attempt_at: datetime,
+    ) -> None:
+        """Return a failed lease to retry-wait state."""
+        raise NotImplementedError("not implemented")
+
+    async def delete_intake_batch(self, lease_token: str) -> int:
+        """Delete all rows belonging to a successful lease."""
+        raise NotImplementedError("not implemented")
+
+    async def search_intake_chunks(self, query: str, k: int) -> list[dict]:
+        """Search queued intake chunks and return evidence without embeddings."""
+        raise NotImplementedError("not implemented")
+
+    async def intake_queue_snapshot(self) -> IntakeQueueSnapshot:
+        """Return aggregate queue counts and bounded operational errors."""
+        raise NotImplementedError("not implemented")

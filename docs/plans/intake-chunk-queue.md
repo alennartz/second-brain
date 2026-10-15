@@ -183,3 +183,68 @@ The `Idempotency-Key` header is optional. The old `/ingest/jobs/{id}` routes and
 - **Queue claim:** Use SurrealDB query-level atomicity for claims and lease updates. Do not add a new queue database or external broker.
 - **Agent persistence:** Retain the existing tool-driven agent from DR-001. At-least-once replay plus normal search/deduplication and later dream consolidation is preferred over a structured-output rewrite or a transaction-scoped write-set protocol.
 - **Search ownership:** Follow DR-002. `Storage` owns embedding and search mechanics; `recall_tools` owns cross-layer fusion and evidence shaping.
+
+## Tests
+
+**Pre-test-write commit:** `e7cf38a1eb13bdd1aec4f0a97e494ffb771b6575`
+
+### Interface Files
+
+- `src/second_brain/models.py` — typed intake requests, enqueue results, chunk drafts and records, claimed batches, queue and pipeline snapshots, cross-layer memory results, and the unprocessed collection on `Context`.
+- `src/second_brain/config.py` — provider-neutral intake limits, lease and polling settings, retry backoff settings, worker concurrency, and dream-pause configuration.
+- `src/second_brain/db.py` — queue persistence, lease, deletion, search, and snapshot method stubs on `Storage`.
+- `src/second_brain/agents/ingestion_pipeline.py` — `IngestBatchOutcome`, `IngestBatchRunner`, and the application-facing `IngestionPipeline` lifecycle and intake-control interface. Every operation is a `not implemented` stub.
+- `src/second_brain/agents/ingest.py` — per-run storage-error collection on `IngestDeps`.
+- `src/second_brain/agents/recall.py` — `cited_unprocessed_ids` on `RecallOutput`.
+- `src/second_brain/tools/recall_tools.py` — fixed cross-layer `search_memory` operation stub.
+
+### Test Files
+
+- `tests/test_intake_storage.py` — queue row staging, all-or-nothing embedding, idempotency, claims and lease expiry, retry release, successful deletion, search evidence, and operational snapshots.
+- `tests/test_ingestion_pipeline.py` — synchronous chunk enqueueing, request validation, idempotency, ordered batch packing, success deletion, failure retry, independent ready work, intake controls, snapshots, and scheduler activity callbacks.
+- `tests/test_intake_recall.py` — separate organized and unprocessed evidence, per-layer caps, balanced fusion, and graph-only enrichment.
+- `tests/test_intake_http.py` — synchronous `/ingest`, aggregate pipeline visibility and intake controls, and queued chunk counts through MCP.
+
+### Behaviors Covered
+
+#### Intake staging and queue persistence
+
+- Empty and over-limit intake requests are rejected before any rows are stored.
+- Natural-boundary, disjoint chunks retain intake identity, source order, source metadata, and hints.
+- Every chunk is embedded and searchable before enqueue returns; partial embedding failures leave no rows.
+- A matching idempotency key collapses duplicate requests only while queued rows remain. After final deletion, the key is accepted again.
+- Queue search returns intake evidence without embedding arrays.
+
+#### Lease and retry primitives
+
+- Claims select eligible contiguous chunks from one intake within the character budget and attach a lease.
+- Expired leases become eligible for replay with a new token.
+- Failed batches return to retry-wait with the latest error and next-attempt time.
+- Successful deletion removes only rows belonging to the acknowledged lease.
+- Queue snapshots expose ready, leased, retry-wait, paused, oldest-work, active-lease, worker, stuck-intake, and recent-error visibility.
+
+#### Ingestion pipeline
+
+- `enqueue` returns the number of searchable chunks and preserves request hints and source metadata.
+- Workers invoke the injected runner with source-ordered batches bounded by the processing character budget.
+- Clean runner outcomes delete claimed rows only after the run completes.
+- Failed outcomes release leases for retry while other ready intakes continue.
+- Pause and resume change only the selected intake's queue rows. Discard removes remaining rows without rolling back graph records.
+- Pipeline snapshots report queue visibility and worker health. Batch start and completion emit activity callbacks.
+
+#### Memory recall
+
+- One search result separates organized graph nodes from explicitly unprocessed intake chunks.
+- Candidate caps apply before balanced cross-layer fusion.
+- Only graph nodes receive edge-neighborhood enrichment. Intake chunks remain edge-free evidence.
+
+#### HTTP and MCP
+
+- `POST /ingest` returns `200` with `chunks_stored` only after synchronous staging and accepts optional source and idempotency metadata.
+- `GET /ingest/pipeline` exposes aggregate queue counts and bounded operational errors.
+- Pause, resume, and discard routes expose intake controls. Discard does not report graph rollback.
+- MCP ingest reports queued chunk counts rather than an asynchronous job receipt.
+
+### Red Gate
+
+All **34** new tests fail against the interface stubs or the pre-existing asynchronous HTTP routes. They execute without collection errors. The baseline suite had **259 passed and 59 failed**. With this phase, the full suite reports **259 passed and 93 failed**: 34 failures are from this phase, and 59 are pre-existing failures from the earlier Jev interface stubs and their expected HTTP wiring gaps. No new test passes.

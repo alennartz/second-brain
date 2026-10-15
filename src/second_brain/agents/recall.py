@@ -14,6 +14,7 @@ class RecallOutput(BaseModel):
     answer: str
     cited_node_ids: list[str] = []
     cited_edge_ids: list[str] = []
+    cited_unprocessed_ids: list[str] = []
 
 
 @dataclass

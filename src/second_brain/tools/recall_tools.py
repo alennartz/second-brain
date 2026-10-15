@@ -1,6 +1,7 @@
 import logging
 
 from second_brain.db import Storage
+from second_brain.models import MemorySearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -46,3 +47,8 @@ async def get_node(storage: Storage, record_id: str) -> dict:
 async def fetch_records_by_ids(storage: Storage, record_ids: list[str]) -> list[dict]:
     """Fetch multiple records by their SurrealDB IDs."""
     return await storage.get_nodes(record_ids)
+
+
+async def search_memory(storage: Storage, query: str, k: int = 5) -> MemorySearchResult:
+    """Search organized graph memory and explicitly unprocessed intake evidence."""
+    raise NotImplementedError("not implemented")

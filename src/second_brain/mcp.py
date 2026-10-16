@@ -56,8 +56,9 @@ async def recall(question: str, hints: list[str] | None = None) -> str:
     """Search the knowledge base and get a synthesized answer with citations.
 
     Use this to find information that was previously stored in the brain.
-    Returns an answer synthesized from matching notes and entities,
-    along with cited node IDs you can explore with graph_lookup.
+    Returns an answer synthesized from organized graph nodes and unprocessed
+    intake chunks, with separate citations. Graph node IDs can be passed to
+    graph_lookup. Intake chunk IDs are raw evidence and have no graph connections.
     """
     result = await _run_recall(question, hints)
     parts = [result.answer]

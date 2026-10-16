@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -26,12 +28,25 @@ _SEARCH_FIELDS: dict[str, str] = {
     "entity": "name",
     "intake_chunk": "content",
 }
+_INTAKE_EVIDENCE_FIELDS = {
+    "id",
+    "intake_id",
+    "chunk_index",
+    "total_chunks",
+    "content",
+    "source",
+    "created_at",
+}
 
 _T = TypeVar("_T")
 
 
 class _RetryableConflict(RuntimeError):
     """A transaction conflict that is safe to retry."""
+
+
+class IdempotencyConflict(ValueError):
+    """An idempotency key was reused for different intake content."""
 
 
 def _coerce_datetime(value: Any) -> datetime | None:
@@ -51,6 +66,30 @@ def _coerce_datetime(value: Any) -> datetime | None:
             return parsed.replace(tzinfo=UTC)
         return parsed
     return None
+
+
+def _intake_fingerprint(chunks: list[IntakeChunkDraft]) -> str:
+    """Hash canonical staged content and metadata for idempotency checks."""
+    payload = [
+        {
+            "content": chunk.content,
+            "source": chunk.source,
+            "hints": list(chunk.hints),
+        }
+        for chunk in chunks
+    ]
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _project_intake_evidence(record: dict) -> dict:
+    """Keep only source fields safe for recall evidence."""
+    normalized = normalize_node(record)
+    return {
+        key: value
+        for key, value in normalized.items()
+        if key in _INTAKE_EVIDENCE_FIELDS or key == "table"
+    }
 
 
 def _select_claim(
@@ -88,6 +127,8 @@ def _select_claim(
                 _coerce_datetime(row.get("created_at")) or current,
             ),
         )
+        if any(row.get("paused") is True for row in ordered):
+            continue
         if any(
             row.get("state") == "leased"
             and (_coerce_datetime(row.get("lease_expires_at")) or current) > current
@@ -198,16 +239,12 @@ def _summarize_queue(rows: list[dict], now: datetime) -> IntakeQueueSnapshot:
                 row.get("chunk_index", 0),
             ),
         )
-        since_values: list[datetime] = []
-        for stuck_row in intake_rows:
-            for value in (
-                _coerce_datetime(stuck_row.get("updated_at")),
-                _coerce_datetime(stuck_row.get("created_at")),
-                _coerce_datetime(stuck_row.get("next_attempt_at")),
-            ):
-                if value is not None:
-                    since_values.append(value)
-        since = min(since_values) if since_values else current
+        transition_times = [
+            value
+            for stuck_row in intake_rows
+            if (value := _coerce_datetime(stuck_row.get("updated_at"))) is not None
+        ]
+        since = min(transition_times) if transition_times else current
         stuck.append(
             {
                 "intake_id": intake_id,
@@ -302,6 +339,7 @@ async def init_schema(db: AsyncSurreal) -> None:  # pyright: ignore[reportGenera
         DEFINE FIELD IF NOT EXISTS worker_id ON intake_chunk TYPE option<string>;
         DEFINE FIELD IF NOT EXISTS last_error ON intake_chunk TYPE option<string>;
         DEFINE FIELD IF NOT EXISTS idempotency_key ON intake_chunk TYPE option<string>;
+        DEFINE FIELD IF NOT EXISTS paused ON intake_chunk TYPE bool DEFAULT false;
         DEFINE FIELD IF NOT EXISTS created_at ON intake_chunk TYPE datetime;
         DEFINE FIELD IF NOT EXISTS updated_at ON intake_chunk TYPE datetime;
         DEFINE INDEX IF NOT EXISTS intake_chunk_content_fts ON intake_chunk FIELDS content
@@ -311,6 +349,8 @@ async def init_schema(db: AsyncSurreal) -> None:  # pyright: ignore[reportGenera
 
         DEFINE TABLE IF NOT EXISTS intake_key SCHEMALESS;
         DEFINE FIELD IF NOT EXISTS intake_id ON intake_key TYPE string;
+        DEFINE FIELD IF NOT EXISTS fingerprint ON intake_key TYPE option<string>;
+        DEFINE FIELD IF NOT EXISTS chunk_count ON intake_key TYPE option<int>;
     """)
 
 
@@ -715,7 +755,10 @@ class Storage:
             {"vec": embedding},
         )
         rows = self._check(result, f"vector_search on {table}")
-        return [normalize_node(self._normalize(row)) for row in rows]
+        normalized = [normalize_node(self._normalize(row)) for row in rows]
+        if table == "intake_chunk":
+            return [_project_intake_evidence(row) for row in normalized]
+        return normalized
 
     async def _fulltext_candidates(self, table: str, query: str, k: int) -> list[dict]:
         """Return normalized BM25 candidates for a validated memory table."""
@@ -736,7 +779,10 @@ class Storage:
         for row in rows:
             record = dict(row)
             record.pop("score", None)
-            normalized.append(normalize_node(self._normalize(record)))
+            normalized_record = normalize_node(self._normalize(record))
+            if table == "intake_chunk":
+                normalized_record = _project_intake_evidence(normalized_record)
+            normalized.append(normalized_record)
         return normalized
 
     async def search_memory_candidates(
@@ -872,17 +918,66 @@ class Storage:
         if not chunks:
             return 0
         assert self._db is not None
+        fingerprint = _intake_fingerprint(chunks)
 
         if idempotency_key is not None:
             existing = await self._db.query(
-                "SELECT id FROM type::thing('intake_key', $key)",
+                "SELECT * FROM type::thing('intake_key', $key)",
                 {"key": idempotency_key},
             )
             existing_rows = self._check(
                 existing, "create_intake_chunks idempotency lookup"
             )
             if existing_rows:
-                return 0
+                key_row = existing_rows[0]
+                existing_intake_id = make_serializable(key_row.get("intake_id"))
+                if not isinstance(existing_intake_id, str):
+                    raise RuntimeError(
+                        "create_intake_chunks: invalid idempotency record"
+                    )
+                remaining = await self._db.query(
+                    "SELECT id FROM intake_chunk WHERE intake_id = $intake_id",
+                    {"intake_id": existing_intake_id},
+                )
+                remaining_rows = self._check(
+                    remaining, "create_intake_chunks idempotency rows"
+                )
+                if remaining_rows:
+                    existing_fingerprint = key_row.get("fingerprint")
+                    if existing_fingerprint is None:
+                        existing_fingerprint = _intake_fingerprint(
+                            [
+                                IntakeChunkDraft(
+                                    chunk_index=int(row.get("chunk_index", 0)),
+                                    total_chunks=int(row.get("total_chunks", 0)),
+                                    content=str(row.get("content", "")),
+                                    source=str(row.get("source", "api")),
+                                    hints=tuple(row.get("hints", ())),
+                                )
+                                for row in self._check(
+                                    await self._db.query(
+                                        "SELECT chunk_index, total_chunks, content, source, hints "
+                                        "FROM intake_chunk WHERE intake_id = $intake_id "
+                                        "ORDER BY chunk_index",
+                                        {"intake_id": existing_intake_id},
+                                    ),
+                                    "create_intake_chunks idempotency fingerprint",
+                                )
+                            ]
+                        )
+                    if str(existing_fingerprint) != fingerprint:
+                        raise IdempotencyConflict(
+                            "Idempotency-Key was already used for different intake content"
+                        )
+                    return int(key_row.get("chunk_count") or len(remaining_rows))
+                # A crash can leave the key after its final row deletion. Reclaim it.
+                self._check(
+                    await self._db.query(
+                        "DELETE FROM intake_key WHERE id = type::thing('intake_key', $key)",
+                        {"key": idempotency_key},
+                    ),
+                    "create_intake_chunks orphan key cleanup",
+                )
 
         contents = [chunk.content for chunk in chunks]
         embeddings = await self._embedder.embed_batch(contents)
@@ -902,6 +997,7 @@ class Storage:
                     "hints": list(chunk.hints),
                     "embedding": embedding,
                     "state": "ready",
+                    "paused": False,
                     "attempt_count": 0,
                     "next_attempt_at": None,
                     "lease_token": None,
@@ -917,12 +1013,14 @@ class Storage:
         variables: dict[str, Any] = {
             "intake_id": intake_id,
             "count": len(rows),
+            "fingerprint": fingerprint,
         }
         statements = ["BEGIN TRANSACTION;"]
         if idempotency_key is not None:
             variables["key"] = idempotency_key
             statements.append(
-                "CREATE type::thing('intake_key', $key) SET intake_id = $intake_id;"
+                "CREATE type::thing('intake_key', $key) SET intake_id = $intake_id, "
+                "fingerprint = $fingerprint, chunk_count = $count;"
             )
         for index, row in enumerate(rows):
             variable_name = f"row_{index}"
@@ -940,7 +1038,23 @@ class Storage:
             return await self._retry_transaction(write)
         except RuntimeError as exc:
             if idempotency_key is not None and "already exists" in str(exc).lower():
-                return 0
+                winner = await self._db.query(
+                    "SELECT * FROM type::thing('intake_key', $key)",
+                    {"key": idempotency_key},
+                )
+                winner_rows = self._check(winner, "create_intake_chunks winner lookup")
+                if winner_rows:
+                    winner_row = winner_rows[0]
+                    winner_fingerprint = winner_row.get("fingerprint")
+                    if (
+                        winner_fingerprint is not None
+                        and str(winner_fingerprint) != fingerprint
+                    ):
+                        raise IdempotencyConflict(
+                            "Idempotency-Key was already used for different intake content"
+                        ) from exc
+                    return int(winner_row.get("chunk_count") or 0)
+                raise
             raise
 
     async def claim_intake_batch(
@@ -955,7 +1069,7 @@ class Storage:
 
         async def claim() -> ClaimedBatch | None:
             result = await db.query(
-                "SELECT id, intake_id, chunk_index, state, next_attempt_at, "
+                "SELECT id, intake_id, chunk_index, state, paused, next_attempt_at, "
                 "lease_expires_at, created_at, string::len(content) AS chars "
                 "FROM intake_chunk"
             )
@@ -979,6 +1093,11 @@ class Storage:
             }
             sql = """
                 BEGIN TRANSACTION;
+                LET $paused = (SELECT count() AS count FROM intake_chunk
+                    WHERE intake_id = $intake_id AND paused = true GROUP ALL);
+                IF array::len($paused) > 0 AND $paused[0].count > 0 {
+                    THROW 'intake_conflict';
+                };
                 LET $live = (SELECT count() AS count FROM intake_chunk
                     WHERE intake_id = $intake_id
                     AND state = 'leased'
@@ -988,11 +1107,11 @@ class Storage:
                 };
                 LET $invalid = (SELECT count() AS count FROM intake_chunk
                     WHERE id IN $ids
-                    AND NOT (
+                    AND (paused = true OR NOT (
                         state = 'ready'
                         OR (state = 'retry_wait' AND next_attempt_at <= $now)
                         OR (state = 'leased' AND lease_expires_at <= $now)
-                    ) GROUP ALL);
+                    )) GROUP ALL);
                 IF array::len($invalid) > 0 AND $invalid[0].count > 0 {
                     THROW 'intake_conflict';
                 };
@@ -1033,6 +1152,20 @@ class Storage:
             # Another worker won the claim after our eligibility read.
             return None
 
+    async def renew_intake_batch(self, lease_token: str, lease_seconds: float) -> int:
+        """Extend a live lease and return the number of rows renewed."""
+        assert self._db is not None
+        now = _coerce_datetime(self._clock()) or datetime.now(UTC)
+        expiry = now + timedelta(seconds=lease_seconds)
+        result = await self._db.query(
+            "UPDATE intake_chunk SET lease_expires_at = $expiry, updated_at = $now "
+            "WHERE lease_token = $lease_token AND state = 'leased' "
+            "AND lease_expires_at > $now",
+            {"lease_token": lease_token, "expiry": expiry, "now": now},
+        )
+        rows = self._check(result, "renew_intake_batch")
+        return len(rows)
+
     async def release_intake_batch(
         self,
         lease_token: str,
@@ -1043,6 +1176,12 @@ class Storage:
         assert self._db is not None
         now = _coerce_datetime(self._clock()) or datetime.now(UTC)
         retry_at = _coerce_datetime(next_attempt_at) or next_attempt_at
+        variables = {
+            "lease_token": lease_token,
+            "error": error,
+            "next_attempt_at": retry_at,
+            "now": now,
+        }
         result = await self._db.query(
             "UPDATE intake_chunk SET "
             "state = 'retry_wait', "
@@ -1053,15 +1192,24 @@ class Storage:
             "lease_expires_at = NONE, "
             "worker_id = NONE, "
             "updated_at = $now "
-            "WHERE lease_token = $lease_token AND state = 'leased'",
-            {
-                "lease_token": lease_token,
-                "error": error,
-                "next_attempt_at": retry_at,
-                "now": now,
-            },
+            "WHERE lease_token = $lease_token AND state = 'leased' AND paused != true",
+            variables,
         )
         self._check(result, "release_intake_batch")
+        paused_result = await self._db.query(
+            "UPDATE intake_chunk SET "
+            "state = 'paused', "
+            "last_error = $error, "
+            "next_attempt_at = NONE, "
+            "attempt_count = attempt_count + 1, "
+            "lease_token = NONE, "
+            "lease_expires_at = NONE, "
+            "worker_id = NONE, "
+            "updated_at = $now "
+            "WHERE lease_token = $lease_token AND state = 'leased' AND paused = true",
+            variables,
+        )
+        self._check(paused_result, "release_intake_batch paused")
 
     async def delete_intake_batch(self, lease_token: str) -> int:
         """Delete a successful lease's rows without changing newer leases."""
@@ -1092,12 +1240,13 @@ class Storage:
             # aggregate SELECT inside the delete transaction. Check after
             # commit, with a conditional delete, so partial processing retains
             # its idempotency key.
-            await db.query(
+            cleanup = await db.query(
                 "DELETE FROM intake_key WHERE intake_id = $intake_id "
                 "AND count((SELECT * FROM intake_chunk "
                 "WHERE intake_id = $intake_id)) = 0",
                 {"intake_id": intake_id},
             )
+            self._check(cleanup, "delete_intake_batch idempotency cleanup")
         return int(result.get("count", 0) or 0)
 
     async def get_intake_chunks(self, record_ids: list[str]) -> list[dict]:
@@ -1117,15 +1266,28 @@ class Storage:
             result = await self._db.query(f"SELECT * OMIT embedding FROM {record_id}")
             rows = self._check(result, f"get_intake_chunks({record_id})")
             if rows:
-                records.append(normalize_node(self._normalize(rows[0])))
+                records.append(_project_intake_evidence(self._normalize(rows[0])))
         return records
 
     async def search_intake_chunks(self, query: str, k: int) -> list[dict]:
-        """Search queued intake chunks and return evidence without embeddings."""
+        """Search queued chunks for queue consumers without embedding arrays."""
+        assert self._db is not None
         embedding = await self._embedder.embed(query)
         vector = await self._vector_candidates("intake_chunk", embedding, k)
         fulltext = await self._fulltext_candidates("intake_chunk", query, k)
-        return _rrf_fuse([vector, fulltext], k)
+        fused = _rrf_fuse([vector, fulltext], k)
+        # This queue-facing helper retains operational fields for worker tests
+        # and diagnostics. Public recall uses search_memory_candidates instead.
+        records: list[dict] = []
+        for candidate in fused:
+            record_id = candidate.get("id")
+            if not isinstance(record_id, str):
+                continue
+            result = await self._db.query(f"SELECT * OMIT embedding FROM {record_id}")
+            rows = self._check(result, f"search_intake_chunks({record_id})")
+            if rows:
+                records.append(normalize_node(self._normalize(rows[0])))
+        return records
 
     async def intake_queue_snapshot(self) -> IntakeQueueSnapshot:
         """Return aggregate queue counts and bounded operational errors."""
@@ -1139,22 +1301,46 @@ class Storage:
         )
 
     async def set_intake_paused(self, intake_id: str, paused: bool) -> int:
-        """Pause or resume ready and retry-wait rows for one intake."""
+        """Persist pause intent for every remaining row in one intake."""
         assert self._db is not None
         now = _coerce_datetime(self._clock()) or datetime.now(UTC)
+        existing = await self._db.query(
+            "SELECT id FROM intake_chunk WHERE intake_id = $intake_id",
+            {"intake_id": intake_id},
+        )
+        existing_rows = self._check(
+            existing, f"set_intake_paused lookup({intake_id}, {paused})"
+        )
+        if not existing_rows:
+            return 0
+        variables = {"intake_id": intake_id, "now": now}
         if paused:
-            query = (
+            flag_result = await self._db.query(
+                "UPDATE intake_chunk SET paused = true, updated_at = $now "
+                "WHERE intake_id = $intake_id",
+                variables,
+            )
+            self._check(flag_result, f"set_intake_paused flag({intake_id})")
+            state_result = await self._db.query(
                 "UPDATE intake_chunk SET state = 'paused', updated_at = $now "
-                "WHERE intake_id = $intake_id AND state IN ['ready', 'retry_wait']"
+                "WHERE intake_id = $intake_id AND state IN ['ready', 'retry_wait']",
+                variables,
             )
+            self._check(state_result, f"set_intake_paused state({intake_id})")
         else:
-            query = (
-                "UPDATE intake_chunk SET state = 'ready', next_attempt_at = NONE, "
-                "updated_at = $now WHERE intake_id = $intake_id AND state = 'paused'"
+            flag_result = await self._db.query(
+                "UPDATE intake_chunk SET paused = false, updated_at = $now "
+                "WHERE intake_id = $intake_id",
+                variables,
             )
-        result = await self._db.query(query, {"intake_id": intake_id, "now": now})
-        rows = self._check(result, f"set_intake_paused({intake_id}, {paused})")
-        return len(rows)
+            self._check(flag_result, f"set_intake_resumed flag({intake_id})")
+            state_result = await self._db.query(
+                "UPDATE intake_chunk SET state = 'ready', next_attempt_at = NONE, "
+                "updated_at = $now WHERE intake_id = $intake_id AND state = 'paused'",
+                variables,
+            )
+            self._check(state_result, f"set_intake_resumed state({intake_id})")
+        return len(existing_rows)
 
     async def delete_intake(self, intake_id: str) -> int:
         """Delete all remaining queue rows and idempotency keys for one intake."""

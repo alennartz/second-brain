@@ -24,7 +24,7 @@ from second_brain.agents.recall import (
     fetch_cited_context,
 )
 from second_brain.config import settings
-from second_brain.db import Embedder, Storage
+from second_brain.db import Embedder, IdempotencyConflict, Storage
 from second_brain.mcp import configure as configure_mcp
 from second_brain.mcp import mcp
 from second_brain.models import (
@@ -64,7 +64,7 @@ _ingest_agent = create_ingest_agent()
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()
 
-# ── Ingest job store ──────────────────────────────────────────────────────────
+# ── Background dream job store ───────────────────────────────────────────────
 
 
 class JobStatus(StrEnum):
@@ -188,6 +188,7 @@ async def lifespan(app: FastAPI):
             poll_interval_seconds=settings.intake_poll_interval_seconds,
             retry_base_delay_seconds=settings.intake_retry_base_delay_seconds,
             retry_max_delay_seconds=settings.intake_retry_max_delay_seconds,
+            shutdown_grace_seconds=settings.intake_shutdown_grace_seconds,
             activity_callback=(
                 _scheduler.touch_activity if _scheduler is not None else None
             ),
@@ -456,6 +457,8 @@ async def ingest(
                 idempotency_key=idempotency_key,
             )
         )
+    except IdempotencyConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return IngestResponse(chunks_stored=result.chunks_stored)
@@ -476,7 +479,9 @@ async def pause_ingestion(intake_id: str) -> dict[str, str]:
     pipeline = _ingestion_pipeline
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
-    await pipeline.pause_intake(intake_id)
+    changed = await pipeline.pause_intake(intake_id)
+    if changed == 0:
+        raise HTTPException(status_code=404, detail=f"Intake {intake_id} not found")
     return {"intake_id": intake_id}
 
 
@@ -486,7 +491,9 @@ async def resume_ingestion(intake_id: str) -> dict[str, str]:
     pipeline = _ingestion_pipeline
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
-    await pipeline.resume_intake(intake_id)
+    changed = await pipeline.resume_intake(intake_id)
+    if changed == 0:
+        raise HTTPException(status_code=404, detail=f"Intake {intake_id} not found")
     return {"intake_id": intake_id}
 
 
@@ -497,6 +504,8 @@ async def discard_ingestion(intake_id: str) -> dict[str, str | int]:
     if pipeline is None:
         raise HTTPException(status_code=503, detail="Intake pipeline is unavailable")
     chunks_discarded = await pipeline.discard_intake(intake_id)
+    if chunks_discarded == 0:
+        raise HTTPException(status_code=404, detail=f"Intake {intake_id} not found")
     return {"intake_id": intake_id, "chunks_discarded": chunks_discarded}
 
 

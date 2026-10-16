@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 class IngestDeps:
     storage: Storage
     storage_errors: list[str] = field(default_factory=list)
+    _write_failures: dict[str, list[str]] = field(default_factory=dict, repr=False)
+
+    def record_write_attempt(self, operation: str, errors: list[str]) -> None:
+        """Replace one operation's errors and expose only unresolved failures."""
+        if errors:
+            self._write_failures[operation] = [str(error) for error in errors]
+        else:
+            self._write_failures.pop(operation, None)
+        self.storage_errors[:] = [
+            error for failures in self._write_failures.values() for error in failures
+        ]
 
 
 class AgentIngestBatchRunner:
@@ -156,12 +167,14 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 notes,
                 edges,
             )
-            ctx.deps.storage_errors.extend(result.get("storage_errors", []))
+            ctx.deps.record_write_attempt(
+                "store_knowledge", list(result.get("storage_errors", []))
+            )
             return result
         except Exception as e:
             logger.error("ingest: store_knowledge failed: %s", e)
             message = str(e)
-            ctx.deps.storage_errors.append(message)
+            ctx.deps.record_write_attempt("store_knowledge", [message])
             return {"error": message}
 
     @agent.tool
@@ -174,11 +187,12 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         )
         try:
             result = await ctx.deps.storage.update_node(record_id, fields)
+            ctx.deps.record_write_attempt(f"update_node:{record_id}", [])
             return result
         except Exception as e:
             logger.error("ingest: update_node failed: %s", e)
             message = str(e)
-            ctx.deps.storage_errors.append(message)
+            ctx.deps.record_write_attempt(f"update_node:{record_id}", [message])
             return {"error": message}
 
     return agent

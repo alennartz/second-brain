@@ -14,7 +14,6 @@ judge to score quality. State and timing data persist after each operation.
 """
 
 import contextlib
-import hashlib
 import json
 import os
 import shutil
@@ -573,7 +572,6 @@ CROSS_DOMAIN_ASSERTIONS = [
 # ════════════════════════════════════════════════════════════════════════════
 
 OP_TIMEOUT_S = float(os.environ.get("BENCH_OP_TIMEOUT", "900"))
-POLL_INTERVAL_S = 2.0
 
 
 class BenchInterrupt(Exception):
@@ -598,12 +596,11 @@ class BenchState:
                 "recall": [],  # one record per answered question
                 "graph": [],  # one record per probed entity
                 "judge": {},  # section name -> results
-                "inflight_ingest": {},  # snippet index -> submitted job metadata
                 "current": None,
                 "interrupted": False,
             }
             self.save()
-        self.data.setdefault("inflight_ingest", {})
+        self.data.pop("inflight_ingest", None)
         self.data.setdefault("current", None)
         self.data.setdefault("interrupted", False)
         self.data["interrupted"] = False
@@ -614,7 +611,6 @@ class BenchState:
             self.data["ingest"]
             or self.data["recall"]
             or self.data["graph"]
-            or self.data.get("inflight_ingest")
             or self.data.get("current")
         )
 
@@ -797,51 +793,35 @@ class ServerSupervisor:
     def __exit__(self, exc_type, exc, tb):
         if exc_type is None:
             self.stop_proc()
-        # On pause/failure, leave the separate API unit and its job registry up.
-        # Resume reattaches to the same server and preserves submitted jobs.
+        # On pause/failure, leave the separate API unit running.
+        # Resume reattaches to the same server and preserves staged intake.
 
 
 # --- Phase runners (resumable: skip work already in state) ---
 
 
 def _ingest_one(client, base, snippet, deadline, state: BenchState, index: int) -> dict:
-    key = str(index)
-    while time.time() < deadline:
-        inflight = state.data["inflight_ingest"].get(key)
-        if inflight:
-            job_id = inflight["job_id"]
-            started_epoch = inflight["started_epoch"]
-            print(f"  resuming submitted job {job_id} for snippet {index + 1}")
-        else:
-            resp = client.post(f"{base}/ingest", json={"text": snippet}, timeout=30)
-            if resp.status_code != 202:
-                raise RuntimeError(f"unexpected status {resp.status_code}")
-            job_id = resp.json()["job_id"]
-            started_epoch = time.time()
-            state.data["inflight_ingest"][key] = {
-                "job_id": job_id,
-                "started_epoch": started_epoch,
-                "snippet_hash": hashlib.sha256(snippet.encode()).hexdigest(),
-            }
-            state.save()
-        while time.time() < deadline:
-            time.sleep(POLL_INTERVAL_S)
-            poll = client.get(f"{base}/ingest/jobs/{job_id}", timeout=10)
-            if poll.status_code == 404:
-                # The API keeps job state in memory. If it restarted, submit again.
-                state.data["inflight_ingest"].pop(key, None)
-                state.save()
-                break
-            poll.raise_for_status()
-            job = poll.json()
-            if job["status"] in ("complete", "failed"):
-                job["elapsed_s"] = round(time.time() - started_epoch, 2)
-                state.data["inflight_ingest"].pop(key, None)
-                state.save()
-                return job
-        else:
-            break
-    raise TimeoutError(f"ingest job for snippet {index + 1} exceeded op deadline")
+    """Stage one snippet through the synchronous intake endpoint."""
+    if time.time() >= deadline:
+        raise TimeoutError(f"ingest for snippet {index + 1} exceeded op deadline")
+    started_epoch = time.time()
+    key = f"{state.data['name']}:{index}"
+    resp = client.post(
+        f"{base}/ingest",
+        json={"text": snippet},
+        headers={"Idempotency-Key": key},
+        timeout=min(30, max(1, int(deadline - started_epoch))),
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    chunks_stored = payload.get("chunks_stored")
+    if not isinstance(chunks_stored, int) or chunks_stored < 0:
+        raise RuntimeError("ingest response omitted a valid chunks_stored count")
+    return {
+        "status": "complete",
+        "chunks_stored": chunks_stored,
+        "elapsed_s": round(time.time() - started_epoch, 2),
+    }
 
 
 def ingest_phase(client, sup: ServerSupervisor, base, state: BenchState):
@@ -870,7 +850,7 @@ def ingest_phase(client, sup: ServerSupervisor, base, state: BenchState):
                 deadline = time.time() + OP_TIMEOUT_S
                 record = _ingest_one(client, base, snippet, deadline, state, i)
                 if record.get("status") == "failed":
-                    raise RuntimeError(record.get("error") or "ingest job failed")
+                    raise RuntimeError(record.get("error") or "intake staging failed")
                 record["elapsed_s"] = round(time.time() - t0, 2)
                 break
             except BenchInterrupt:

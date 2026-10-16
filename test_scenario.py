@@ -645,7 +645,7 @@ GRAPH_PROBES = SPACE_PROBES + RENAISSANCE_PROBES
 
 
 def ingest_all(client: httpx.Client) -> list[dict]:
-    """Ingest all snippets via async job API and poll for completion."""
+    """Stage all snippets through the synchronous intake API."""
     results = []
     for i, snippet in enumerate(SNIPPETS, 1):
         domain = "SPACE" if i <= len(SPACE_SNIPPETS) else "RENAISSANCE"
@@ -654,28 +654,18 @@ def ingest_all(client: httpx.Client) -> list[dict]:
         print(f"INGEST {i}/{len(SNIPPETS)} [{domain} #{domain_idx}]")
         print(f"{'=' * 60}")
         print(f"Text: {snippet[:120]}...")
-        resp = client.post(f"{BASE}/ingest", json={"text": snippet}, timeout=10)
-        if resp.status_code != 202:
+        resp = client.post(f"{BASE}/ingest", json={"text": snippet}, timeout=30)
+        if resp.status_code != 200:
             print(f"  ⚠ Unexpected status: {resp.status_code}")
             continue
-        job = resp.json()
-        job_id = job["job_id"]
-        print(f"  Job: {job_id}")
-
-        # Poll for completion
-        while True:
-            time.sleep(2)
-            poll = client.get(f"{BASE}/ingest/jobs/{job_id}", timeout=10)
-            status = poll.json()["status"]
-            if status in ("complete", "failed"):
-                data = poll.json()
-                results.append(data)
-                if data.get("summary"):
-                    print(f"  Summary: {data['summary'][:200]}...")
-                elif data.get("error"):
-                    print(f"  ⚠ Failed: {data['error'][:200]}")
-                break
-        time.sleep(1)
+        data = resp.json()
+        chunks_stored = data.get("chunks_stored")
+        if not isinstance(chunks_stored, int):
+            print("  ⚠ Response omitted chunks_stored")
+            continue
+        data["status"] = "complete"
+        results.append(data)
+        print(f"  Queued {chunks_stored} chunks for background ingestion")
     return results
 
 

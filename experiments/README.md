@@ -23,15 +23,15 @@ make bench-resume NAME=06-baseline-gemma4
 ```
 
 `bench-stop` sends SIGTERM. The runner saves state and exits cleanly. Resume uses
-its existing database and state. An interrupted ingest keeps its server job ID,
-so resume polls that job instead of submitting a duplicate. A new benchmark needs
-a new name. Do not delete `experiments/data/<name>/state.json` or the scratch DB
-if you want to resume.
+its existing database and state. Intake requests use deterministic idempotency
+keys, so a retry does not stage a duplicate. A new benchmark needs a new name.
+Do not delete `experiments/data/<name>/state.json` or the scratch DB if you want
+to resume.
 
 ## Durable state and artifacts
 
 `experiments/data/<name>/state.json` is the source of truth. It records the
-current phase, completed work, in-flight ingest job, and accumulated runtime.
+current phase, completed work, staged chunk counts, and accumulated runtime.
 The phase JSON files update after each operation. `latency.json`, `llm_scores.json`,
 and the journal entry appear as their phases complete. The journal writer replaces
 an existing entry with the same run name, so a crash at finalization will not
@@ -40,6 +40,6 @@ create duplicate entries.
 The runner service is named `brain-benchmark-<name>.service`; the API runs in a
 separate `brain-benchmark-api-<port>.service`. Systemd restarts both after
 unexpected failure and keeps runner output in the run log. A normal interrupt
-stops only the runner, so an in-flight server job remains available for resume.
+stops only the runner, so staged intake remains available for resume.
 The API stops when the benchmark completes. User lingering is required to run
 after logout; this machine has lingering enabled.

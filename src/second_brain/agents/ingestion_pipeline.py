@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -144,8 +145,21 @@ def split_intake_text(text: str, max_chars: int) -> list[str]:
 
 
 def retry_delay(failed_attempts: int, base: float, cap: float) -> float:
-    """Return capped exponential delay for a failed batch attempt."""
-    return min(base * 2 ** (failed_attempts - 1), cap)
+    """Return capped exponential delay without overflowing large attempts."""
+    if failed_attempts <= 0 or base <= 0 or cap <= 0:
+        return 0.0
+    if base >= cap:
+        return cap
+    exponent = failed_attempts - 1
+    if math.isfinite(cap) and math.isfinite(base):
+        saturation = math.ceil(math.log2(cap / base))
+        if exponent >= saturation:
+            return cap
+    try:
+        value = math.ldexp(base, exponent)
+    except (OverflowError, ValueError):
+        return cap
+    return min(value, cap)
 
 
 class IngestionPipeline:
@@ -164,6 +178,7 @@ class IngestionPipeline:
         poll_interval_seconds: float = 1,
         retry_base_delay_seconds: float = 5,
         retry_max_delay_seconds: float = 3_600,
+        shutdown_grace_seconds: float = 10,
         activity_callback: Callable[[], None] | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -178,6 +193,7 @@ class IngestionPipeline:
         self.poll_interval_seconds = poll_interval_seconds
         self.retry_base_delay_seconds = retry_base_delay_seconds
         self.retry_max_delay_seconds = retry_max_delay_seconds
+        self.shutdown_grace_seconds = shutdown_grace_seconds
         self.activity_callback = activity_callback
         self.clock = clock if clock is not None else lambda: datetime.now(UTC)
         self._pipeline_id = uuid4().hex
@@ -223,13 +239,34 @@ class IngestionPipeline:
         ]
 
     async def stop(self) -> None:
-        """Stop workers and await their completion."""
+        """Stop workers, bounding shutdown when a provider call is stuck."""
         if not self._worker_tasks:
             return
         self._stop_event.set()
-        tasks = self._worker_tasks
+        tasks = list(self._worker_tasks)
         try:
-            await asyncio.gather(*tasks)
+            done, pending = await asyncio.wait(
+                tasks, timeout=max(0.0, self.shutdown_grace_seconds)
+            )
+            await asyncio.gather(*done, return_exceptions=True)
+            if pending:
+                logger.warning(
+                    "cancelling %d ingestion workers after shutdown grace period",
+                    len(pending),
+                )
+                for task in pending:
+                    task.cancel()
+                # Normal provider calls honor cancellation. Do not let a
+                # provider that suppresses cancellation block application exit.
+                finished, still_pending = await asyncio.wait(
+                    pending, timeout=max(0.1, self.shutdown_grace_seconds)
+                )
+                await asyncio.gather(*finished, return_exceptions=True)
+                if still_pending:
+                    logger.error(
+                        "%d ingestion workers ignored shutdown cancellation",
+                        len(still_pending),
+                    )
         finally:
             self._worker_tasks = []
 
@@ -250,13 +287,13 @@ class IngestionPipeline:
             recent_errors=list(queue.recent_errors),
         )
 
-    async def pause_intake(self, intake_id: str) -> None:
-        """Pause ready and retry-wait chunks for one intake."""
-        await self.storage.set_intake_paused(intake_id, True)
+    async def pause_intake(self, intake_id: str) -> int:
+        """Pause every remaining chunk for one intake and return its row count."""
+        return await self.storage.set_intake_paused(intake_id, True)
 
-    async def resume_intake(self, intake_id: str) -> None:
-        """Resume paused chunks for one intake."""
-        await self.storage.set_intake_paused(intake_id, False)
+    async def resume_intake(self, intake_id: str) -> int:
+        """Resume every paused chunk for one intake and return its row count."""
+        return await self.storage.set_intake_paused(intake_id, False)
 
     async def discard_intake(self, intake_id: str) -> int:
         """Delete remaining chunks for one intake without changing graph records."""
@@ -283,7 +320,18 @@ class IngestionPipeline:
                 if await self._wait_for_poll_or_stop():
                     break
                 continue
-            await self._process_batch(batch)
+            try:
+                await self._process_batch(batch)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "ingestion worker %s failed while processing lease %s",
+                    worker_id,
+                    batch.lease_token,
+                )
+                if await self._wait_for_poll_or_stop():
+                    break
 
     async def _wait_for_poll_or_stop(self) -> bool:
         """Wait for either a stop signal or the next queue poll."""
@@ -304,24 +352,98 @@ class IngestionPipeline:
         except Exception:
             logger.exception("ingestion activity callback failed")
 
+    async def _renew_lease_loop(
+        self,
+        batch: ClaimedBatch,
+        runner_task: asyncio.Task[IngestBatchOutcome],
+        stop_event: asyncio.Event,
+        lease_lost: asyncio.Event,
+    ) -> None:
+        """Renew a live lease and cancel the runner when ownership is lost."""
+        interval = max(0.01, self.lease_seconds / 3)
+        while True:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                return
+            except TimeoutError:
+                pass
+            try:
+                renewed = await self.storage.renew_intake_batch(
+                    batch.lease_token, self.lease_seconds
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "failed to renew ingestion lease %s", batch.lease_token
+                )
+                lease_lost.set()
+                runner_task.cancel()
+                return
+            if renewed != len(batch.chunks):
+                logger.error(
+                    "lost ingestion lease %s for intake %s (%d/%d rows renewed)",
+                    batch.lease_token,
+                    batch.intake_id,
+                    renewed,
+                    len(batch.chunks),
+                )
+                lease_lost.set()
+                runner_task.cancel()
+                return
+
     async def _process_batch(self, batch: ClaimedBatch) -> None:
         """Run one leased batch and acknowledge or release it."""
         self._touch_activity()
+        heartbeat_stop = asyncio.Event()
+        lease_lost = asyncio.Event()
+        runner_task: asyncio.Task[IngestBatchOutcome] | None = None
+        heartbeat_task: asyncio.Task[None] | None = None
         try:
             text = "".join(chunk["content"] for chunk in batch.chunks)
             hints = list(batch.chunks[0]["hints"]) if batch.chunks else []
+            runner_task = asyncio.create_task(self.runner.run(text, hints))
+            heartbeat_task = asyncio.create_task(
+                self._renew_lease_loop(batch, runner_task, heartbeat_stop, lease_lost)
+            )
+            outcome: IngestBatchOutcome | None = None
+            failure: BaseException | None = None
             try:
-                outcome = await self.runner.run(text, hints)
-                clean = outcome.completed and not outcome.errors
-                failure: Exception | None = None
+                outcome = await runner_task
+            except asyncio.CancelledError:
+                if not lease_lost.is_set():
+                    raise
             except Exception as exc:
-                outcome = None
-                clean = False
                 failure = exc
+
+            if lease_lost.is_set():
+                return
+            clean = (
+                failure is None
+                and outcome is not None
+                and outcome.completed
+                and not outcome.errors
+            )
+            heartbeat_stop.set()
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                await asyncio.wait({heartbeat_task}, timeout=0.1)
+                heartbeat_task = None
+            if lease_lost.is_set():
+                return
 
             if clean:
                 try:
-                    await self.storage.delete_intake_batch(batch.lease_token)
+                    deleted = await self.storage.delete_intake_batch(batch.lease_token)
+                    if deleted != len(batch.chunks):
+                        logger.error(
+                            "lost ingestion lease %s for intake %s during acknowledgement "
+                            "(%d/%d rows deleted)",
+                            batch.lease_token,
+                            batch.intake_id,
+                            deleted,
+                            len(batch.chunks),
+                        )
                 except Exception:
                     logger.exception(
                         "failed to delete completed ingestion batch %s",
@@ -361,4 +483,17 @@ class IngestionPipeline:
                         batch.lease_token,
                     )
         finally:
+            heartbeat_stop.set()
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                finished, _pending = await asyncio.wait({heartbeat_task}, timeout=0.1)
+                if not finished:
+                    logger.error("ingestion lease heartbeat ignored cancellation")
+            if runner_task is not None and not runner_task.done():
+                runner_task.cancel()
+                finished, _pending = await asyncio.wait(
+                    {runner_task}, timeout=max(0.1, self.shutdown_grace_seconds)
+                )
+                if not finished:
+                    logger.error("ingestion runner ignored cancellation")
             self._touch_activity()

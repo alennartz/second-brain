@@ -17,25 +17,28 @@ graph LR
 
 **Ingest → Knowledge Graph**
 
+`POST /ingest` synchronously chunks, embeds, and stores raw intake evidence. It
+returns `EnqueueResult {chunks_stored}`. The `IngestionPipeline` claims queued
+chunks, invokes the ingest agent through `AgentIngestBatchRunner`, and deletes a
+batch only after a clean graph write. Unprocessed chunks remain searchable until
+that acknowledgement.
+
 ```mermaid
 sequenceDiagram
   participant C as Client
   participant A as API
+  participant Q as IngestionPipeline
   participant IA as Agents (Ingest)
   participant T as Tools
   participant DB as Core (DB)
   C->>A: POST /ingest {text, hints}
-  A->>IA: run ingest agent
-  IA->>T: search_knowledge (dedup check)
-  T->>DB: hybrid_search
-  DB-->>T: existing nodes
-  T-->>IA: matches
-  IA->>T: store_knowledge (entities + notes + edges)
-  T->>DB: INSERT with auto-embed
-  DB-->>T: created records
-  T-->>IA: confirmation
-  IA-->>A: structured result
-  A-->>C: IngestResponse {answer, context}
+  A->>Q: enqueue and embed source chunks
+  Q->>DB: CREATE intake_chunk rows
+  DB-->>Q: searchable queued chunks
+  Q->>IA: process a leased batch
+  IA->>T: search_knowledge and store_knowledge
+  T->>DB: write notes, entities, and edges
+  Q->>DB: delete acknowledged chunks
 ```
 
 **Dream Cycle (Background)**
@@ -73,7 +76,13 @@ sequenceDiagram
 
 Foundation layer: configuration, shared types, database storage abstraction, model/embedding factory, and input validation.
 
-**Responsibilities:** environment-based settings (`BRAIN_` prefix, including dream scheduler backoff/delay tuning), SurrealDB schema definition (tables, BM25 analyzers, HNSW vector indexes), `Storage` class wrapping all raw SurrealQL behind graph-concept operations (node/edge CRUD, hybrid search, vector search, batch operations, graph traversal), `Embedder` protocol for embedding injection, auto-embedding on node create/update, query result validation (`Storage._check`), Pydantic models and serialization helpers for SurrealDB types (RecordID, datetime), model/embedding provider factory (direct API keys, Azure Foundry with AAD/key auth), record ID and identifier validation
+**Responsibilities:** environment-based settings (`BRAIN_`, including queue lease,
+retry, and shutdown limits), SurrealDB schema definition (graph tables,
+`intake_chunk` and `intake_key`, BM25 analyzers, HNSW vector indexes), `Storage`
+wrapping raw SurrealQL behind graph and queue operations (CRUD, lease/retry,
+atomic staging, snapshots, cross-layer search candidates, and graph traversal),
+`Embedder` injection, auto-embedding, query validation, typed models and
+serialization helpers, provider factories, and record ID validation
 
 **Dependencies:** none (leaf module — everything else depends on this)
 
@@ -91,12 +100,21 @@ Foundation layer: configuration, shared types, database storage abstraction, mod
 - `tests/test_providers.py`
 - `tests/test_embedding.py`
 - `tests/test_validation.py`
+- `tests/test_intake_storage.py`
+- `tests/test_intake_recall.py`
 
 ### Tools
 
-Business logic layer consumed by agents. Composes `Storage` primitives from Core — no raw SurrealQL or `AsyncSurreal` imports. Three tool sets: ingest (composite `store_knowledge` with index-based reference resolution for one-call creation, plus edge creation with dedup), recall (hybrid search with RRF fusion, node lookup, edge enrichment), and dream (semantic similarity search, node/edge merging, graph traversal, co-occurrence discovery). All functions take `storage: Storage` as their first argument.
+Business logic layer consumed by agents. Composes `Storage` primitives from Core
+without raw SurrealQL or `AsyncSurreal` imports. Tool sets cover ingest
+(`store_knowledge` with reference resolution), recall (`search_memory` with
+balanced cross-layer RRF and separate unprocessed evidence), and dream (semantic
+search, merging, traversal, and co-occurrence discovery). All functions take
+`storage: Storage` first.
 
-**Responsibilities:** composite store_knowledge (creates entities/notes/edges in one call, resolves `new_entity:N`/`new_note:N` references to record IDs via Storage primitives), edge creation with dedup checks, RRF fusion over Storage's BM25 + vector search, edge neighborhood enrichment, node/edge merging with re-pointing, graph traversal and structural pattern discovery, batch record fetching
+**Responsibilities:** graph writes and edge deduplication, write-failure
+reporting, cross-layer candidate fusion and graph-only enrichment, node/edge
+merging, traversal, structural discovery, and citation evidence shaping
 
 **Dependencies:** Core (Storage for all DB operations, validation helpers)
 
@@ -109,10 +127,17 @@ Business logic layer consumed by agents. Composes `Storage` primitives from Core
 - `tests/test_store_knowledge.py`
 - `tests/test_recall_tools.py`
 - `tests/test_dream_tools.py`
+- `tests/test_intake_recall.py`
 
 ### Agents
 
-Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest** (parse input → deduplicate → store_knowledge in one call with reference resolution), **recall** (hybrid search → synthesize answer with citations), **converse** (multi-turn router delegating to ingest/recall as sub-tools). Background: **dream-dedup** (find and merge duplicate nodes/edges), **dream-connect** (discover missing edges via co-occurrence, traversal, and similarity). A fast-path Jev routing pass (routing.py) classifies pure recall/ingest turns and dispatches them straight to their sub-agent, skipping the converse router LLM round-trip; everything else falls through to the converse agent. The scheduler manages dream cycle timing with exponential backoff between cycles and a convergence cutoff — it stops after `ceil(sqrt(total_nodes / batch_size))` cycles per idle period and waits for new user activity before resuming.
+Five PydanticAI agent loops plus a background scheduler. User-facing **ingest**
+stages raw text synchronously; the background `IngestionPipeline` invokes the
+existing tool-driven agent to organize leased batches. **Recall** searches
+organized and unprocessed evidence, and **converse** routes multi-turn requests
+to those tools. Background **dream-dedup** and **dream-connect** refine the graph.
+A fast-path Jev routing pass remains unchanged. The scheduler manages idle timing,
+exponential delay, and convergence per idle period.
 
 **Responsibilities:** LLM prompt definitions and system instructions, agent dependency injection (Deps dataclasses holding `storage: Storage`), tool registration per agent (ingest exposes single `store_knowledge` wrapper instead of separate create tools), conversation context accumulation, dream cycle orchestration (idle-triggered, activity-aware, with `DreamCycleState` managing exponential backoff delays and per-idle-period cycle cutoff), progress streaming via async queues
 
@@ -120,6 +145,7 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 
 **Files:**
 - `src/second_brain/agents/ingest.py`
+- `src/second_brain/agents/ingestion_pipeline.py`
 - `src/second_brain/agents/recall.py`
 - `src/second_brain/agents/converse.py`
 - `src/second_brain/agents/routing.py`
@@ -128,6 +154,7 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 - `src/second_brain/agents/__init__.py`
 - `src/second_brain/scheduler.py`
 - `tests/test_ingest_agent.py`
+- `tests/test_ingestion_pipeline.py`
 - `tests/test_recall_agent.py`
 - `tests/test_converse_agent.py`
 - `tests/test_converse_routing_http.py`
@@ -138,9 +165,14 @@ Five PydanticAI agent loops plus a background scheduler. User-facing: **ingest**
 
 ### API
 
-HTTP and MCP entry points. FastAPI app with lifespan management (DB init, dream scheduler start/stop), request/response models, and route handlers. MCP server exposes ingest/recall/graph as Model Context Protocol tools for external AI clients.
+HTTP and MCP entry points. FastAPI app owns storage and pipeline lifespan,
+request/response models, route handlers, and MCP tool wiring.
 
-**Responsibilities:** REST endpoints (/health, /ingest and /dream as async 202 jobs with polling via /ingest/jobs/{id} and /dream/jobs/{id}, /recall, /converse, /converse/stream, /graph/{id}), SSE streaming for converse, app lifespan (constructs `Storage` at startup, injects into all Deps and scheduler), request validation and response shaping, MCP tool definitions wrapping agent runners
+**Responsibilities:** REST endpoints (`/health`, synchronous `POST /ingest` with
+`chunks_stored`, `/ingest/pipeline*` controls, async 202 `/dream` with dream-job
+polling, `/recall`, `/converse`, `/converse/stream`, and `/graph/{id}`), SSE
+streaming, startup/shutdown injection, validation, response shaping, and MCP
+tools for staging, recall, and graph lookup
 
 **Dependencies:** Core (config, Storage + Embedder, models, providers, validation), Agents (all five agents + scheduler)
 
@@ -149,6 +181,10 @@ HTTP and MCP entry points. FastAPI app with lifespan management (DB init, dream 
 - `src/second_brain/mcp.py`
 - `tests/test_app.py`
 - `tests/test_mcp.py`
+- `tests/test_intake_http.py`
+- `tests/test_intake_mcp.py`
+- `tests/test_intake_converse.py`
+- `tests/test_intake_recall_http.py`
 - `tests/conftest.py`
 - `tests/__init__.py`
 

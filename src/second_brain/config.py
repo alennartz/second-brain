@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     intake_poll_interval_seconds: float = 1
     intake_retry_base_delay_seconds: float = 5
     intake_retry_max_delay_seconds: float = 3_600
-    intake_shutdown_grace_seconds: float = 10
+    intake_shutdown_grace_seconds: float = 60
 
     model_config = {"env_prefix": "BRAIN_", "env_file": ".env"}
 

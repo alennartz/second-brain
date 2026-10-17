@@ -654,6 +654,8 @@ def ingest_all(client: httpx.Client) -> list[dict]:
         print(f"INGEST {i}/{len(SNIPPETS)} [{domain} #{domain_idx}]")
         print(f"{'=' * 60}")
         print(f"Text: {snippet[:120]}...")
+        started = time.monotonic()
+        deadline = started + 600
         resp = client.post(f"{BASE}/ingest", json={"text": snippet}, timeout=30)
         if resp.status_code != 200:
             print(f"  ⚠ Unexpected status: {resp.status_code}")
@@ -663,6 +665,20 @@ def ingest_all(client: httpx.Client) -> list[dict]:
         if not isinstance(chunks_stored, int):
             print("  ⚠ Response omitted chunks_stored")
             continue
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("intake queue did not drain within 600 seconds")
+            snapshot = client.get(f"{BASE}/ingest/pipeline", timeout=min(30, remaining))
+            snapshot.raise_for_status()
+            counts = snapshot.json()
+            if all(
+                counts[field] == 0
+                for field in ("ready", "leased", "retry_wait", "paused")
+            ):
+                break
+            time.sleep(min(1, remaining))
+        data["elapsed_s"] = round(time.monotonic() - started, 2)
         data["status"] = "complete"
         results.append(data)
         print(f"  Queued {chunks_stored} chunks for background ingestion")

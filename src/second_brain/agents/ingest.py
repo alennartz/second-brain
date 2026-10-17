@@ -1,3 +1,4 @@
+import json
 import logging
 from dataclasses import dataclass, field
 
@@ -160,6 +161,9 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
             len(notes),
             len(edges),
         )
+        operation = "store_knowledge:" + json.dumps(
+            [entities, notes, edges], sort_keys=True, default=str
+        )
         try:
             result = await ingest_tools.store_knowledge(
                 ctx.deps.storage,
@@ -168,13 +172,13 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
                 edges,
             )
             ctx.deps.record_write_attempt(
-                "store_knowledge", list(result.get("storage_errors", []))
+                operation, list(result.get("storage_errors", []))
             )
             return result
         except Exception as e:
             logger.error("ingest: store_knowledge failed: %s", e)
             message = str(e)
-            ctx.deps.record_write_attempt("store_knowledge", [message])
+            ctx.deps.record_write_attempt(operation, [message])
             return {"error": message}
 
     @agent.tool
@@ -185,14 +189,17 @@ def create_ingest_agent() -> Agent[IngestDeps, str]:
         logger.info(
             "ingest: update_node id=%s fields=%s", record_id, list(fields.keys())
         )
+        operation = f"update_node:{record_id}:" + json.dumps(
+            fields, sort_keys=True, default=str
+        )
         try:
             result = await ctx.deps.storage.update_node(record_id, fields)
-            ctx.deps.record_write_attempt(f"update_node:{record_id}", [])
+            ctx.deps.record_write_attempt(operation, [])
             return result
         except Exception as e:
             logger.error("ingest: update_node failed: %s", e)
             message = str(e)
-            ctx.deps.record_write_attempt(f"update_node:{record_id}", [message])
+            ctx.deps.record_write_attempt(operation, [message])
             return {"error": message}
 
     return agent

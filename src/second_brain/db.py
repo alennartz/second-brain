@@ -528,6 +528,8 @@ class Storage:
         result = self._check(result, f"get_node({record_id})")
         if not result:
             return {}
+        if record_id.split(":", 1)[0] == "intake_chunk":
+            return _project_intake_evidence(self._normalize(result[0]))
         return self._normalize(result[0])
 
     async def get_nodes(self, record_ids: list[str]) -> list[dict]:
@@ -973,8 +975,12 @@ class Storage:
                 # A crash can leave the key after its final row deletion. Reclaim it.
                 self._check(
                     await self._db.query(
-                        "DELETE FROM intake_key WHERE id = type::thing('intake_key', $key)",
-                        {"key": idempotency_key},
+                        "DELETE FROM intake_key WHERE id = type::thing('intake_key', $key) "
+                        "AND intake_id = $existing_intake_id",
+                        {
+                            "key": idempotency_key,
+                            "existing_intake_id": existing_intake_id,
+                        },
                     ),
                     "create_intake_chunks orphan key cleanup",
                 )

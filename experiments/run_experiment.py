@@ -817,6 +817,18 @@ def _ingest_one(client, base, snippet, deadline, state: BenchState, index: int) 
     chunks_stored = payload.get("chunks_stored")
     if not isinstance(chunks_stored, int) or chunks_stored < 0:
         raise RuntimeError("ingest response omitted a valid chunks_stored count")
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            raise TimeoutError("intake queue did not drain before the op deadline")
+        snapshot = client.get(f"{base}/ingest/pipeline", timeout=min(30, remaining))
+        snapshot.raise_for_status()
+        counts = snapshot.json()
+        if all(
+            counts[field] == 0 for field in ("ready", "leased", "retry_wait", "paused")
+        ):
+            break
+        time.sleep(min(1, remaining))
     return {
         "status": "complete",
         "chunks_stored": chunks_stored,

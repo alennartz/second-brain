@@ -361,9 +361,22 @@ class IngestionPipeline:
     ) -> None:
         """Renew a live lease and cancel the runner when ownership is lost."""
         interval = max(0.01, self.lease_seconds / 3)
+        expiry = min(
+            (
+                datetime.fromisoformat(str(chunk["lease_expires_at"]))
+                for chunk in batch.chunks
+                if chunk.get("lease_expires_at") is not None
+            ),
+            default=self.clock() + timedelta(seconds=self.lease_seconds),
+        )
         while True:
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                await asyncio.wait_for(
+                    stop_event.wait(),
+                    timeout=min(
+                        interval, max(0.01, (expiry - self.clock()).total_seconds())
+                    ),
+                )
                 return
             except TimeoutError:
                 pass
@@ -377,6 +390,8 @@ class IngestionPipeline:
                 logger.exception(
                     "failed to renew ingestion lease %s", batch.lease_token
                 )
+                if self.clock() < expiry:
+                    continue
                 lease_lost.set()
                 runner_task.cancel()
                 return
@@ -391,6 +406,7 @@ class IngestionPipeline:
                 lease_lost.set()
                 runner_task.cancel()
                 return
+            expiry = self.clock() + timedelta(seconds=self.lease_seconds)
 
     async def _process_batch(self, batch: ClaimedBatch) -> None:
         """Run one leased batch and acknowledge or release it."""
@@ -400,15 +416,17 @@ class IngestionPipeline:
         runner_task: asyncio.Task[IngestBatchOutcome] | None = None
         heartbeat_task: asyncio.Task[None] | None = None
         try:
-            text = "".join(chunk["content"] for chunk in batch.chunks)
-            hints = list(batch.chunks[0]["hints"]) if batch.chunks else []
-            runner_task = asyncio.create_task(self.runner.run(text, hints))
-            heartbeat_task = asyncio.create_task(
-                self._renew_lease_loop(batch, runner_task, heartbeat_stop, lease_lost)
-            )
             outcome: IngestBatchOutcome | None = None
             failure: BaseException | None = None
             try:
+                text = "".join(chunk["content"] for chunk in batch.chunks)
+                hints = list(batch.chunks[0]["hints"]) if batch.chunks else []
+                runner_task = asyncio.create_task(self.runner.run(text, hints))
+                heartbeat_task = asyncio.create_task(
+                    self._renew_lease_loop(
+                        batch, runner_task, heartbeat_stop, lease_lost
+                    )
+                )
                 outcome = await runner_task
             except asyncio.CancelledError:
                 if not lease_lost.is_set():

@@ -75,10 +75,12 @@ Batch row deletion commits before the separate `intake_key` deletion. A crash or
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/second_brain/db.py` staging path, `src/second_brain/app.py:430-466`
-- **Status:** resolved
+- **Status:** dismissed
 - **Fix:** Return the existing queued chunk count or an explicit duplicate result, and reject a reused key with different content.
 
 A duplicate or same-key different-text request returns `200 {"chunks_stored": 0}`. Callers see a successful “queued zero chunks” response and cannot distinguish a collapsed duplicate from a no-op or rejected payload.
+
+**Rationale:** The approved idempotency contract returns `chunks_stored=0` for duplicates. Idempotency is verified by one effect and an unchanged queue. Reused keys with different content still raise a conflict.
 
 ### 8. Shutdown can wait forever on a provider call
 

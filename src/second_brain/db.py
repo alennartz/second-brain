@@ -969,7 +969,7 @@ class Storage:
                         raise IdempotencyConflict(
                             "Idempotency-Key was already used for different intake content"
                         )
-                    return int(key_row.get("chunk_count") or len(remaining_rows))
+                    return 0
                 # A crash can leave the key after its final row deletion. Reclaim it.
                 self._check(
                     await self._db.query(
@@ -1053,7 +1053,7 @@ class Storage:
                         raise IdempotencyConflict(
                             "Idempotency-Key was already used for different intake content"
                         ) from exc
-                    return int(winner_row.get("chunk_count") or 0)
+                    return 0
                 raise
             raise
 

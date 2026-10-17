@@ -11,6 +11,8 @@ graph LR
   Agents --> Tools
   Tools --> Core
   Core --> SurrealDB[(SurrealDB)]
+  Manual Test Tools --> API
+  Manual Test Tools --> Client
 ```
 
 ### Key Flows
@@ -169,10 +171,11 @@ HTTP and MCP entry points. FastAPI app owns storage and pipeline lifespan,
 request/response models, route handlers, and MCP tool wiring.
 
 **Responsibilities:** REST endpoints (`/health`, synchronous `POST /ingest` with
-`chunks_stored`, `/ingest/pipeline*` controls, async 202 `/dream` with dream-job
-polling, `/recall`, `/converse`, `/converse/stream`, and `/graph/{id}`), SSE
-streaming, startup/shutdown injection, validation, response shaping, and MCP
-tools for staging, recall, and graph lookup
+`chunks_stored` and optional idempotency key, `/ingest/pipeline*` controls, async
+202 `/dream` with dream-job polling, `/recall`, `/converse`, `/converse/stream`,
+and `/graph/{id}`), separate graph and unprocessed recall context, SSE streaming,
+startup/shutdown injection, validation, response shaping, and MCP tools for
+staging, recall, and graph lookup
 
 **Dependencies:** Core (config, Storage + Embedder, models, providers, validation), Agents (all five agents + scheduler)
 
@@ -190,9 +193,9 @@ tools for staging, recall, and graph lookup
 
 ### Client
 
-Go terminal application: Cobra CLI for one-shot commands (ingest, recall, graph) and Bubble Tea TUI for interactive multi-turn conversation. Split-pane layout with chat panel (message history + streaming) and graph panel (node/edge visualization with cursor navigation). HTTP client wraps all server endpoints including SSE streaming.
+Go terminal application: Cobra CLI for one-shot commands (ingest, recall, graph) and Bubble Tea TUI for interactive multi-turn conversation. Ingest waits for synchronous staging and reports the stored chunk count. Recall and conversation context preserve unprocessed evidence separately from graph nodes and edges; the graph panel renders only graph records. HTTP client wraps server endpoints, including SSE streaming.
 
-**Responsibilities:** CLI entry points and flag parsing, HTTP client for all server endpoints, SSE stream parsing for converse, interactive TUI with split-pane layout, chat message rendering with viewport scrolling, graph node/edge display with selection and detail view, @-mention autocomplete against graph nodes, slash commands (/exit, /clear, /graph)
+**Responsibilities:** CLI entry points and flag parsing, synchronous ingest acknowledgement, HTTP client for server endpoints, separate unprocessed recall/context wire types, SSE stream parsing for converse, interactive TUI with split-pane layout, chat message rendering with viewport scrolling, graph-only node/edge display with selection and detail view, @-mention autocomplete against graph nodes, slash commands (/exit, /clear, /graph)
 
 **Dependencies:** API (HTTP endpoints — runtime dependency, not code import)
 
@@ -206,3 +209,15 @@ Go terminal application: Cobra CLI for one-shot commands (ingest, recall, graph)
 - `client/go.sum`
 - `client/.golangci.yml`
 - `client/.gitignore`
+
+### Manual Test Tools
+
+Permanent home for reusable manual-test drivers and documented operator journeys.
+
+**Responsibilities:** manual smoke-test plans, reusable test tools and drivers, recorded journey results, harness limitations
+
+**Dependencies:** API and Client (manual journeys exercise their public interfaces); no code imports
+
+**Files:**
+- `tools/manual-test/**`
+- `docs/manual-tests/**`

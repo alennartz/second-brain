@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 
-from second_brain.db import Storage
+from second_brain.db import Storage, project_intake_evidence
 from second_brain.models import Context, normalize_edge, normalize_node
 from second_brain.tools import recall_tools
 
@@ -47,7 +47,7 @@ async def fetch_cited_context(storage: Storage, output: RecallOutput) -> Context
     if output.cited_unprocessed_ids:
         chunks = await storage.get_intake_chunks(output.cited_unprocessed_ids)
         for chunk in chunks:
-            evidence = dict(chunk)
+            evidence = project_intake_evidence(chunk)
             evidence["unprocessed"] = True
             evidence.pop("connections", None)
             unprocessed.append(evidence)

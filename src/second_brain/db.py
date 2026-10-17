@@ -35,6 +35,7 @@ _INTAKE_EVIDENCE_FIELDS = {
     "total_chunks",
     "content",
     "source",
+    "hints",
     "created_at",
 }
 
@@ -82,7 +83,7 @@ def _intake_fingerprint(chunks: list[IntakeChunkDraft]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _project_intake_evidence(record: dict) -> dict:
+def project_intake_evidence(record: dict) -> dict:
     """Keep only source fields safe for recall evidence."""
     normalized = normalize_node(record)
     return {
@@ -529,7 +530,7 @@ class Storage:
         if not result:
             return {}
         if record_id.split(":", 1)[0] == "intake_chunk":
-            return _project_intake_evidence(self._normalize(result[0]))
+            return project_intake_evidence(self._normalize(result[0]))
         return self._normalize(result[0])
 
     async def get_nodes(self, record_ids: list[str]) -> list[dict]:
@@ -759,7 +760,7 @@ class Storage:
         rows = self._check(result, f"vector_search on {table}")
         normalized = [normalize_node(self._normalize(row)) for row in rows]
         if table == "intake_chunk":
-            return [_project_intake_evidence(row) for row in normalized]
+            return [project_intake_evidence(row) for row in normalized]
         return normalized
 
     async def _fulltext_candidates(self, table: str, query: str, k: int) -> list[dict]:
@@ -783,7 +784,7 @@ class Storage:
             record.pop("score", None)
             normalized_record = normalize_node(self._normalize(record))
             if table == "intake_chunk":
-                normalized_record = _project_intake_evidence(normalized_record)
+                normalized_record = project_intake_evidence(normalized_record)
             normalized.append(normalized_record)
         return normalized
 
@@ -1256,7 +1257,7 @@ class Storage:
         return int(result.get("count", 0) or 0)
 
     async def get_intake_chunks(self, record_ids: list[str]) -> list[dict]:
-        """Fetch intake evidence by ID, omitting deleted rows and embeddings."""
+        """Fetch internal intake rows, retaining queue fields but omitting embeddings."""
         assert self._db is not None
         records: list[dict] = []
         for record_id in record_ids:
@@ -1272,7 +1273,7 @@ class Storage:
             result = await self._db.query(f"SELECT * OMIT embedding FROM {record_id}")
             rows = self._check(result, f"get_intake_chunks({record_id})")
             if rows:
-                records.append(_project_intake_evidence(self._normalize(rows[0])))
+                records.append(normalize_node(self._normalize(rows[0])))
         return records
 
     async def search_intake_chunks(self, query: str, k: int) -> list[dict]:

@@ -24,7 +24,7 @@ A storage probe against `mem://` confirmed the pause, resume, renewal, projectio
 | 3 | A processing exception can end the worker | resolved | `_worker_loop` catches `_process_batch` errors and re-raises only `CancelledError`. `retry_delay` saturates at the cap with `log2` and `ldexp`. See finding N6 for a related gap. |
 | 4 | Slow runs lose their lease and run twice | resolved | `_renew_lease_loop` renews every `lease_seconds / 3`. A short renewal cancels the runner and skips acknowledgement. Delete logs a short count. See finding N2. |
 | 5 | Idempotency keys become permanent tombstones | resolved | Staging deletes a key with no remaining rows and stages again. Probe: an orphan key stores 1 chunk. Cleanup errors now raise. See finding N5. |
-| 6 | Queue metadata leaks into recall | resolved | `_project_intake_evidence` keeps `id`, `intake_id`, `chunk_index`, `total_chunks`, `content`, `source`, `created_at`, and `table`. Search candidates and `get_intake_chunks` use it. See finding N3. |
+| 6 | Queue metadata leaks into recall | resolved | `project_intake_evidence` keeps `id`, `intake_id`, `chunk_index`, `total_chunks`, `content`, `source`, `hints`, `created_at`, and `table`. Search candidates and public citation shaping use it. The internal `get_intake_chunks` fetch retains operational fields for queue checks. See finding N3. |
 | 7 | Duplicate staging reports a successful zero | dismissed | The approved contract keeps `chunks_stored=0` for duplicates. A reused key with different content now returns HTTP 409 through `IdempotencyConflict`. |
 | 8 | Shutdown can wait forever on a provider call | resolved | `stop()` waits `intake_shutdown_grace_seconds`, cancels, then waits once more. See finding N7. |
 | 9 | Experiment scenario targets the removed job API | resolved | The runner accepts `chunks_stored` and sends idempotency keys. Both runners now wait for the queue to drain. See finding N1. |
@@ -60,8 +60,8 @@ A storage probe against `mem://` confirmed the pause, resume, renewal, projectio
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/second_brain/app.py:528-560`, `src/second_brain/db.py` `get_node`
-- **Status:** resolved. `Storage.get_node` projects intake evidence for all lookup callers.
-- **Fix:** Restrict `get_graph_data` and the recall agent `get_node` tool to `note` and `entity`, or project `intake_chunk` rows with `_project_intake_evidence`.
+- **Status:** resolved. `Storage.get_node` projects intake evidence for graph lookup and agent tools. `fetch_cited_context` projects internal intake rows before HTTP, MCP, or converse exposure.
+- **Fix:** Restrict `get_graph_data` and the recall agent `get_node` tool to `note` and `entity`, or project `intake_chunk` rows with `project_intake_evidence`.
 
 Recall responses now publish `intake_chunk` IDs. `GET /graph/{id}` and MCP `graph_lookup` accept any table. `get_node` returns `SELECT * OMIT embedding`. A cited chunk ID therefore exposes `lease_token`, `worker_id`, `idempotency_key`, `last_error`, and retry state. The recall agent `get_node` tool has the same path into the prompt.
 
@@ -104,6 +104,12 @@ An error before the runner result reaches the worker-loop guard. It skips releas
 - **Fix:** Set `intake_shutdown_grace_seconds` near the deployment stop timeout, or document the replay cost.
 
 An ingest-agent run usually exceeds the 10-second default. A restart during processing cancels the run mid-write. The batch replays after lease expiry, and partial writes can duplicate. The design accepts at-least-once processing, but a short default makes the duplicates routine on each deployment.
+
+## Regression verification
+
+The internal intake fetch retains queue metadata without embeddings. Public citation shaping uses the source-field allowlist. Source hints remain available as approved evidence metadata.
+
+Targeted intake, recall, and MCP tests: 86 passed. Full Python suite: 358 passed and 60 known Jev failures. Ruff check, Ruff format check, Basedpyright, Go tests, Go vet, and golangci-lint passed. Tests remain unchanged.
 
 ## No Issues
 

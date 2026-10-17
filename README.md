@@ -1,6 +1,6 @@
 # Second Brain
 
-Personal knowledge engine that stores, connects, and retrieves your notes and ideas. It combines a graph database (SurrealDB), hybrid search (BM25 + vector), and LLM agents to ingest unstructured text, extract entities and relationships, and answer questions over your accumulated knowledge. For high level design principles, see [DESIGN.md](docs/DESIGN.md).
+Second Brain stores, connects, and retrieves your notes and ideas. It combines SurrealDB, hybrid search (BM25 + vector), and LLM agents. Intake stages source text for immediate search. Background workers organize it into notes, entities, and relationships. See [DESIGN.md](docs/DESIGN.md) for design principles.
 
 ## Quickstart
 
@@ -47,11 +47,19 @@ brain --server http://my-server:8000 recall "..."
 | Command | Description |
 |---|---|
 | `brain` | Launch the interactive TUI |
-| `brain ingest [text]` | Store a piece of knowledge |
+| `brain ingest [text]` | Stage text for immediate search and background organization |
 | `brain recall [question]` | Ask a question over your knowledge base |
 | `brain graph [id]` | Show a node and its connections |
 
 All commands accept `--server URL` (default: `http://localhost:8000`).
+
+### Intake and recall
+
+Ingest stages text before it returns. It splits and embeds the text, stores searchable chunks, and reports their count. The background pipeline later organizes those chunks into the knowledge graph. A successful response does not mean organization is complete.
+
+Recall searches graph records and chunks awaiting processing. It returns unprocessed chunks separately from graph nodes and edges. Chunks leave recall after successful processing.
+
+Use `GET /ingest/pipeline` to inspect queue counts, worker activity, retries, stuck intakes, and recent errors. Use `POST /ingest/pipeline/{intake_id}/pause`, `/resume`, or `/discard` to control one intake. `POST /ingest` accepts an optional `Idempotency-Key` header.
 
 ## Configuration
 

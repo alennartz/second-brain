@@ -14,9 +14,9 @@ People lose context and forget connections between ideas. Second Brain is a pers
 
 SurrealDB runs in-process via `surrealkv://` with no external server. The entire system is one process and a directory on disk. This was chosen for the smallest possible operational footprint — nothing to install, configure, or keep alive beyond the server itself.
 
-### Agent loops over fixed pipelines
+### Agent loops behind deterministic staging
 
-Both ingest and recall are LLM agent loops with tools, not rigid extract-then-store or search-then-respond pipelines. The LLM decides how to explore the knowledge space iteratively — it can search multiple times, follow graph connections, refine its approach. This matters because knowledge work is inherently exploratory; a fixed pipeline would force premature decisions about what to search for or how to structure results.
+Intake staging is deterministic and synchronous. It chunks, embeds, and stores source text before returning. A background worker then runs the tool-driven ingest agent on independent processing batches. Recall remains an LLM agent loop: it can search multiple times, follow graph connections, and refine its approach. Deterministic staging keeps the request path available even when agent processing takes longer.
 
 ### Provider-agnostic via library
 
@@ -32,7 +32,7 @@ Embedding text is a deterministic computation. It should not round-trip through 
 
 ## Data Model
 
-The knowledge graph has two node types and three edge types:
+The organized knowledge graph has two node types and three edge types:
 
 - **`note`** — a discrete piece of knowledge (content, summary, embedding, source, timestamps)
 - **`entity`** — a named concept or thing (name, type, description, embedding)
@@ -42,27 +42,31 @@ The knowledge graph has two node types and three edge types:
 
 The schema is intentionally minimal and schemaless (SurrealDB SCHEMALESS mode). Fields are defined but flexible. Both node types carry vector embeddings and are indexed with HNSW (cosine) for semantic search and BM25 analyzers for full-text search.
 
-Relationships are built at ingest time by the Ingest Agent, not as a post-processing step. The agent has the full context of the new knowledge while ingesting and is best positioned to resolve references and create edges at that moment.
+Before organization, each intake document exists as ordered, searchable document chunks outside the graph. Recall can return these chunks as unprocessed evidence. A successful processing batch writes graph records, then removes its chunks. Graph relationships are built by the background Ingest Agent while it organizes each batch.
 
 ## Agents
 
-### Ingest Agent
+### Ingest Agent and pipeline
 
-Parses input into notes and entities, searches existing knowledge for overlap and connections, creates graph relationships, and auto-embeds all new nodes. Has read+write access to the graph. The agent decides the structure — it may create one note or several, link to existing entities or create new ones.
+The synchronous staging path chunks and embeds source text, stores every chunk, then returns the stored count. The `IngestionPipeline` claims eligible chunks and packs them into independent processing batches. The Ingest Agent parses each batch into notes and entities, searches for overlap, creates graph relationships, and embeds new nodes. The pipeline deletes chunks only after a clean graph write. Leases recover abandoned work, and failed batches return with exponential backoff. Intake documents can be paused, resumed, or discarded.
 
 ### Recall Agent
 
-Iteratively explores the graph via hybrid search and traversal. Can follow threads across multiple hops, refine searches based on intermediate results, and synthesize an answer with citations back to specific nodes. Read-only access to the graph.
+Searches organized graph records and unprocessed intake chunks with hybrid retrieval. It can follow graph connections and refine searches, then synthesize an answer with citations. Recall returns graph nodes and edges separately from unprocessed source evidence. Only graph nodes have connections; cited chunks remain raw evidence. Search fuses the organized and unprocessed layers with balanced contribution.
 
 ### Converse Agent
 
-A conversational router that wraps ingest and recall as internal tools. Supports multi-turn history. The user talks to one agent; it decides whether the intent is to store knowledge, retrieve knowledge, or both. Accumulates context across tool calls so a single conversational turn can involve multiple searches and ingestions.
+A conversational router that wraps intake staging and recall as internal tools. Supports multi-turn history. The user talks to one agent; it decides whether the intent is to store knowledge, retrieve knowledge, or both. Staging returns before background organization completes. Converse accumulates cited graph records and unprocessed evidence across tool calls.
 
 ## Search
 
-Search uses hybrid retrieval: BM25 full-text search and HNSW vector similarity, fused with Reciprocal Rank Fusion (RRF). This was chosen because keyword search catches exact terms the embedding might miss, while semantic search catches meaning the keywords miss. RRF is simple and parameter-free — no tuning weights between the two signals.
+Search uses hybrid retrieval: BM25 full-text search and HNSW vector similarity, fused with Reciprocal Rank Fusion (RRF). Keyword search catches exact terms the embedding might miss, while semantic search catches meaning the keywords miss.
 
-The hybrid search is a single tool (`search_knowledge`) exposed to both agents. There are no separate full-text or vector search tools. The agent provides a query; the tool handles embedding, both search paths, and fusion internally.
+Recall uses one fixed `search_knowledge` tool. It searches notes, entities, and intake chunks, caps candidates per path, and fuses them with balanced weight across organized and unprocessed memory. It enriches graph nodes with connections but leaves intake chunks as separate evidence. The ingest agent uses its own search-and-decide tools while processing a batch.
+
+### Pipeline operations
+
+The HTTP API exposes aggregate pipeline status, including queue counts, worker activity, retry timing, stuck intakes, and recent errors. Pause, resume, and discard operations target one intake document. These controls affect remaining chunks; discard does not roll back graph records written by earlier batches.
 
 ## Provider Architecture
 

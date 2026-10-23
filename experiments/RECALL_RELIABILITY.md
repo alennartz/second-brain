@@ -83,4 +83,5 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 
 ## Trial Log
 
+- **B00 launcher setup:** the first systemd start failed before Python ran because `/tmp/recall-reliability/runs/` did not exist (`status=209/STDOUT`). No API started and no database was copied or queried. Created the output directory before retrying.
 - **B00-1: running.** Reference replay with no source changes. Results will be stored in `/tmp/recall-reliability/runs/B00-1.json`.

@@ -62,7 +62,7 @@ Use the same replay harness and command for every baseline and candidate run:
 ```bash
 cd /tmp/second-brain-recall-campaign
 PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
-TRIAL_ID=B00-2 EXPERIMENT_PORT=8102 \
+TRIAL_ID=B00-3 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```

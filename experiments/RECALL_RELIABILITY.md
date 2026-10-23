@@ -62,7 +62,7 @@ Use the same replay harness and command for every baseline and candidate run:
 ```bash
 cd /tmp/second-brain-recall-campaign
 PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
-TRIAL_ID=E002-1 EXPERIMENT_PORT=8102 \
+TRIAL_ID=E003-1 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
@@ -75,12 +75,13 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 |---|---|---|---|---|---|
 | B00 | Repeat reference | No source change; replay all nine probes | Measures run-to-run variation | Completed three isolated repeats; failures ranged 0–4 and context 4–8 | Complete; high variance |
 | E001 | Replace pseudo-schema with valid JSON examples | Replace only the final-output format block in the recall system prompt | Baseline produced eight no-JSON failures and two schema failures; the prompt currently shows type names rather than valid JSON values | Across three replays, reduce format-related 502s to ≤1 total, keep median context ≥7/9, preserve supported answers, and keep p95 <39.5s | Rejected |
-| E002 | Stop after a denied search | Change only the `search_knowledge` budget/duplicate response instruction to require immediate final JSON | The model called search again after `search_skipped reason=budget`, then exceeded the eight-call limit | Across three replays, no tool-budget 502s; median context ≥7/9; no quality veto; p95 <39.5s | Running; 3 replays planned |
-| E003 | Normalize no-evidence output | For `has_evidence=false`, discard model answer text and citations instead of rejecting the whole output | One probe produced valid JSON that failed the no-evidence consistency validator | Remove that schema 502 without returning model claims or context; no other failure increase | Queued if E001 leaves this mismatch |
-| E004 | Raise total tool-call cap | `RECALL_TOOL_CALL_LIMIT`: 8 → 9 | A ninth call exceeded the current limit, but it followed repeated denied searches | Test only if E002 does not stop the denied-call loop; no extra tool-budget failures or quality loss | Deferred |
-| E005 | Application-level output repair | One bounded retry after malformed final text | `TextOutput` parser failure becomes HTTP 502 without an output retry | Defer until prompt-only trials finish; requires a separate design for reusing evidence safely | Deferred |
-| E006 | Native structured output | Change final output mode | A prior live probe returned truncated JSON at a 2,048-token cap | Do not retry without a new SGLang/PydanticAI mechanism or a verified token-budget change | Deferred |
-| E007 | Repetition penalty | Change one supported inference parameter | Could reduce repeated tool calls | Defer until SGLang support and effective request behavior are verified | Deferred |
+| E002 | Stop after a denied search | Change only the `search_knowledge` budget/duplicate response instruction to require immediate final JSON | The model called search again after `search_skipped reason=budget`, then exceeded the eight-call limit | Across three replays, no tool-budget 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; ignored in E002-2 |
+| E003 | Raise total tool-call cap | `RECALL_TOOL_CALL_LIMIT`: 8 → 9 | The model attempted call 9 and exceeded the current limit; one extra call can return a denial before the agent finishes | Across three replays, no tool-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Queued next |
+| E004 | Normalize no-evidence output | For `has_evidence=false`, discard model answer text and citations instead of rejecting the whole output | One probe produced valid JSON that failed the no-evidence consistency validator | Remove that schema 502 without returning model claims or context; no other failure increase | Queued if schema mismatch recurs |
+| E005 | Return cached node on duplicate read | Replace duplicate `get_node` denial with its cached node result | Later trials hit the limit after duplicate node reads; returning cached evidence can end the loop | No duplicate-node tool-limit 502s across three replays; preserve context and p95 threshold | Queued if E003 leaves duplicate reads |
+| E006 | Application-level output repair | One bounded retry after malformed final text | `TextOutput` parser failure becomes HTTP 502 without an output retry | Defer until prompt and tool-surface trials finish; requires a separate design for reusing evidence safely | Deferred |
+| E007 | Native structured output | Change final output mode | A prior live probe returned truncated JSON at a 2,048-token cap | Do not retry without a new SGLang/PydanticAI mechanism or a verified token-budget change | Deferred |
+| E008 | Repetition penalty | Change one supported inference parameter | Could reduce repeated tool calls | Defer until SGLang support and effective request behavior are verified | Deferred |
 
 ## Trial Log
 
@@ -100,4 +101,9 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 - **E001 rollback:** restored `recall.py` to baseline SHA-256 `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`. The API stopped, the port-8102 owner lock is clear, and the frozen DB seed is unchanged. E001's log-only result commit is `7cb5930`.
 - **E002 hypothesis:** replacing the search-denial reply with an explicit stop-and-finalize instruction will reduce tool-limit failures because the model keeps searching after the application denies budgeted searches.
 - **E002 replacement text:** `Search budget is exhausted. Stop using tools now and return the final JSON from evidence already collected.`
-- **E002-1: running.** Same nine probes, frozen DB seed, and retry policy.
+- **E002-1: complete.** Candidate source hash `3f99582b9d874a8d6452b45af819820efa32f143e5f827a1402b7e1f343b02e3`; DB hash unchanged. Results: 9 probes, 3 HTTP 502 attempts, 1/9 exhausted, 8/9 with context, 24 nodes. Probe time: total 134.16s, median 14.75s, p95 28.69s. No search-budget skips or tool-limit errors occurred. Probe 1 returned no JSON at `23:11:32.342Z` and `23:11:44.877Z`. Probe 9 had one schema failure at `23:13:17.822Z`, then succeeded on retry. Manual review found no direct Apollo–Renaissance claim; cited context supported the substantive answers.
+- **E002-2: complete.** Candidate hash and DB hash unchanged. Results: 6 HTTP 502 attempts, 3/9 exhausted, 6/9 with context, 15 nodes. Probe time: total 135.85s, median 12.99s, p95 33.28s. The model ignored the stop instruction and issued three skipped searches at local `19:15:08–19:15:10`; it also repeated `get_node` at `19:15:39` and `19:16:01`. UTC failures: probe 1 no JSON at `23:14:22.442Z` and `23:14:34.369Z`; probes 5 and 6 exceeded the tool limit at `23:15:02.692Z`, `23:15:21.298Z`, `23:15:29.758Z`, and `23:15:50.911Z`.
+- **E002: rejected.** E002-1 had no tool-limit failures, but E002-2 had four. Combined, E002 had 9 HTTP 502 attempts and 4 exhausted probes across 18 probes. The candidate did not meet its three-run threshold and did not stop the denied search loop.
+- **E003 hypothesis:** raising the global cap from 8 to 9 will permit the observed ninth call to return its tool result and let the agent finalize. The search and node budgets remain unchanged.
+- **E002 rollback:** restored `recall.py` to baseline SHA-256 `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`. The API stopped, the port-8102 owner lock is clear, and the frozen DB seed is unchanged.
+- **E003-1: queued.** Change only `RECALL_TOOL_CALL_LIMIT` and use the same frozen DB seed.

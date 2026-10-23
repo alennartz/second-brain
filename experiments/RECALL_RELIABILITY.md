@@ -73,7 +73,7 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 
 | ID | Candidate | One change | Expected mechanism | Win threshold | Status |
 |---|---|---|---|---|---|
-| B00 | Repeat reference | No source change; replay all nine probes once | Measures run-to-run variation before interpreting a one-probe gain | Establish repeat range; if coverage differs by more than one, repeat reference before E001 | Running |
+| B00 | Repeat reference | No source change; replay all nine probes once | Measures run-to-run variation before interpreting a one-probe gain | Establish repeat range; if failures vary by more than one, repeat reference before E001 | Repeat required (B00-2) |
 | E001 | Raise total tool-call cap | `RECALL_TOOL_CALL_LIMIT`: 8 → 9 | One failed probe attempted a ninth call; permitting that call can let the agent finish | At least 8/9 HTTP 200 and context coverage ≥7/9; no new failure or quality veto; p95 <39.5s | Queued after B00 |
 | E002 | Stop on duplicate/skipped tool result | Add one system-prompt instruction to finalize immediately after a duplicate/skipped tool result | The failed budget probe repeated a node read before attempting another tool | Reduce tool-budget failures by ≥1 with no loss of context coverage or other successful probes | Queued; test only if E001 leaves this failure mode |
 | E003 | Make final JSON requirement explicit on every path | Replace the final-output prompt sentence with a shorter rule that requires complete JSON even when evidence is absent | One probe returned a 17-character non-JSON response after search | Reduce no-JSON failures by ≥1; retain context coverage and citation grounding | Queued if no-JSON failure remains |
@@ -85,4 +85,5 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 
 - **B00 launcher setup:** the first systemd start failed before Python ran because `/tmp/recall-reliability/runs/` did not exist (`status=209/STDOUT`). No API started and no database was copied or queried. Created the output directory.
 - **B00 launcher setup:** the first Python start rejected a mistyped expected DB hash before copying the seed or starting the API. No model calls occurred. Corrected the hash and verified it against the frozen seed.
-- **B00-1: running.** Reference replay with no source changes. Results will be stored in `/tmp/recall-reliability/runs/B00-1.json`.
+- **B00-1: complete.** Clean snapshot commit `890e465`; recall source SHA-256 `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`. Measured replay: `2026-10-23T22:48:46Z`–`2026-10-23T22:50:37Z`, 111.03s. Score: 9/9 HTTP 200, 8/9 with context, 0 exhausted probes, 21 nodes, 0 HTTP 5xx, 12 malformed edge IDs filtered. Probe time: total 105.57s, median 11.39s, p95 20.57s. DB hash was unchanged. Manual review found no unsupported Apollo–Renaissance claim. Compared with the initial reference (2 failed probes), the failure count varied by two, so run B00-2 before E001.
+- **B00-2: running.** Repeat the reference from the frozen DB seed. Results will be stored in `/tmp/recall-reliability/runs/B00-2.json`.

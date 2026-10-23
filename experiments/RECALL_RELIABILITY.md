@@ -62,7 +62,7 @@ Use the same replay harness and command for every baseline and candidate run:
 ```bash
 cd /tmp/second-brain-recall-campaign
 PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
-TRIAL_ID=E005-1 EXPERIMENT_PORT=8102 \
+TRIAL_ID=E006-1 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
@@ -79,7 +79,7 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 | E003 | Raise total tool-call cap | `RECALL_TOOL_CALL_LIMIT`: 8 → 9 | The model attempted call 9 and exceeded the current limit; one extra call can return a denial before the agent finishes | Across three replays, no tool-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; overrun moved to call 10 |
 | E004 | Normalize no-evidence output | For `has_evidence=false`, discard model answer text and citations instead of rejecting the whole output | One probe produced valid JSON that failed the no-evidence consistency validator | Remove that schema 502 without returning model claims or context; no other failure increase | Deferred; target not reproduced |
 | E005 | Raise total tool-call cap to request limit | `RECALL_TOOL_CALL_LIMIT`: 8 → 12 | Cap 9 still failed on call 10; the existing request limit is 12 | Across three replays, no tool-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; request limit bound first |
-| E006 | Return cached node on duplicate read | Replace duplicate `get_node` denial with its cached node result | The model repeated `get_node` many times before hitting the request limit | Across three replays, no usage-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Queued next |
+| E006 | Return cached node on duplicate read | Cache successfully fetched nodes and return the cached node on duplicate `get_node` calls | The model repeated `get_node` many times before hitting the request limit | Across three replays, no duplicate-driven usage-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Queued next |
 | E007 | Application-level output repair | One bounded retry after malformed final text | `TextOutput` parser failure becomes HTTP 502 without an output retry | Defer until prompt and tool-surface trials finish; requires a separate design for reusing evidence safely | Deferred |
 | E008 | Native structured output | Change final output mode | A prior live probe returned truncated JSON at a 2,048-token cap | Do not retry without a new SGLang/PydanticAI mechanism or a verified token-budget change | Deferred |
 | E009 | Repetition penalty | Change one supported inference parameter | Could reduce repeated tool calls | Defer until SGLang support and effective request behavior are verified | Deferred |
@@ -120,5 +120,6 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 - **E005-1: complete.** Candidate source hash `34f0fd1d05599ca02e0d1a97d9c6ff21c86e644687d6302e7354055762dae1b1`; DB hash unchanged. Results: 4 HTTP 502 attempts, 2/9 exhausted, 7/9 with context, 17 nodes. Probe time: total 121.76s, median 9.72s, p95 38.20s. Probe 1 returned no JSON at `23:39:19.611Z` and `23:39:31.187Z`; probe 6 hit `request_limit=12` at `23:40:08.162Z` and `23:40:32.008Z`. The model made 10 duplicate-node reads. The higher tool cap removed the tool-call-limit error but moved the failure to the request limit.
 - **E005: rejected.** The trial still failed two probes and did not improve reliability. Do not raise the cap again without a new mechanism.
 - **E005 rollback:** restored `RECALL_TOOL_CALL_LIMIT=8`; `recall.py` hash is back to baseline `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`. The API stopped, the owner lock is clear, and the frozen DB seed is unchanged.
-- **E006 hypothesis:** return cached node data on duplicate `get_node` calls instead of a denial. This may stop repeated reads and let the model finalize with evidence already collected.
+- **E006 hypothesis:** caching an enriched node and returning it on duplicate `get_node` calls will replace repeated denial results with the evidence already collected and may stop the loop.
+- **E006 change:** add one node cache to `RecallDeps`; populate it after the first successful read; return the cached node on duplicate reads. Keep call and node budgets unchanged.
 - **E006-1: queued.** Change only duplicate-node handling; use the same frozen DB seed.

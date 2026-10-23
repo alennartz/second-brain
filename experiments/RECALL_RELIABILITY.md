@@ -62,12 +62,12 @@ Use the same replay harness and command for every baseline and candidate run:
 ```bash
 cd /tmp/second-brain-recall-campaign
 PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
-TRIAL_ID=B00-1 EXPERIMENT_PORT=8102 \
+TRIAL_ID=B00-2 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
 
-The runner writes each trial result and both logs under `/tmp/recall-reliability/`. It copies a fresh DB seed before each run. The launcher forwards `PYTHONPATH` to the API service so it imports this clean snapshot instead of the main editable install. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `980a34ffef41037e8fb399ca53b47858a53abe679c8845d9c20e3dc61d954319`.
+The runner writes each trial result and both logs under `/tmp/recall-reliability/`. It copies a fresh DB seed before each run. The launcher forwards `PYTHONPATH` to the API service so it imports this clean snapshot instead of the main editable install. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `fe1eb2e2939264fd6984e93ea57cd313aafa338db04cad11a72ee3589c0d49f4`.
 
 ## Candidate Queue
 
@@ -86,5 +86,5 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 - **B00 launcher setup:** the first systemd start failed before Python ran because `/tmp/recall-reliability/runs/` did not exist (`status=209/STDOUT`). No API started and no database was copied or queried. Created the output directory.
 - **B00 launcher setup:** the first Python start rejected a mistyped expected DB hash before copying the seed or starting the API. No model calls occurred. Corrected the hash and verified it against the frozen seed.
 - **B00-1: complete.** Clean snapshot commit `890e465`; recall source SHA-256 `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`. Measured replay: `2026-10-23T22:48:46Z`–`2026-10-23T22:50:37Z`, 111.03s. Score: 9/9 HTTP 200, 8/9 with context, 0 exhausted probes, 21 nodes, 0 HTTP 5xx, 12 malformed edge IDs filtered. Probe time: total 105.57s, median 11.39s, p95 20.57s. DB hash was unchanged. Manual review found no unsupported Apollo–Renaissance claim. Compared with the initial reference (2 failed probes), the failure count varied by two, so run B00-2 before E001.
-- **B00-1 metadata correction:** the initial artifact timestamp and commit came from failed preflight attempts, not the successful replay. Backfill B00-1 with measured start `2026-10-23T22:48:46Z` and execution commit `890e465`. The runner will record per-invocation metadata before B00-2.
-- **B00-2: running.** Repeat the reference from the frozen DB seed. Results will be stored in `/tmp/recall-reliability/runs/B00-2.json`.
+- **B00-1 metadata correction:** the initial artifact timestamp and commit came from failed preflight attempts, not the successful replay. Corrected the artifact using its monotonic replay duration. The measured start is `2026-10-23T22:48:46Z`; execution commit `890e465`; runner SHA-256 `980a34ffef41037e8fb399ca53b47858a53abe679c8845d9c20e3dc61d954319`.
+- **B00-2: running.** Same command above with `TRIAL_ID=B00-2`. Results will be stored in `/tmp/recall-reliability/runs/B00-2.json`.

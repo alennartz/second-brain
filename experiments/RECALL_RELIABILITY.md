@@ -50,7 +50,7 @@ This measurement used the current working-tree recall code after removing table-
 - Isolated API source-path harness commit: `0688e5b`
 - Verified API imports `second_brain` and `experiments.run_experiment` from this worktree; effective model settings match the reference.
 - Snapshot recall source SHA-256: `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`
-- Run 15 database seed SHA-256: `d50a9e507119d6750e7cb4c15fa20315db9cb79f9be40872e66d64f7a6b50eb`
+- Run 15 database seed SHA-256: `d50a9e507119d6750ee7cb4c15fa20315db9cb79f9be40872e66d64f7a6b50eb`
 - The snapshot worktree is clean. Snapshot preparation applied repository formatting and fixed existing lint/type errors required by commit hooks. Those preparation changes are outside the candidate queue. The main worktree remains untouched.
 
 ## Isolation and Commands
@@ -67,7 +67,7 @@ BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
 
-The runner writes each trial result and both logs under `/tmp/recall-reliability/`. It copies a fresh DB seed before each run. The launcher forwards `PYTHONPATH` to the API service so it imports this clean snapshot instead of the main editable install. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `75fd8b9bb999d30e57d6f10a42e41b42e2e274caab66a8768f3dc6f21dc49c66`.
+The runner writes each trial result and both logs under `/tmp/recall-reliability/`. It copies a fresh DB seed before each run. The launcher forwards `PYTHONPATH` to the API service so it imports this clean snapshot instead of the main editable install. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `980a34ffef41037e8fb399ca53b47858a53abe679c8845d9c20e3dc61d954319`.
 
 ## Candidate Queue
 
@@ -83,5 +83,6 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 
 ## Trial Log
 
-- **B00 launcher setup:** the first systemd start failed before Python ran because `/tmp/recall-reliability/runs/` did not exist (`status=209/STDOUT`). No API started and no database was copied or queried. Created the output directory before retrying.
+- **B00 launcher setup:** the first systemd start failed before Python ran because `/tmp/recall-reliability/runs/` did not exist (`status=209/STDOUT`). No API started and no database was copied or queried. Created the output directory.
+- **B00 launcher setup:** the first Python start rejected a mistyped expected DB hash before copying the seed or starting the API. No model calls occurred. Corrected the hash and verified it against the frozen seed.
 - **B00-1: running.** Reference replay with no source changes. Results will be stored in `/tmp/recall-reliability/runs/B00-1.json`.

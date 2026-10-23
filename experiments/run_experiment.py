@@ -779,6 +779,7 @@ class ServerSupervisor:
             f"BRAIN_DB_PATH=data/{db_name}",
         ]
         for key in (
+            "PYTHONPATH",
             "BRAIN_TEST_MODE",
             "BRAIN_REASONING_MODEL",
             "BRAIN_EMBEDDING_MODEL",

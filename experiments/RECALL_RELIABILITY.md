@@ -47,6 +47,8 @@ This measurement used the current working-tree recall code after removing table-
 
 - Branch: `exp/recall-reliability-2026-10-22`
 - Baseline snapshot commit: `b56c223`
+- Isolated API source-path harness commit: `0688e5b`
+- Verified API imports `second_brain` and `experiments.run_experiment` from this worktree; effective model settings match the reference.
 - Snapshot recall source SHA-256: `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`
 - Run 15 database seed SHA-256: `d50a9e507119d6750e7cb4c15fa20315db9cb79f9be40872e66d64f7a6b50eb`
 - The snapshot worktree is clean. Snapshot preparation applied repository formatting and fixed existing lint/type errors required by commit hooks. Those preparation changes are outside the candidate queue. The main worktree remains untouched.

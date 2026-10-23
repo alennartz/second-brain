@@ -64,13 +64,13 @@ BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
 
-The runner writes each trial result and both logs under `/tmp/recall-reliability/`. Copy a fresh DB seed into the campaign worktree before each run. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling.
+The runner writes each trial result and both logs under `/tmp/recall-reliability/`. Copy a fresh DB seed into the campaign worktree before each run. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `75fd8b9bb999d30e57d6f10a42e41b42e2e274caab66a8768f3dc6f21dc49c66`.
 
 ## Candidate Queue
 
 | ID | Candidate | One change | Expected mechanism | Win threshold | Status |
 |---|---|---|---|---|---|
-| B00 | Repeat reference | No source change; replay all nine probes once | Measures run-to-run variation before interpreting a one-probe gain | Establish repeat range; if coverage differs by more than one, repeat reference before E001 | Ready |
+| B00 | Repeat reference | No source change; replay all nine probes once | Measures run-to-run variation before interpreting a one-probe gain | Establish repeat range; if coverage differs by more than one, repeat reference before E001 | Running |
 | E001 | Raise total tool-call cap | `RECALL_TOOL_CALL_LIMIT`: 8 → 9 | One failed probe attempted a ninth call; permitting that call can let the agent finish | At least 8/9 HTTP 200 and context coverage ≥7/9; no new failure or quality veto; p95 <39.5s | Queued after B00 |
 | E002 | Stop on duplicate/skipped tool result | Add one system-prompt instruction to finalize immediately after a duplicate/skipped tool result | The failed budget probe repeated a node read before attempting another tool | Reduce tool-budget failures by ≥1 with no loss of context coverage or other successful probes | Queued; test only if E001 leaves this failure mode |
 | E003 | Make final JSON requirement explicit on every path | Replace the final-output prompt sentence with a shorter rule that requires complete JSON even when evidence is absent | One probe returned a 17-character non-JSON response after search | Reduce no-JSON failures by ≥1; retain context coverage and citation grounding | Queued if no-JSON failure remains |
@@ -80,4 +80,4 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 
 ## Trial Log
 
-No candidate source changes have been made for this campaign.
+- **B00-1: running.** Reference replay with no source changes. Results will be stored in `/tmp/recall-reliability/runs/B00-1.json`.

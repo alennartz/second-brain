@@ -1,34 +1,219 @@
+"""Tests for the planning agent and its application-controlled writer."""
+
 import pytest
+from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
 
-from second_brain.agents.ingest import IngestDeps, create_ingest_agent
+from second_brain.agents.ingest import (
+    AgentIngestBatchRunner,
+    IngestDeps,
+    IngestPlan,
+    RecordRef,
+    _validation_issues_for_log,
+    create_ingest_agent,
+)
 
 
-@pytest.fixture
-async def ingest_deps(storage):
-    return IngestDeps(storage=storage)
+def _valid_plan() -> dict:
+    return {
+        "entities": [{"name": "Python", "type": "language"}],
+        "notes": [
+            {
+                "label": "coding practice",
+                "content": "Python supports useful coding tools.",
+            }
+        ],
+        "edges": [
+            {
+                "from_ref": {"kind": "new_note", "label": "coding practice"},
+                "edge_table": "describes",
+                "to_ref": {"kind": "new_entity", "name": "Python"},
+            }
+        ],
+        "updates": [],
+        "summary": "Stored a note about Python.",
+    }
 
 
-async def test_ingest_agent_has_tools():
+async def test_ingest_agent_exposes_no_tools():
     agent = create_ingest_agent()
-    tool_names = set(agent._function_toolset.tools)
-    # New consolidated tool
-    assert "store_knowledge" in tool_names
-    # Retained tools
-    assert "update_node" in tool_names
-    assert "search_knowledge" in tool_names
-    assert "get_node" in tool_names
-    # Old granular create tools should NOT exist
-    assert "create_notes" not in tool_names
-    assert "create_entities" not in tool_names
-    assert "create_edges" not in tool_names
+    assert agent._function_toolset.tools == {}
 
 
-async def test_ingest_agent_runs(ingest_deps):
+def test_validation_issue_log_keeps_schema_path_without_raw_input():
+    issues = _validation_issues_for_log(
+        [
+            {
+                "loc": ("edges", 0, "edge_table"),
+                "type": "string_pattern_mismatch",
+                "msg": "String should match pattern",
+                "input": "private-user-text",
+            }
+        ]
+    )
+
+    assert issues == [
+        {
+            "path": "edges.0.edge_table",
+            "type": "string_pattern_mismatch",
+            "message": "String should match pattern",
+        }
+    ]
+    assert "private-user-text" not in repr(issues)
+
+
+def test_ingest_plan_has_typed_closed_schema():
+    schema = IngestPlan.model_json_schema()
+    assert set(schema["required"]) == {
+        "entities",
+        "notes",
+        "edges",
+        "updates",
+        "summary",
+    }
+    definitions = schema["$defs"]
+    expected = {
+        "IngestEntityInput": {"name", "type"},
+        "IngestNoteInput": {"label", "content"},
+        "IngestEdgeInput": {"from_ref", "edge_table", "to_ref"},
+        "RecordRef": {"kind"},
+    }
+    for definition, required_fields in expected.items():
+        item_schema = definitions[definition]
+        assert item_schema["additionalProperties"] is False
+        assert set(item_schema["required"]) == required_fields
+        assert set(item_schema["properties"]) >= required_fields
+
+    edge_schema = definitions["IngestEdgeInput"]["properties"]
+    assert "pattern" not in edge_schema["edge_table"]
+    assert edge_schema["edge_table"]["maxLength"] == 60
+    assert "Never use node or intake tables" in edge_schema["edge_table"]["description"]
+    assert edge_schema["from_ref"]["$ref"] == "#/$defs/RecordRef"
+    assert edge_schema["to_ref"]["$ref"] == "#/$defs/RecordRef"
+    ref_schema = definitions["RecordRef"]["properties"]
+    assert ref_schema["kind"]["enum"] == ["new_entity", "new_note", "existing"]
+    assert set(ref_schema) == {"kind", "name", "label", "record_id"}
+    assert ref_schema["name"]["anyOf"][0]["maxLength"] == 120
+    assert ref_schema["label"]["anyOf"][0]["maxLength"] == 80
+    assert ref_schema["record_id"]["anyOf"][0]["maxLength"] == 120
+    assert "pattern" not in ref_schema["record_id"]["anyOf"][0]
+    assert schema["properties"]["entities"]["maxItems"] == 20
+    assert schema["properties"]["notes"]["maxItems"] == 20
+    assert schema["properties"]["edges"]["maxItems"] == 40
+    assert (
+        schema["$defs"]["IngestNoteInput"]["properties"]["content"]["maxLength"] == 2000
+    )
+
+    update_fields = definitions["IngestNodeUpdateFields"]
+    assert update_fields["additionalProperties"] is False
+    assert set(update_fields["properties"]) == {
+        "content",
+        "name",
+        "type",
+        "description",
+        "summary",
+        "source",
+    }
+
+
+def test_record_ref_normalizes_repeated_existing_table_prefix():
+    reference = RecordRef.model_validate(
+        {"kind": "existing", "record_id": "entity:entity:abc123"}
+    )
+    assert reference.record_id == "entity:abc123"
+
+
+def test_record_ref_discards_fields_that_do_not_match_kind():
+    reference = RecordRef.model_validate(
+        {
+            "kind": "new_entity",
+            "name": "Python",
+            "record_id": "entity:Python",
+        }
+    )
+    assert reference.kind == "new_entity"
+    assert reference.name == "Python"
+    assert reference.record_id is None
+
+
+def test_ingest_plan_recognizes_prefixed_new_entity_name():
+    plan = _valid_plan()
+    plan["edges"][0]["to_ref"] = {
+        "kind": "existing",
+        "record_id": "entity:Python",
+    }
+    with pytest.raises(ValidationError, match="matches a new entity name"):
+        IngestPlan.model_validate(plan)
+
+
+def test_ingest_plan_rejects_duplicate_entity_names_and_note_labels():
+    plan = _valid_plan()
+    plan["entities"].append({"name": "Python", "type": "language"})
+    with pytest.raises(ValidationError, match="Entity names must be unique"):
+        IngestPlan.model_validate(plan)
+
+    plan = _valid_plan()
+    plan["notes"].append({"label": "coding practice", "content": "Another note."})
+    with pytest.raises(ValidationError, match="Note labels must be unique"):
+        IngestPlan.model_validate(plan)
+
+
+def test_ingest_plan_rejects_reserved_edge_table_and_bad_reference():
+    plan = _valid_plan()
+    plan["edges"][0]["edge_table"] = "entity"
+    with pytest.raises(ValidationError, match="reserved node/intake table"):
+        IngestPlan.model_validate(plan)
+
+    plan = _valid_plan()
+    plan["edges"][0]["to_ref"] = {"kind": "new_entity", "name": "Missing"}
+    with pytest.raises(ValidationError, match="Unknown new entity name"):
+        IngestPlan.model_validate(plan)
+
+    plan = _valid_plan()
+    plan["edges"][0]["from_ref"] = {"kind": "existing", "name": "Unused name"}
+    with pytest.raises(
+        ValidationError, match="existing references require record_id only"
+    ):
+        IngestPlan.model_validate(plan)
+
+    plan = _valid_plan()
+    plan["extra"] = "unexpected"
+    with pytest.raises(ValidationError):
+        IngestPlan.model_validate(plan)
+
+
+async def test_ingest_agent_returns_validated_plan(storage):
     agent = create_ingest_agent()
     result = await agent.run(
-        "I've been thinking about how spaced repetition could help with my coding practice",
-        deps=ingest_deps,
-        model=TestModel(),
+        "I've been thinking about how Python helps with coding practice",
+        deps=IngestDeps(storage=storage),
+        model=TestModel(call_tools=[], custom_output_args=_valid_plan()),
     )
-    assert result.output is not None
+    assert result.output == IngestPlan.model_validate(_valid_plan())
+
+
+async def test_batch_runner_applies_one_plan(storage):
+    agent = create_ingest_agent()
+    runner = AgentIngestBatchRunner(
+        agent,
+        storage,
+        TestModel(call_tools=[], custom_output_args=_valid_plan()),
+    )
+
+    outcome = await runner.run("Python supports useful coding tools.", [])
+
+    assert outcome.completed is True
+    assert outcome.summary == "Stored a note about Python."
+    assert outcome.errors == []
+    entities = await storage.hybrid_search("entity", "Python", 10)
+    notes = await storage.hybrid_search(
+        "note", "Python supports useful coding tools.", 10
+    )
+    assert any(entity.get("name") == "Python" for entity in entities)
+    python_note = next(
+        note
+        for note in notes
+        if note.get("content") == "Python supports useful coding tools."
+    )
+    outgoing_edges = await storage.get_outgoing_edges(python_note["id"])
+    assert any(edge["id"].split(":", 1)[0] == "describes" for edge in outgoing_edges)

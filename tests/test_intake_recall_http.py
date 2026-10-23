@@ -46,6 +46,7 @@ async def recall_app(monkeypatch):
             return_value=SimpleNamespace(
                 output=RecallOutput(
                     answer="Organized and unprocessed evidence support this answer.",
+                    has_evidence=True,
                     cited_node_ids=[NOTE["id"]],
                     cited_edge_ids=[EDGE["id"]],
                     cited_unprocessed_ids=[CHUNK["id"]],
@@ -86,6 +87,29 @@ async def test_http_recall_keeps_unprocessed_citations_outside_graph_arrays(reca
     storage.get_intake_chunks.assert_awaited_once_with([CHUNK["id"]])
 
 
+async def test_http_recall_allows_explicit_no_evidence(recall_app):
+    client, storage, recall_agent = recall_app
+    storage.get_nodes.return_value = []
+    recall_agent.run.return_value.output = RecallOutput(
+        answer=None,
+        has_evidence=False,
+        cited_node_ids=[],
+        cited_edge_ids=[],
+        cited_unprocessed_ids=[],
+    )
+
+    response = await client.post("/recall", json={"question": "Unknown fact?"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == (
+        "I couldn't find relevant information in your knowledge base."
+    )
+    assert response.json()["context"] is None
+    storage.get_nodes.assert_awaited_once_with([])
+    storage.get_edge.assert_not_awaited()
+    storage.get_intake_chunks.assert_not_awaited()
+
+
 async def test_http_recall_returns_context_when_only_unprocessed_evidence_is_cited(
     recall_app,
 ):
@@ -93,6 +117,9 @@ async def test_http_recall_returns_context_when_only_unprocessed_evidence_is_cit
     storage.get_nodes.return_value = []
     recall_agent.run.return_value.output = RecallOutput(
         answer="The submitted source is still unprocessed.",
+        has_evidence=True,
+        cited_node_ids=[],
+        cited_edge_ids=[],
         cited_unprocessed_ids=[CHUNK["id"]],
     )
 
@@ -119,7 +146,9 @@ async def test_http_recall_skips_chunks_deleted_between_search_and_citation_fetc
     storage.get_intake_chunks.return_value = remaining_chunks
     recall_agent.run.return_value.output = RecallOutput(
         answer="The answer survives a processed intake chunk.",
+        has_evidence=True,
         cited_node_ids=[NOTE["id"]],
+        cited_edge_ids=[],
         cited_unprocessed_ids=[CHUNK["id"], "intake_chunk:deleted"],
     )
 
@@ -138,12 +167,15 @@ async def test_http_recall_skips_chunks_deleted_between_search_and_citation_fetc
     storage.get_edge.assert_not_awaited()
 
 
-async def test_http_recall_still_answers_after_every_cited_chunk_disappears(recall_app):
+async def test_http_recall_rejects_answer_when_all_citations_disappear(recall_app):
     client, storage, recall_agent = recall_app
     storage.get_nodes.return_value = []
     storage.get_intake_chunks.return_value = []
     recall_agent.run.return_value.output = RecallOutput(
         answer="The retrieved passage was processed while I answered.",
+        has_evidence=True,
+        cited_node_ids=[],
+        cited_edge_ids=[],
         cited_unprocessed_ids=["intake_chunk:deleted"],
     )
 
@@ -151,9 +183,8 @@ async def test_http_recall_still_answers_after_every_cited_chunk_disappears(reca
         "/recall", json={"question": "What did the passage say?"}
     )
 
-    assert response.status_code == 200
-    assert response.json()["answer"] == recall_agent.run.return_value.output.answer
-    assert response.json()["context"] is None
+    assert response.status_code == 502
+    assert "none resolved to stored evidence" in response.json()["detail"]
     storage.get_intake_chunks.assert_awaited_once_with(["intake_chunk:deleted"])
     assert all(call.args == ([],) for call in storage.get_nodes.await_args_list)
     storage.get_edge.assert_not_awaited()

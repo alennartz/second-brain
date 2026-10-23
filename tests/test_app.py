@@ -22,6 +22,25 @@ async def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
+async def test_recall_endpoint_surfaces_usage_limit(client, monkeypatch):
+    import importlib
+
+    app_module = importlib.import_module("second_brain.app")
+    from second_brain.agents.recall import RecallRunLimitExceeded
+
+    monkeypatch.setattr(app_module, "_storage", object())
+    monkeypatch.setattr(
+        app_module,
+        "run_recall",
+        AsyncMock(side_effect=RecallRunLimitExceeded("tool budget exhausted")),
+    )
+
+    response = await client.post("/recall", json={"question": "memory?"})
+
+    assert response.status_code == 502
+    assert "tool budget exhausted" in response.json()["detail"]
+
+
 async def test_recall_endpoint_exists(client):
     with patch("second_brain.app.run_recall_agent", new_callable=AsyncMock) as mock:
         mock.return_value = RecallResponse(answer="Found nothing relevant")
@@ -60,8 +79,8 @@ async def test_recall_response_with_context(client):
     assert len(body["context"]["edges"]) == 1
 
 
-async def test_recall_survives_malformed_citations(client, storage, monkeypatch):
-    """Weak models can emit placeholder citation IDs; recall must still answer."""
+async def test_recall_rejects_unresolvable_citations(client, storage, monkeypatch):
+    """Recall must not return an answer when its required citations cannot resolve."""
     from second_brain.agents.recall import RecallOutput
     from second_brain.app import _recall_agent
     from tests.test_converse_agent import RECALL_ANSWER
@@ -70,8 +89,10 @@ async def test_recall_survives_malformed_citations(client, storage, monkeypatch)
         class Result:
             output = RecallOutput(
                 answer=RECALL_ANSWER,
-                cited_node_ids=["-none-"],
-                cited_edge_ids=["-none-"],
+                has_evidence=True,
+                cited_node_ids=["entity:missing"],
+                cited_edge_ids=["references:missing"],
+                cited_unprocessed_ids=[],
             )
 
         return Result()
@@ -79,10 +100,8 @@ async def test_recall_survives_malformed_citations(client, storage, monkeypatch)
     monkeypatch.setattr("second_brain.app._storage", storage)
     monkeypatch.setattr(_recall_agent, "run", fake_run)
     resp = await client.post("/recall", json={"question": "who wrote notes?"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["answer"] == RECALL_ANSWER
-    assert body["context"] in (None, {"nodes": [], "edges": []})
+    assert resp.status_code == 502
+    assert "none resolved to stored evidence" in resp.json()["detail"]
 
 
 async def test_graph_endpoint(client):

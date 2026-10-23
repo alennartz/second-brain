@@ -7,6 +7,7 @@ Usage:
     experiments/benchctl.sh status <experiment_name>
     experiments/benchctl.sh stop <experiment_name>
     experiments/benchctl.sh resume <experiment_name>
+    python experiments/run_experiment.py --judge-only <experiment_name>
 
 Runs resumably against an isolated scratch DB. It ingests Space Race and
 Florentine Renaissance snippets, runs recall and graph probes, and uses an LLM
@@ -29,7 +30,8 @@ import httpx
 DEFAULT_PORT = int(os.environ.get("EXPERIMENT_PORT", "8000"))
 EXPERIMENTS_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(EXPERIMENTS_DIR)
-
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
 # ══════════════════════════════════════════════════════════════════════════════
 # DOMAIN A: THE SPACE AGE (16 snippets)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -572,10 +574,20 @@ CROSS_DOMAIN_ASSERTIONS = [
 # ════════════════════════════════════════════════════════════════════════════
 
 OP_TIMEOUT_S = float(os.environ.get("BENCH_OP_TIMEOUT", "900"))
+PIPELINE_POLL_S = max(0.2, float(os.environ.get("BENCH_PIPELINE_POLL", "5")))
+PIPELINE_PENDING_FIELDS = ("ready", "leased", "retry_wait", "paused")
 
 
 class BenchInterrupt(Exception):
     """Raised on SIGINT/SIGTERM to exit cleanly with saved state."""
+
+
+class BenchIncomplete(Exception):
+    """Raised when staging fails so recall cannot run on partial input."""
+
+
+class GraphProbeLookupError(RuntimeError):
+    """Raised when recall cannot resolve a benchmark entity for graph probing."""
 
 
 class BenchState:
@@ -596,11 +608,17 @@ class BenchState:
                 "recall": [],  # one record per answered question
                 "graph": [],  # one record per probed entity
                 "judge": {},  # section name -> results
+                "judge_errors": {},  # section name -> judge failure
+                "judge_model": None,
+                "pipeline": {},  # aggregate background-drain progress
                 "current": None,
                 "interrupted": False,
             }
             self.save()
         self.data.pop("inflight_ingest", None)
+        self.data.setdefault("pipeline", {})
+        self.data.setdefault("judge_errors", {})
+        self.data.setdefault("judge_model", None)
         self.data.setdefault("current", None)
         self.data.setdefault("interrupted", False)
         self.data["interrupted"] = False
@@ -628,16 +646,22 @@ class BenchState:
             os.replace(
                 artifact_tmp, os.path.join(os.path.dirname(self.path), f"{phase}.json")
             )
+        scores_path = os.path.join(os.path.dirname(self.path), "llm_scores.json")
         if self.data["judge"]:
-            artifact_tmp = os.path.join(
-                os.path.dirname(self.path), "llm_scores.json.tmp"
-            )
+            artifact_tmp = scores_path + ".tmp"
             with open(artifact_tmp, "w") as f:
                 json.dump(self.data["judge"], f, indent=2)
-            os.replace(
-                artifact_tmp,
-                os.path.join(os.path.dirname(self.path), "llm_scores.json"),
-            )
+            os.replace(artifact_tmp, scores_path)
+        elif os.path.exists(scores_path):
+            os.remove(scores_path)
+        errors_path = os.path.join(os.path.dirname(self.path), "judge_errors.json")
+        if self.data["judge_errors"]:
+            artifact_tmp = errors_path + ".tmp"
+            with open(artifact_tmp, "w") as f:
+                json.dump(self.data["judge_errors"], f, indent=2)
+            os.replace(artifact_tmp, errors_path)
+        elif os.path.exists(errors_path):
+            os.remove(errors_path)
 
     def monitor_line(self) -> str:
         d = self.data
@@ -648,9 +672,19 @@ class BenchState:
         active = (
             f" current={current.get('label')} elapsed_s={elapsed}" if current else ""
         )
+        pipeline = d.get("pipeline") or {}
+        queue = pipeline.get("last_snapshot")
+        pending = (
+            sum(int(queue.get(field, 0) or 0) for field in PIPELINE_PENDING_FIELDS)
+            if queue is not None
+            else "unknown"
+        )
+        staged = sum(
+            1 for row in d["ingest"] if row.get("status") in {"staged", "complete"}
+        )
         return (
-            f"phase={d['phase']} ingest={len(d['ingest'])}/{len(SNIPPETS)} "
-            f"recall={len(d['recall'])}/{len(RECALL_QUESTIONS)} "
+            f"phase={d['phase']} ingest_staged={staged}/{len(SNIPPETS)} "
+            f"queue_pending={pending} recall={len(d['recall'])}/{len(RECALL_QUESTIONS)} "
             f"graph={len(d['graph'])}/{len(GRAPH_PROBES)}{active}"
         )
 
@@ -750,9 +784,15 @@ class ServerSupervisor:
             "BRAIN_EMBEDDING_MODEL",
             "BRAIN_REASONING_BASE_URL",
             "BRAIN_EMBEDDING_BASE_URL",
+            "BRAIN_REASONING_EFFORT",
+            "BRAIN_REASONING_TEMPERATURE",
+            "BRAIN_REASONING_CHAT_TEMPLATE_KWARGS",
         ):
             if key in os.environ:
                 command.append(f"{key}={os.environ[key]}")
+        # Prevent background dreaming from competing with ingestion or mutating
+        # the graph while a benchmark waits for its intake queue to drain.
+        command.append("BRAIN_DREAM_ENABLED=false")
         command.extend(
             [
                 os.path.join(PROJECT_DIR, ".venv", "bin", "uvicorn"),
@@ -800,92 +840,204 @@ class ServerSupervisor:
 # --- Phase runners (resumable: skip work already in state) ---
 
 
-def _ingest_one(client, base, snippet, deadline, state: BenchState, index: int) -> dict:
-    """Stage one snippet through the synchronous intake endpoint."""
-    if time.time() >= deadline:
-        raise TimeoutError(f"ingest for snippet {index + 1} exceeded op deadline")
+def _stage_one(client, base, snippet, state: BenchState, index: int) -> dict:
+    """Synchronously chunk, embed, and persist one source snippet."""
     started_epoch = time.time()
     key = f"{state.data['name']}:{index}"
     resp = client.post(
         f"{base}/ingest",
         json={"text": snippet},
         headers={"Idempotency-Key": key},
-        timeout=min(30, max(1, int(deadline - started_epoch))),
+        timeout=OP_TIMEOUT_S,
     )
     resp.raise_for_status()
     payload = resp.json()
     chunks_stored = payload.get("chunks_stored")
     if not isinstance(chunks_stored, int) or chunks_stored < 0:
         raise RuntimeError("ingest response omitted a valid chunks_stored count")
-    while True:
-        remaining = deadline - time.time()
-        if remaining <= 0:
-            raise TimeoutError("intake queue did not drain before the op deadline")
-        snapshot = client.get(f"{base}/ingest/pipeline", timeout=min(30, remaining))
-        snapshot.raise_for_status()
-        counts = snapshot.json()
-        if all(
-            counts[field] == 0 for field in ("ready", "leased", "retry_wait", "paused")
-        ):
-            break
-        time.sleep(min(1, remaining))
     return {
-        "status": "complete",
+        "status": "staged",
         "chunks_stored": chunks_stored,
-        "elapsed_s": round(time.time() - started_epoch, 2),
+        "stage_elapsed_s": round(time.time() - started_epoch, 2),
     }
+
+
+def _pending_chunks(snapshot: dict) -> int:
+    return sum(int(snapshot.get(field, 0) or 0) for field in PIPELINE_PENDING_FIELDS)
+
+
+def _wait_for_pipeline_drain(
+    client, sup: ServerSupervisor, base: str, state: BenchState
+) -> float:
+    """Poll aggregate pipeline status until every staged chunk is processed."""
+    pipeline = state.data.setdefault("pipeline", {})
+    if pipeline.get("completed_epoch") is not None:
+        return float(pipeline.get("drain_elapsed_s", 0.0))
+
+    started_epoch = pipeline.setdefault("drain_started_epoch", time.time())
+    state.data["phase"] = "ingest_drain"
+    state.data["current"] = {
+        "phase": "ingest_drain",
+        "label": "waiting for background ingestion queue to drain",
+        "started_epoch": started_epoch,
+    }
+    state.save()
+
+    previous_status = None
+    while True:
+        try:
+            sup.ensure()
+            response = client.get(f"{base}/ingest/pipeline", timeout=30)
+            response.raise_for_status()
+            snapshot = response.json()
+        except BenchInterrupt:
+            raise
+        except Exception as exc:
+            print(f"  pipeline status request failed: {exc}")
+            time.sleep(PIPELINE_POLL_S)
+            continue
+
+        counts: dict[str, int] = {}
+        for field in PIPELINE_PENDING_FIELDS:
+            value = snapshot.get(field)
+            if not isinstance(value, int) or value < 0:
+                raise RuntimeError(f"pipeline status has invalid {field}: {value!r}")
+            counts[field] = value
+        pending = _pending_chunks(snapshot)
+        active_leases = int(snapshot.get("active_leases", 0) or 0)
+        pipeline.update(
+            {
+                "last_snapshot": snapshot,
+                "pending_chunks": pending,
+                "active_leases": active_leases,
+                "recent_errors": snapshot.get("recent_errors", []),
+                "stuck_intakes": snapshot.get("stuck_intakes", []),
+                "poll_count": int(pipeline.get("poll_count", 0)) + 1,
+            }
+        )
+        state.save()
+
+        recent_errors = snapshot.get("recent_errors") or []
+        latest_error = recent_errors[-1] if recent_errors else {}
+        status_signature = (
+            tuple(counts.items()),
+            active_leases,
+            latest_error.get("intake_id"),
+            latest_error.get("at"),
+            latest_error.get("error"),
+        )
+        if status_signature != previous_status:
+            staged = sum(
+                int(row.get("chunks_stored", 0)) for row in state.data["ingest"]
+            )
+            completed_estimate = max(0, staged - pending)
+            print(
+                "  pipeline drain: "
+                + ", ".join(f"{key}={value}" for key, value in counts.items())
+                + f" active_leases={active_leases} completed≈{completed_estimate}/{staged}"
+            )
+            if latest_error:
+                print(
+                    f"  latest pipeline error: intake={latest_error.get('intake_id')} "
+                    f"error={latest_error.get('error')}"
+                )
+            previous_status = status_signature
+
+        if pending == 0 and active_leases == 0:
+            completed_epoch = time.time()
+            pipeline["completed_epoch"] = completed_epoch
+            pipeline["drain_elapsed_s"] = round(completed_epoch - started_epoch, 2)
+            pipeline["ingest_total_elapsed_s"] = round(
+                completed_epoch - pipeline["ingest_started_epoch"], 2
+            )
+            for row in state.data["ingest"]:
+                if row.get("status") == "staged":
+                    row["status"] = "complete"
+                    row["processing_completed_epoch"] = completed_epoch
+            state.data["current"] = None
+            state.data["phase"] = "recall"
+            state.save()
+            print(
+                f"  pipeline drained: all {staged} staged chunks processed; "
+                f"drain={pipeline['drain_elapsed_s']}s, "
+                f"end-to-end={pipeline['ingest_total_elapsed_s']}s"
+            )
+            return pipeline["drain_elapsed_s"]
+
+        time.sleep(PIPELINE_POLL_S)
 
 
 def ingest_phase(client, sup: ServerSupervisor, base, state: BenchState):
-    done = {
-        r["snippet_index"]
-        for r in state.data["ingest"]
-        if r.get("status") == "complete"
+    """Stage all benchmark snippets first, then wait for the full queue to drain."""
+    pipeline = state.data.setdefault("pipeline", {})
+    pipeline.setdefault("ingest_started_epoch", time.time())
+    staged = {
+        row["snippet_index"]
+        for row in state.data["ingest"]
+        if row.get("status") in {"staged", "complete"}
     }
     results = state.data["ingest"]
     for i, snippet in enumerate(SNIPPETS):
-        if i in done:
+        if i in staged:
             continue
         domain = "SPACE" if i < len(SPACE_SNIPPETS) else "RENAISSANCE"
         t0 = time.time()
         state.data["current"] = {
-            "phase": "ingest",
+            "phase": "ingest_stage",
             "index": i,
-            "label": f"snippet {i + 1}/{len(SNIPPETS)} ({domain})",
+            "label": f"stage snippet {i + 1}/{len(SNIPPETS)} ({domain})",
             "started_epoch": t0,
         }
+        state.data["phase"] = "ingest_stage"
         state.save()
         record = None
+        last_error = "staging failed after two attempts"
         for attempt in (1, 2):
             try:
                 sup.ensure()
-                deadline = time.time() + OP_TIMEOUT_S
-                record = _ingest_one(client, base, snippet, deadline, state, i)
-                if record.get("status") == "failed":
-                    raise RuntimeError(record.get("error") or "intake staging failed")
-                record["elapsed_s"] = round(time.time() - t0, 2)
+                record = _stage_one(client, base, snippet, state, i)
                 break
             except BenchInterrupt:
                 raise
-            except Exception as e:
+            except Exception as exc:
+                last_error = str(exc)
                 print(
-                    f"  [{i + 1}/{len(SNIPPETS)} {domain}] attempt {attempt} failed: {e}"
+                    f"  [{i + 1}/{len(SNIPPETS)} {domain}] staging attempt "
+                    f"{attempt} failed: {exc}"
                 )
         if record is None:
-            record = {"status": "failed", "elapsed_s": round(time.time() - t0, 2)}
+            record = {
+                "status": "failed",
+                "error": last_error,
+                "stage_elapsed_s": round(time.time() - t0, 2),
+            }
+        record["elapsed_s"] = round(time.time() - t0, 2)
         record["snippet_index"] = i
         record["domain"] = domain
-        old_record = next((r for r in results if r["snippet_index"] == i), None)
+        old_record = next((row for row in results if row["snippet_index"] == i), None)
         if old_record:
             old_record.update(record)
         else:
             results.append(record)
         state.data["current"] = None
         state.save()
-        icon = "✓" if record.get("status") == "complete" else "✗"
-        print(f"  [{i + 1}/{len(SNIPPETS)} {domain}] {record['elapsed_s']}s {icon}")
-    state.data["phase"] = "recall"
+        icon = "✓" if record.get("status") == "staged" else "✗"
+        print(
+            f"  staged [{i + 1}/{len(SNIPPETS)} {domain}] "
+            f"chunks={record.get('chunks_stored', 0)} {record['elapsed_s']}s {icon}"
+        )
+        if record.get("status") == "failed":
+            state.data["phase"] = "staging_failed"
+            state.save()
+            raise BenchIncomplete(
+                f"snippet {i + 1} could not be staged; retrieval is blocked"
+            )
+
+    pipeline["staged_chunks"] = sum(int(row.get("chunks_stored", 0)) for row in results)
+    pipeline.setdefault("staging_completed_epoch", time.time())
+    state.data["phase"] = "ingest_drain"
     state.save()
+    _wait_for_pipeline_drain(client, sup, base, state)
 
 
 def recall_phase(client, sup: ServerSupervisor, base, state: BenchState):
@@ -935,7 +1087,8 @@ def recall_phase(client, sup: ServerSupervisor, base, state: BenchState):
 
 
 def find_entity_id(client, base, name):
-    for _attempt in range(3):
+    last_error = "recall returned no cited entity nodes"
+    for attempt in range(3):
         try:
             resp = client.post(
                 f"{base}/recall",
@@ -943,28 +1096,31 @@ def find_entity_id(client, base, name):
                 timeout=OP_TIMEOUT_S,
             )
             if resp.status_code != 200:
-                time.sleep(5)
-                continue
-            data = resp.json()
-            nodes = (data.get("context") or {}).get("nodes", [])
-            for node in nodes:
-                if (
-                    node.get("table") == "entity"
-                    and name.lower() in node.get("name", "").lower()
-                ):
-                    return node["id"]
-            for node in nodes:
-                if node.get("table") == "entity":
-                    return node["id"]
+                last_error = f"POST /recall returned HTTP {resp.status_code}"
+            else:
+                data = resp.json()
+                nodes = (data.get("context") or {}).get("nodes", [])
+                for node in nodes:
+                    node_name = str(node.get("name", ""))
+                    if (
+                        node.get("table") == "entity"
+                        and name.casefold() in node_name.casefold()
+                    ):
+                        return node["id"]
+                last_error = f"POST /recall returned no cited entity matching {name!r}"
         except BenchInterrupt:
             raise
-        except Exception:
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+        if attempt < 2:
             time.sleep(5)
-    return None
+    raise GraphProbeLookupError(
+        f"Could not resolve {name!r} after 3 recall attempts: {last_error}"
+    )
 
 
 def graph_phase(client, sup: ServerSupervisor, base, state: BenchState):
-    done = {r["name"] for r in state.data["graph"]}
+    done = {r["name"] for r in state.data["graph"] if not r.get("error")}
     results = state.data["graph"]
     for name in GRAPH_PROBES:
         if name in done:
@@ -978,15 +1134,23 @@ def graph_phase(client, sup: ServerSupervisor, base, state: BenchState):
         }
         state.save()
         sup.ensure()
-        entity_id = find_entity_id(client, base, name)
         record = {
             "name": name,
             "domain": domain,
-            "id": entity_id,
+            "id": None,
             "node": None,
             "connections": [],
         }
-        if entity_id:
+        try:
+            entity_id = find_entity_id(client, base, name)
+        except BenchInterrupt:
+            raise
+        except GraphProbeLookupError as exc:
+            record["error"] = str(exc)
+            record["status"] = "lookup_failed"
+            print(f"  ⚠ {name} [{domain}]: lookup failed: {exc}")
+        else:
+            record["id"] = entity_id
             try:
                 resp = client.get(f"{base}/graph/{entity_id}", timeout=60)
                 resp.raise_for_status()
@@ -997,86 +1161,196 @@ def graph_phase(client, sup: ServerSupervisor, base, state: BenchState):
                 record = data
             except BenchInterrupt:
                 raise
-            except Exception as e:
-                print(f"  ⚠ {name} [{domain}]: error {e}")
-        else:
-            print(f"  ⚠ {name} [{domain}]: not found")
+            except Exception as exc:
+                record["error"] = str(exc)
+                record["status"] = "graph_fetch_failed"
+                print(f"  ⚠ {name} [{domain}]: graph fetch failed: {exc}")
         record["elapsed_s"] = round(time.time() - t0, 2)
-        results.append(record)
+        old_record = next((row for row in results if row["name"] == name), None)
+        if old_record is None:
+            results.append(record)
+        else:
+            old_record.clear()
+            old_record.update(record)
         state.data["current"] = None
         state.save()
-        n = len(record.get("connections", []))
-        print(f"  {name} [{domain}]: {n} connections ({record['elapsed_s']}s)")
+        if not record.get("error"):
+            n = len(record.get("connections", []))
+            print(f"  {name} [{domain}]: {n} connections ({record['elapsed_s']}s)")
     state.data["phase"] = "judge"
     state.save()
 
 
-def judge_phase(state: BenchState, graph_results) -> dict:
-    """LLM-judged scoring, resumable per section."""
-    import sys as _sys
+def _parse_judge_output(answer: str, assertions: list[str]) -> list[dict]:
+    json_start = answer.find("[")
+    json_end = answer.rfind("]") + 1
+    if json_start < 0 or json_end <= json_start:
+        raise ValueError("judge response did not contain a JSON array")
+    parsed = json.loads(answer[json_start:json_end])
+    if not isinstance(parsed, list):
+        raise ValueError("judge response must be a JSON array")
 
-    _sys.path.insert(0, os.path.join(PROJECT_DIR, "src"))
-    from pydantic_ai import Agent
+    result_map = {}
+    for result in parsed:
+        if not isinstance(result, dict):
+            raise ValueError("each judge result must be an object")
+        number = result.get("n")
+        if (
+            isinstance(number, bool)
+            or not isinstance(number, int)
+            or number < 1
+            or number > len(assertions)
+            or number in result_map
+        ):
+            raise ValueError(f"invalid or duplicate assertion number: {number!r}")
+        if not isinstance(result.get("pass"), bool):
+            raise ValueError(f"assertion {number} must have a boolean 'pass' value")
+        if not isinstance(result.get("reason"), str):
+            raise ValueError(f"assertion {number} must have a string 'reason'")
+        result_map[number] = result
 
-    model = _create_judge_model()
+    missing = sorted(set(range(1, len(assertions) + 1)) - set(result_map))
+    if missing:
+        raise ValueError(f"judge response omitted assertion numbers: {missing}")
+    return [
+        {
+            "assertion": assertion,
+            "pass": result_map[index + 1]["pass"],
+            "reason": result_map[index + 1]["reason"],
+        }
+        for index, assertion in enumerate(assertions)
+    ]
 
-    def judge_call(graph_text, assertions, section):
-        numbered = "\n".join(f"{i + 1}. {a}" for i, a in enumerate(assertions))
-        prompt = (
-            f"You are evaluating a knowledge graph. Below is the graph neighborhood data "
-            f"for key entities, followed by a list of assertions about relationships that "
-            f"should exist in the graph.\n\n## Graph Data\n\n{graph_text}\n\n"
-            f"## {section} — Assertions to evaluate\n\n{numbered}\n\n## Instructions\n\n"
-            f"For each numbered assertion, determine whether the graph data supports it. "
-            f"A relationship counts as captured if there is a DIRECT edge between the "
-            f"relevant entities (in either direction, with any reasonable edge name) OR if "
-            f"the entities are clearly connected through a short path (1-2 hops).\n\n"
-            f"Respond with a JSON array. Each element must have:\n"
-            f'- "n": the assertion number (integer)\n'
-            f'- "pass": true if the relationship is captured, false if not\n'
-            f'- "reason": brief explanation (what edge or path you found, or what is missing)\n\n'
-            f"Respond ONLY with the JSON array, no other text."
+
+def _domain_probe_error(graph_results: list[dict], domain: str) -> str | None:
+    probes = [
+        result
+        for result in graph_results
+        if str(result.get("domain", "")).upper() == domain
+    ]
+    if not probes:
+        return f"Not scored: no {domain.title()} graph probes were recorded."
+    failed = sum(bool(result.get("error")) for result in probes)
+    missing = sum(not result.get("node") for result in probes)
+    if failed or missing:
+        lookup_label = "lookup error" if failed == 1 else "lookup errors"
+        missing_label = (
+            "probe without node data" if missing == 1 else "probes without node data"
         )
-        judge = Agent(output_type=str)
-        answer = judge.run_sync(prompt, model=model).output
-        json_start = answer.find("[")
-        json_end = answer.rfind("]") + 1
-        parsed = json.loads(answer[json_start:json_end])
-        result_map = {r.get("n", 0): r for r in parsed}
-        return [
-            {
-                "assertion": a,
-                "pass": bool(result_map.get(i + 1, {}).get("pass", False)),
-                "reason": result_map.get(i + 1, {}).get(
-                    "reason", "No judgment returned"
-                ),
-            }
-            for i, a in enumerate(assertions)
-        ]
+        return (
+            f"Not scored: {domain.title()} graph coverage is incomplete "
+            f"({failed} {lookup_label}, {missing} {missing_label})."
+        )
+    return None
+
+
+def _cross_domain_coverage_error(graph_results: list[dict]) -> str | None:
+    space_error = _domain_probe_error(graph_results, "SPACE")
+    renaissance_error = _domain_probe_error(graph_results, "RENAISSANCE")
+    if space_error or renaissance_error:
+        return "Not scored: cross-domain graph coverage is incomplete."
+    return None
+
+
+def judge_phase(state: BenchState, graph_results, *, force: bool = False) -> dict:
+    """Score graph evidence with Pi's configured cheap model."""
+    from experiments.pi_judge import (
+        PiJudgeError,
+        resolve_cheap_model,
+        resolve_pi_cli,
+        run_pi_judge,
+    )
 
     graph_text = _format_graph_neighborhood(graph_results)
     stored = state.data["judge"]
+    errors = state.data["judge_errors"]
     sections = {
         "space": ("Space Race Relationships", SPACE_ASSERTIONS),
         "renaissance": ("Renaissance Relationships", RENAISSANCE_ASSERTIONS),
         "cross_domain": ("Cross-Domain Isolation", CROSS_DOMAIN_ASSERTIONS),
     }
+    for key, results in list(stored.items()):
+        failed_before = any(
+            "LLM call failed" in str(result.get("reason", "")) for result in results
+        )
+        if force or failed_before:
+            stored.pop(key, None)
+            errors.pop(key, None)
+
+    try:
+        model_ref = resolve_cheap_model(project_dir=PROJECT_DIR)
+        pi_cli = resolve_pi_cli()
+    except Exception as exc:
+        model_ref = None
+        pi_cli = None
+        config_error = str(exc)
+        state.data["judge_model"] = {"tier": "cheap", "error": config_error}
+    else:
+        config_error = None
+        state.data["judge_model"] = {"tier": "cheap", "model": model_ref}
+        print(f"  Judge model: Pi tier cheap ({model_ref})")
+
     for key, (label, assertions) in sections.items():
-        if key in stored and not any(
-            "LLM call failed" in str(r.get("reason", "")) for r in stored[key]
-        ):
+        old_results = stored.get(key)
+        has_failure_placeholder = old_results is not None and any(
+            "LLM call failed" in str(result.get("reason", "")) for result in old_results
+        )
+        if key == "space":
+            coverage_error = _domain_probe_error(graph_results, "SPACE")
+        elif key == "renaissance":
+            coverage_error = _domain_probe_error(graph_results, "RENAISSANCE")
+        else:
+            coverage_error = _cross_domain_coverage_error(graph_results)
+        if coverage_error is not None:
+            stored.pop(key, None)
+            errors[key] = coverage_error
+            print(f"  Skipping {label}: {coverage_error}")
+            state.save()
             continue
+        if (
+            old_results is not None
+            and key not in errors
+            and not has_failure_placeholder
+            and not force
+        ):
+            errors.pop(key, None)
+            continue
+        if has_failure_placeholder or force:
+            stored.pop(key, None)
+
         print(f"  Judging {label}...")
+        errors.pop(key, None)
         try:
-            stored[key] = judge_call(graph_text, assertions, label)
+            if config_error is not None:
+                raise PiJudgeError(config_error)
+            if model_ref is None or pi_cli is None:
+                raise PiJudgeError("Pi cheap model or CLI was not resolved")
+            numbered = "\n".join(
+                f"{index + 1}. {assertion}"
+                for index, assertion in enumerate(assertions)
+            )
+            prompt = (
+                f"## Graph Data\n\n{graph_text}\n\n"
+                f"## {label} — Assertions to evaluate\n\n{numbered}\n\n"
+                f"For each numbered assertion, determine whether the supplied graph "
+                f"data supports it. A relationship passes only when the graph shows "
+                f"a direct edge in either direction, or a path of one or two edges. "
+                f"Use only the graph data above. Do not infer missing facts.\n\n"
+                f"Return a JSON array with exactly one object per assertion. Each object "
+                f'must contain integer "n", boolean "pass", and a brief string '
+                f'"reason" citing the supporting edge/path or stating what is missing.'
+            )
+            answer = run_pi_judge(
+                prompt, model_ref=model_ref, executable=pi_cli, cwd=PROJECT_DIR
+            )
+            stored[key] = _parse_judge_output(answer, assertions)
+            errors.pop(key, None)
         except BenchInterrupt:
             raise
-        except Exception as e:
-            print(f"    ⚠ judge call failed: {e}")
-            stored[key] = [
-                {"assertion": a, "pass": False, "reason": f"LLM call failed: {e}"}
-                for a in assertions
-            ]
+        except Exception as exc:
+            stored.pop(key, None)
+            errors[key] = str(exc)
+            print(f"    ⚠ judge call failed: {exc}")
         state.save()
     return stored
 
@@ -1097,7 +1371,12 @@ def _format_graph_neighborhood(graph_results: list[dict]) -> str:
         eid = g.get("id", "")
 
         if not node:
-            lines.append(f"**{name}** [{domain}] — NOT FOUND IN GRAPH")
+            status = (
+                f"LOOKUP FAILED: {g['error']}"
+                if g.get("error")
+                else "NO NODE DATA RETURNED BY PROBE"
+            )
+            lines.append(f"**{name}** [{domain}] — {status}")
             lines.append("")
             continue
 
@@ -1120,20 +1399,6 @@ def _format_graph_neighborhood(graph_results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _create_judge_model():
-    """Create a PydanticAI model from project settings for direct LLM calls."""
-    sys.path.insert(0, os.path.join(PROJECT_DIR, "src"))
-    from second_brain.config import settings
-    from second_brain.providers import create_model
-
-    return create_model(
-        settings.reasoning_model,
-        settings.reasoning_foundry_url,
-        settings.reasoning_auth,
-        settings.reasoning_key,
-    )
-
-
 def latency_stats(values: list[float]) -> dict:
     """Summary statistics over per-operation durations in seconds."""
     if not values:
@@ -1152,11 +1417,21 @@ def latency_stats(values: list[float]) -> dict:
     }
 
 
-def collect_latency(ingest_results, recall_results, graph_results) -> dict:
-    """Extract per-phase latency stats from result dicts (elapsed_s fields)."""
+def collect_latency(ingest_results, recall_results, graph_results, pipeline) -> dict:
+    """Summarize synchronous staging, background drain, recall, and graph times."""
     return {
-        "ingest": latency_stats(
+        "ingest_staging": latency_stats(
             [r["elapsed_s"] for r in ingest_results if "elapsed_s" in r]
+        ),
+        "pipeline_drain": latency_stats(
+            [pipeline["drain_elapsed_s"]]
+            if pipeline.get("drain_elapsed_s") is not None
+            else []
+        ),
+        "ingest_total": latency_stats(
+            [pipeline["ingest_total_elapsed_s"]]
+            if pipeline.get("ingest_total_elapsed_s") is not None
+            else []
         ),
         "recall": latency_stats(
             [r["elapsed_s"] for r in recall_results if "elapsed_s" in r]
@@ -1174,7 +1449,13 @@ def format_latency_section(latency: dict) -> list[str]:
         "| Phase | n | min | median | mean | p95 | max | total |",
         "|-------|---|-----|--------|------|-----|-----|-------|",
     ]
-    for phase in ("ingest", "recall", "graph"):
+    for phase in (
+        "ingest_staging",
+        "pipeline_drain",
+        "ingest_total",
+        "recall",
+        "graph",
+    ):
         s = latency.get(phase, {})
         if not s.get("count"):
             lines.append(f"| {phase} | 0 | — | — | — | — | — | — |")
@@ -1202,16 +1483,50 @@ def score_recall(recall_results):
     }
 
 
+def judge_score_text(llm_scores, judge_errors, key, total):
+    results = llm_scores.get(key)
+    if key in judge_errors or results is None or len(results) != total:
+        return "NOT SCORED"
+    passed = sum(1 for result in results if result.get("pass") is True)
+    return f"{passed}/{total}"
+
+
 def format_report(
-    name, notes, llm_scores, recall_scores, graph_results, latency, total_elapsed
+    name,
+    notes,
+    llm_scores,
+    judge_errors,
+    judge_model,
+    recall_scores,
+    graph_results,
+    latency,
+    total_elapsed,
 ):
-    space_pass = sum(1 for r in llm_scores["space"] if r["pass"])
-    space_total = len(llm_scores["space"])
-    ren_pass = sum(1 for r in llm_scores["renaissance"] if r["pass"])
-    ren_total = len(llm_scores["renaissance"])
-    cross_pass = sum(1 for r in llm_scores["cross_domain"] if r["pass"])
-    cross_total = len(llm_scores["cross_domain"])
+    space_score = judge_score_text(
+        llm_scores, judge_errors, "space", len(SPACE_ASSERTIONS)
+    )
+    renaissance_score = judge_score_text(
+        llm_scores, judge_errors, "renaissance", len(RENAISSANCE_ASSERTIONS)
+    )
+    cross_domain_score = judge_score_text(
+        llm_scores, judge_errors, "cross_domain", len(CROSS_DOMAIN_ASSERTIONS)
+    )
+    if "NOT SCORED" in (space_score, renaissance_score):
+        combined_score = "NOT SCORED"
+    else:
+        space_pass = sum(r["pass"] is True for r in llm_scores["space"])
+        renaissance_pass = sum(r["pass"] is True for r in llm_scores["renaissance"])
+        combined_total = len(SPACE_ASSERTIONS) + len(RENAISSANCE_ASSERTIONS)
+        combined_score = f"{space_pass + renaissance_pass}/{combined_total}"
     total_connections = sum(len(g.get("connections", [])) for g in graph_results)
+    if judge_model is None:
+        judge_model_label = "unresolved"
+    elif judge_model.get("model"):
+        judge_model_label = (
+            f"Pi tier {judge_model.get('tier')}: `{judge_model['model']}`"
+        )
+    else:
+        judge_model_label = f"Pi tier {judge_model.get('tier')} (unavailable)"
 
     lines = [
         f"## {name}",
@@ -1220,16 +1535,18 @@ def format_report(
         f"**Data:** {len(SPACE_SNIPPETS)} space + {len(RENAISSANCE_SNIPPETS)} renaissance snippets, "
         f"{len(RECALL_QUESTIONS)} questions, {len(GRAPH_PROBES)} probes",
         "**Scoring:** LLM-judged (not pattern-matched)",
+        f"**Judge model:** {judge_model_label}",
         "",
         "### Scores",
         "| Metric | Value |",
         "|--------|-------|",
-        f"| Space relationships | **{space_pass}/{space_total}** |",
-        f"| Renaissance relationships | **{ren_pass}/{ren_total}** |",
-        f"| Combined relationships | **{space_pass + ren_pass}/{space_total + ren_total}** |",
-        f"| Cross-domain isolation | **{cross_pass}/{cross_total}** |",
+        f"| Space relationships | **{space_score}** |",
+        f"| Renaissance relationships | **{renaissance_score}** |",
+        f"| Combined relationships | **{combined_score}** |",
+        f"| Cross-domain isolation | **{cross_domain_score}** |",
         f"| Total graph connections | **{total_connections}** |",
         f"| Recall with context | **{recall_scores['with_context']}/{recall_scores['total']}** |",
+        f"| Recall errors | **{recall_scores['errors']}/{recall_scores['total']}** |",
         f"| Recall total nodes cited | **{recall_scores['total_nodes']}** |",
         f"| Total wall time | **{total_elapsed:.0f}s** |",
         "",
@@ -1237,16 +1554,23 @@ def format_report(
 
     lines.extend(format_latency_section(latency))
 
-    for section_label, results in [
-        ("Space Race Relationships", llm_scores["space"]),
-        ("Renaissance Relationships", llm_scores["renaissance"]),
-        ("Cross-Domain Isolation", llm_scores["cross_domain"]),
-    ]:
+    sections = [
+        ("space", "Space Race Relationships", SPACE_ASSERTIONS),
+        ("renaissance", "Renaissance Relationships", RENAISSANCE_ASSERTIONS),
+        ("cross_domain", "Cross-Domain Isolation", CROSS_DOMAIN_ASSERTIONS),
+    ]
+    for key, section_label, _assertions in sections:
         lines.append(f"### {section_label}")
-        for r in results:
-            status = "✓" if r["pass"] else "✗"
-            lines.append(f"- {status} {r['assertion']}")
-            lines.append(f"  - {r['reason']}")
+        results = llm_scores.get(key)
+        if key in judge_errors or results is None:
+            lines.append(
+                f"- NOT SCORED: {judge_errors.get(key, 'no judge result available')}"
+            )
+        else:
+            for result in results:
+                status = "✓" if result["pass"] else "✗"
+                lines.append(f"- {status} {result['assertion']}")
+                lines.append(f"  - {result['reason']}")
         lines.append("")
 
     # Graph probes grouped by domain
@@ -1261,6 +1585,14 @@ def format_report(
             gname = g.get("name", "?")
             conns = g.get("connections", [])
             eid = g.get("id", "")
+            if g.get("error"):
+                lines.append(f"**{gname}** — LOOKUP FAILED: {g['error']}")
+                lines.append("")
+                continue
+            if not g.get("node"):
+                lines.append(f"**{gname}** — NO NODE DATA RETURNED BY PROBE")
+                lines.append("")
+                continue
             lines.append(f"**{gname}** ({len(conns)} connections)")
             for conn in conns:
                 edge = conn["edge"]
@@ -1290,9 +1622,110 @@ def _install_signal_handlers(state: BenchState):
     signal.signal(signal.SIGTERM, handler)
 
 
+def _replace_journal_entry(name: str, report: str) -> None:
+    journal_path = os.path.join(EXPERIMENTS_DIR, "JOURNAL.md")
+    heading = f"## {name}\n"
+    if os.path.exists(journal_path):
+        with open(journal_path) as f:
+            existing = f.read()
+    else:
+        existing = ""
+    if heading in existing:
+        start = existing.index(heading)
+        next_heading = existing.find("\n## ", start + len(heading))
+        end = len(existing) if next_heading < 0 else next_heading + 1
+        existing = existing[:start] + report + existing[end:]
+    else:
+        existing = existing.rstrip() + "\n\n" + report
+    with open(journal_path, "w") as f:
+        f.write(existing)
+
+
+def _make_journal_report(name, notes, state, latency, total_elapsed):
+    return format_report(
+        name,
+        notes,
+        state.data["judge"],
+        state.data["judge_errors"],
+        state.data["judge_model"],
+        score_recall(state.data["recall"]),
+        state.data["graph"],
+        latency,
+        total_elapsed,
+    )
+
+
+def run_saved_judge(name: str) -> None:
+    """Re-score saved graph probes without restarting ingestion or retrieval."""
+    data_dir = os.path.join(EXPERIMENTS_DIR, "data", name)
+    state_path = os.path.join(data_dir, "state.json")
+    if not os.path.isfile(state_path):
+        raise SystemExit(f"No saved benchmark state for {name}")
+
+    state = BenchState(state_path, name, "")
+    pipeline = state.data.get("pipeline", {})
+    snapshot = pipeline.get("last_snapshot") or {}
+    pending = sum(int(snapshot.get(key, 0) or 0) for key in PIPELINE_PENDING_FIELDS)
+    if pending or pipeline.get("pending_chunks", pending):
+        raise SystemExit(
+            f"Cannot judge {name}: ingestion still has {pending} pending chunks"
+        )
+    if len(state.data["graph"]) != len(GRAPH_PROBES):
+        raise SystemExit(
+            f"Cannot judge {name}: expected {len(GRAPH_PROBES)} saved graph probes, "
+            f"found {len(state.data['graph'])}"
+        )
+
+    print(f"=== Rejudging saved graph probes for {name} with Pi tier cheap ===")
+    judge_phase(state, state.data["graph"], force=True)
+    state.save()
+
+    latency_path = os.path.join(data_dir, "latency.json")
+    with open(latency_path) as f:
+        latency_data = json.load(f)
+    total_elapsed = float(latency_data.get("total_s", 0))
+    latency = {key: value for key, value in latency_data.items() if key != "total_s"}
+    report = _make_journal_report(
+        name, state.data.get("notes", ""), state, latency, total_elapsed
+    )
+    _replace_journal_entry(name, report)
+
+    for key, label, assertions in (
+        ("space", "Space relationships", SPACE_ASSERTIONS),
+        ("renaissance", "Renaissance relationships", RENAISSANCE_ASSERTIONS),
+        ("cross_domain", "Cross-domain isolation", CROSS_DOMAIN_ASSERTIONS),
+    ):
+        score = judge_score_text(
+            state.data["judge"], state.data["judge_errors"], key, len(assertions)
+        )
+        print(f"{label}: {score}")
+    if state.data["judge_errors"]:
+        print(
+            f"Judge issues or unscored sections: {json.dumps(state.data['judge_errors'], indent=2)}"
+        )
+    print(
+        f"Updated judge artifacts in {data_dir} and "
+        f"{os.path.join(EXPERIMENTS_DIR, 'JOURNAL.md')}"
+    )
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in {"-h", "--help"}:
+        print("Usage: python experiments/run_experiment.py <name> [notes]")
+        print("       python experiments/run_experiment.py --judge-only <name>")
+        print("Resumable: rerun the same <name> to continue an interrupted run.")
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--judge-only":
+        if len(sys.argv) != 3:
+            print("Usage: python experiments/run_experiment.py --judge-only <name>")
+            sys.exit(1)
+        run_saved_judge(sys.argv[2])
+        return
+
     if len(sys.argv) < 2:
         print("Usage: python experiments/run_experiment.py <name> [notes]")
+        print("       python experiments/run_experiment.py --judge-only <name>")
         print("Resumable: rerun the same <name> to continue an interrupted run.")
         sys.exit(1)
 
@@ -1370,7 +1803,9 @@ def main():
 
         # Summarize
         recall_scores = score_recall(recall_results)
-        latency = collect_latency(ingest_results, recall_results, graph_results)
+        latency = collect_latency(
+            ingest_results, recall_results, graph_results, state.data["pipeline"]
+        )
         session_start = state.data.get("session_started_epoch", total_t0)
         total_elapsed = state.data.get("accumulated_s", 0) + max(
             0, time.time() - session_start
@@ -1379,48 +1814,46 @@ def main():
         with open(os.path.join(data_dir, "latency.json"), "w") as f:
             json.dump({"total_s": round(total_elapsed, 2), **latency}, f, indent=2)
 
-        s_pass = sum(1 for r in llm_scores["space"] if r["pass"])
-        r_pass = sum(1 for r in llm_scores["renaissance"] if r["pass"])
-        c_pass = sum(1 for r in llm_scores["cross_domain"] if r["pass"])
-
         print(f"\n=== RESULTS ({total_elapsed:.0f}s total) ===")
-        print(f"Space relationships:       {s_pass}/{len(SPACE_ASSERTIONS)}")
-        print(f"Renaissance relationships: {r_pass}/{len(RENAISSANCE_ASSERTIONS)}")
-        print(f"Cross-domain isolation:    {c_pass}/{len(CROSS_DOMAIN_ASSERTIONS)}")
+        print(
+            "Space relationships:       "
+            + judge_score_text(
+                llm_scores,
+                state.data["judge_errors"],
+                "space",
+                len(SPACE_ASSERTIONS),
+            )
+        )
+        print(
+            "Renaissance relationships: "
+            + judge_score_text(
+                llm_scores,
+                state.data["judge_errors"],
+                "renaissance",
+                len(RENAISSANCE_ASSERTIONS),
+            )
+        )
+        print(
+            "Cross-domain isolation:    "
+            + judge_score_text(
+                llm_scores,
+                state.data["judge_errors"],
+                "cross_domain",
+                len(CROSS_DOMAIN_ASSERTIONS),
+            )
+        )
         print(
             f"Recall w/ context:         {recall_scores['with_context']}/{recall_scores['total']}"
         )
         print(
-            f"Latency: ingest p95 {latency['ingest'].get('p95_s', '—')}s, "
+            f"Latency: staging p95 {latency['ingest_staging'].get('p95_s', '—')}s, "
+            f"pipeline drain {latency['pipeline_drain'].get('total_s', '—')}s, "
             f"recall p95 {latency['recall'].get('p95_s', '—')}s"
         )
 
-        # Write journal (only once per completed run)
+        report = _make_journal_report(name, notes, state, latency, total_elapsed)
+        _replace_journal_entry(name, report)
         journal_path = os.path.join(EXPERIMENTS_DIR, "JOURNAL.md")
-        report = format_report(
-            name,
-            notes,
-            llm_scores,
-            recall_scores,
-            graph_results,
-            latency,
-            total_elapsed,
-        )
-        heading = f"## {name}\n"
-        if os.path.exists(journal_path):
-            with open(journal_path) as f:
-                existing = f.read()
-        else:
-            existing = ""
-        if heading in existing:
-            start = existing.index(heading)
-            next_heading = existing.find("\n## ", start + len(heading))
-            end = len(existing) if next_heading < 0 else next_heading + 1
-            existing = existing[:start] + report + existing[end:]
-        else:
-            existing = existing.rstrip() + "\n\n" + report
-        with open(journal_path, "w") as f:
-            f.write(existing)
         state.data["accumulated_s"] = round(total_elapsed, 2)
         state.data["session_started_epoch"] = None
         state.data["phase"] = "done"
@@ -1428,6 +1861,18 @@ def main():
         print(f"\n✓ Journal updated: {journal_path}")
         print(f"✓ Data saved: {data_dir}/")
 
+    except BenchIncomplete as exc:
+        state.data["current"] = None
+        state.data["accumulated_s"] = state.data.get("accumulated_s", 0) + round(
+            time.time() - state.data.get("session_started_epoch", total_t0), 2
+        )
+        state.data["session_started_epoch"] = None
+        state.save()
+        print(f"✗ Benchmark paused before retrieval: {exc}")
+        print(
+            f"  Fix the staging issue, then resume with: experiments/benchctl.sh resume {name}"
+        )
+        return
     except BenchInterrupt:
         state.data["accumulated_s"] = state.data.get("accumulated_s", 0) + round(
             time.time() - state.data.get("session_started_epoch", total_t0), 2

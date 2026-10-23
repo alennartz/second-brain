@@ -494,3 +494,491 @@ Future experiments use the v2 dataset (16 dense snippets, ~600 chars each, 25 ex
 - ← [implemented_by] Theocratic Republic of Florence (Savonarola)
 
 ---
+
+## 06-baseline-gemma4
+**Date:** 2026-10-13 01:49 UTC
+**Notes:** Baseline with current local stack: reasoning=openai:gemma4-26b-a4b @ jetson:8082, embedding=harrier-oss-v1-0.6b @ jetson:8084
+**Data:** 16 space + 14 renaissance snippets, 9 questions, 20 probes
+**Scoring:** LLM-judged (not pattern-matched)
+
+### Scores
+| Metric | Value |
+|--------|-------|
+| Space relationships | **0/22** |
+| Renaissance relationships | **0/19** |
+| Combined relationships | **0/41** |
+| Cross-domain isolation | **0/1** |
+| Total graph connections | **0** |
+| Recall with context | **0/9** |
+| Recall total nodes cited | **0** |
+| Total wall time | **11321s** |
+
+### Latency
+| Phase | n | min | median | mean | p95 | max | total |
+|-------|---|-----|--------|------|-----|-----|-------|
+| ingest | 30 | 2.0s | 110.08s | 354.91s | 1801.2s | 1801.21s | 10647.4s |
+| recall | 9 | 23.49s | 23.77s | 23.84s | 24.57s | 24.57s | 214.52s |
+| graph | 20 | 19.57s | 20.7s | 20.54s | 20.89s | 21.19s | 410.81s |
+
+### Space Race Relationships
+- ✗ Tsiolkovsky's theoretical work inspired or influenced Oberth
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Oberth mentored or inspired von Braun
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Von Braun developed or led the development of the V-2 rocket
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Von Braun was recruited to the US through Operation Paperclip
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Von Braun directed or led Marshall Space Flight Center
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Korolev was known as or connected to 'the Chief Designer'
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Korolev developed or designed the R-7 rocket
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Korolev oversaw or was involved in the Sputnik launch
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Korolev oversaw or monitored the Vostok 1 / Gagarin flight
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Sputnik's launch triggered or led to the creation of NASA
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Explorer 1 discovered or detected the Van Allen radiation belts
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Apollo 11's crew included Armstrong, Aldrin, and Collins
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Apollo 11 was launched on a Saturn V rocket
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ The Apollo 1 fire killed Grissom, White, and Chaffee
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Grumman built the Lunar Module
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ North American Aviation built the Command/Service Module
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ The MIT Instrumentation Lab developed the Apollo Guidance Computer
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Katherine Johnson calculated trajectories for Mercury or Apollo
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Margaret Hamilton led the Apollo software team or coined 'software engineering'
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Korolev and Glushko had a rivalry or feud over engine design
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Armstrong commanded Gemini 8 before Apollo 11
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Saturn V was designed or developed at/by Marshall or von Braun's team
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+
+### Renaissance Relationships
+- ✗ Cimabue discovered or taught Giotto
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Cosimo de' Medici patronized or commissioned Brunelleschi or Donatello
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Lorenzo de' Medici (Il Magnifico) patronized Botticelli or Michelangelo
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Lorenzo de' Medici was known as 'Il Magnifico'
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Verrocchio's workshop trained Leonardo
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Verrocchio's workshop trained Botticelli or Perugino
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Perugino trained or mentored Raphael
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Brunelleschi discovered or demonstrated linear perspective
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Alberti codified or wrote about perspective (De Pictura)
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Brunelleschi designed or built the dome of Florence Cathedral
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Bramante designed or began rebuilding St. Peter's Basilica
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Michelangelo designed or continued the dome of St. Peter's
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Michelangelo painted the Sistine Chapel ceiling
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Raphael painted the School of Athens or the Vatican Stanze
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Pope Julius II commissioned Michelangelo, Raphael, or Bramante
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Antonello da Messina brought oil painting to Italy or Venice
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Savonarola denounced or opposed the Medici
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Michelangelo was known as 'Il Divino'
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+- ✗ Donatello's real name was Donato di Niccolò di Betto Bardi
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+
+### Cross-Domain Isolation
+- ✗ There should be NO direct edge between any Space Race entity (von Braun, Korolev, Apollo, Saturn V, Sputnik, NASA) and any Renaissance entity (Michelangelo, Leonardo, Raphael, Bramante, Medici, Brunelleschi, Botticelli, Savonarola)
+  - LLM call failed: Set the `OPENAI_API_KEY` environment variable or pass it via `OpenAIProvider(api_key=...)` to use the OpenAI provider. To try Pydantic AI without an API key, use the built-in test model: `Agent('test')`. See https://pydantic.dev/docs/ai/guides/testing/
+
+### Graph Probes — Space Race
+**Wernher von Braun** (0 connections)
+
+**Korolev** (0 connections)
+
+**Apollo 11** (0 connections)
+
+**Saturn V** (0 connections)
+
+**V-2** (0 connections)
+
+**Sputnik** (0 connections)
+
+**MIT Instrumentation Lab** (0 connections)
+
+**Operation Paperclip** (0 connections)
+
+**Apollo 1** (0 connections)
+
+**Explorer 1** (0 connections)
+
+### Graph Probes — Renaissance
+**Michelangelo** (0 connections)
+
+**Lorenzo de' Medici** (0 connections)
+
+**Verrocchio** (0 connections)
+
+**Brunelleschi** (0 connections)
+
+**Leonardo** (0 connections)
+
+**Raphael** (0 connections)
+
+**Sistine Chapel** (0 connections)
+
+**Bramante** (0 connections)
+
+**Botticelli** (0 connections)
+
+**Savonarola** (0 connections)
+
+---
+
+## 09-baseline-gemma4-plan
+**Date:** 2026-10-20 01:39 UTC
+**Notes:** Gemma4 clean baseline using validated IngestPlan and one application-controlled write; dream scheduler disabled
+**Data:** 16 space + 14 renaissance snippets, 9 questions, 20 probes
+**Scoring:** LLM-judged (not pattern-matched)
+**Judge model:** Pi tier frontier: `zai/glm-5.3:max`
+
+### Scores
+| Metric | Value |
+|--------|-------|
+| Space relationships | **NOT SCORED** |
+| Renaissance relationships | **NOT SCORED** |
+| Combined relationships | **NOT SCORED** |
+| Cross-domain isolation | **NOT SCORED** |
+| Total graph connections | **0** |
+| Recall with context | **0/9** |
+| Recall errors | **7/9** |
+| Recall total nodes cited | **0** |
+| Total wall time | **39716s** |
+
+### Latency
+| Phase | n | min | median | mean | p95 | max | total |
+|-------|---|-----|--------|------|-----|-----|-------|
+| ingest_staging | 30 | 0.11s | 0.14s | 0.15s | 0.3s | 0.34s | 4.55s |
+| pipeline_drain | 1 | 21457.0s | 21457.0s | 21457.0s | 21457.0s | 21457.0s | 21457.0s |
+| ingest_total | 1 | 21461.59s | 21461.59s | 21461.59s | 21461.59s | 21461.59s | 21461.59s |
+| recall | 9 | 12.98s | 23.78s | 33.65s | 90.84s | 90.84s | 302.88s |
+| graph | 20 | 20.39s | 163.73s | 1076.16s | 2715.27s | 2715.29s | 21523.16s |
+
+### Space Race Relationships
+- NOT SCORED: Not scored: Space graph coverage is incomplete (0 lookup errors, 10 probes without node data).
+
+### Renaissance Relationships
+- NOT SCORED: Not scored: Renaissance graph coverage is incomplete (0 lookup errors, 10 probes without node data).
+
+### Cross-Domain Isolation
+- NOT SCORED: Not scored: cross-domain graph coverage is incomplete.
+
+### Graph Probes — Space Race
+**Wernher von Braun** — NO NODE DATA RETURNED BY PROBE
+
+**Korolev** — NO NODE DATA RETURNED BY PROBE
+
+**Apollo 11** — NO NODE DATA RETURNED BY PROBE
+
+**Saturn V** — NO NODE DATA RETURNED BY PROBE
+
+**V-2** — NO NODE DATA RETURNED BY PROBE
+
+**Sputnik** — NO NODE DATA RETURNED BY PROBE
+
+**MIT Instrumentation Lab** — NO NODE DATA RETURNED BY PROBE
+
+**Operation Paperclip** — NO NODE DATA RETURNED BY PROBE
+
+**Apollo 1** — NO NODE DATA RETURNED BY PROBE
+
+**Explorer 1** — NO NODE DATA RETURNED BY PROBE
+
+### Graph Probes — Renaissance
+**Michelangelo** — NO NODE DATA RETURNED BY PROBE
+
+**Lorenzo de' Medici** — NO NODE DATA RETURNED BY PROBE
+
+**Verrocchio** — NO NODE DATA RETURNED BY PROBE
+
+**Brunelleschi** — NO NODE DATA RETURNED BY PROBE
+
+**Leonardo** — NO NODE DATA RETURNED BY PROBE
+
+**Raphael** — NO NODE DATA RETURNED BY PROBE
+
+**Sistine Chapel** — NO NODE DATA RETURNED BY PROBE
+
+**Bramante** — NO NODE DATA RETURNED BY PROBE
+
+**Botticelli** — NO NODE DATA RETURNED BY PROBE
+
+**Savonarola** — NO NODE DATA RETURNED BY PROBE
+
+---
+
+## 14-recordref-gemma4-thinking-off
+**Date:** 2026-10-22 13:16 UTC
+**Notes:** Pydantic RecordRef schema with bounded strings and validation logging
+**Data:** 16 space + 14 renaissance snippets, 9 questions, 20 probes
+**Scoring:** LLM-judged (not pattern-matched)
+**Judge model:** Pi tier cheap: `genetec-openai-responses/gpt-6-luna:medium`
+
+### Scores
+| Metric | Value |
+|--------|-------|
+| Space relationships | **NOT SCORED** |
+| Renaissance relationships | **NOT SCORED** |
+| Combined relationships | **NOT SCORED** |
+| Cross-domain isolation | **NOT SCORED** |
+| Total graph connections | **81** |
+| Recall with context | **6/9** |
+| Recall errors | **2/9** |
+| Recall total nodes cited | **16** |
+| Total wall time | **2433s** |
+
+### Latency
+| Phase | n | min | median | mean | p95 | max | total |
+|-------|---|-----|--------|------|-----|-----|-------|
+| ingest_staging | 30 | 0.12s | 0.14s | 0.15s | 0.21s | 0.21s | 4.43s |
+| pipeline_drain | 1 | 2005.14s | 2005.14s | 2005.14s | 2005.14s | 2005.14s | 2005.14s |
+| ingest_total | 1 | 2009.61s | 2009.61s | 2009.61s | 2009.61s | 2009.61s | 2009.61s |
+| recall | 9 | 4.28s | 14.21s | 18.88s | 44.84s | 44.84s | 169.93s |
+| graph | 20 | 7.76s | 11.17s | 12.51s | 15.9s | 40.93s | 250.15s |
+
+### Space Race Relationships
+- NOT SCORED: Not scored: Space graph coverage is incomplete (1 lookup error, 1 probe without node data).
+
+### Renaissance Relationships
+- NOT SCORED: Pi judge exited with status 127 using genetec-openai-responses/gpt-6-luna:medium: /usr/bin/env: ‘node’: No such file or directory
+
+### Cross-Domain Isolation
+- NOT SCORED: Not scored: cross-domain graph coverage is incomplete.
+
+### Graph Probes — Space Race
+**Wernher von Braun** (8 connections)
+- → [influenced_by] Robert Goddard
+- → [member_of] Verein für Raumschiffahrt
+- ← [describes] Hermann Oberth's 1923 book 'Die Rakete zu den Plan
+- ← [founded_by] Verein für Raumschiffahrt
+- ← [mentored] Hermann Oberth
+- ← [part_of] Operation Paperclip
+- ← [worked_with] Walter Dornberger
+- ← [worked_with] Helmut Gröttrup
+
+**Korolev** (7 connections)
+- → [describes] Sergei Korolev co-founded GIRD (Group for the Stud
+- → [led] Soviet ballistic missile program
+- → [member_of] GIRD
+- ← [designed_by] R-7 Semyorka
+- ← [feuded_with] Valentin Glushko
+- ← [helped] Andrei Tupolev
+- ← [successor_of] Vasily Mishin
+
+**Apollo 11** (3 connections)
+- → [part_of] Apollo program
+- ← [calculated_trajectory_for] Katherine Johnson
+- ← [developed_software_for] Margaret Hamilton
+
+**Saturn V** — LOOKUP FAILED: Could not resolve 'Saturn V' after 3 recall attempts: POST /recall returned HTTP 502
+
+**V-2** (2 connections)
+- ← [influenced] Robert Goddard
+- ← [is_copy_of] R-1 rocket
+
+**Sputnik** (1 connections)
+- → [launched_from] Baikonur Cosmodrome
+
+**MIT Instrumentation Lab** (1 connections)
+- → [designed_by] Apollo 8
+
+**Operation Paperclip** (2 connections)
+- → [part_of] Wernher von Braun
+- ← [describes] Following WWII, the US and USSR competed for Germa
+
+**Apollo 1** (4 connections)
+- → [part_of] Apollo program
+- ← [died_in] Gus Grissom
+- ← [died_in] Roger Chaffee
+- ← [died_in] Ed White
+
+**Explorer 1** (1 connections)
+- → [launched_by] Jupiter-C
+
+### Graph Probes — Renaissance
+**Michelangelo** (11 connections)
+- → [associated_with] Donato Bramante
+- → [created] The Last Judgment
+- → [created] Lorenzo de' Medici
+- → [created] Pietà
+- → [created] Vatican Stanze
+- → [created] Sistine Chapel ceiling
+- → [describes] Bramante's 1506 design for St. Peter's Basilica fe
+- → [designed] St. Peter's Basilica
+- → [trained_by] Domenico Ghirlandaio
+- ← [influenced_by] Raphael's training and influences: learned in Piet
+- ← [painted_by] Lorenzo de' Medici
+
+**Lorenzo de' Medici** (6 connections)
+- → [child_of] Cosimo de' Medici
+- → [hosted] Angelo Poliziano
+- → [sibling_of] Piero de' Medici
+- → [supported] Andrea del Verrocchio
+- → [supported] Sandro Botticelli
+- ← [describes] Angelo Poliziano
+
+**Verrocchio** (7 connections)
+- → [trained] Domenico Ghirlandaio
+- → [trained] Sandro Botticelli
+- → [trained] Verrocchio's Bottega
+- → [trained] Leonardo da Vinci
+- → [trained] Raphael
+- → [trained] Pietro Perugino
+- ← [supported] Lorenzo de' Medici
+
+**Brunelleschi** (5 connections)
+- → [competed_against] Lorenzo Ghiberti
+- → [designed] Cathedral of Santa Maria del Fiore
+- → [pioneered] linear perspective
+- ← [dedicated_to] Leon Battista Alberti
+- ← [describes] Designed the revolutionary double-shell dome for t
+
+**Leonardo** (11 connections)
+- → [created] Sforza Horse
+- → [created] Adoration of the Magi
+- → [created] The Last Supper
+- → [created] Mona Lisa
+- → [developed] sfumato
+- → [died_at] Francis I
+- → [served] Battle of Anghiari
+- → [served] Ludovico Sforza
+- ← [describes] Leonardo's notebooks, written in mirror script, co
+- ← [describes] Leonardo developed sfumato, a technique of layerin
+- ← [trained] Andrea del Verrocchio
+
+**Raphael** (5 connections)
+- ← [assistant_of] Giulio Romano
+- ← [created] School of Athens
+- ← [influenced_by] Raphael's training and influences: learned in Piet
+- ← [trained] Andrea del Verrocchio
+- ← [trained] Verrocchio's Bottega
+
+**Sistine Chapel** (2 connections)
+- → [commissioned] Pope Sixtus IV
+- ← [located_in] The Last Judgment
+
+**Bramante** (2 connections)
+- → [designed] St. Peter's Basilica
+- ← [associated_with] Michelangelo
+
+**Botticelli** (2 connections)
+- ← [supported] Lorenzo de' Medici
+- ← [trained] Andrea del Verrocchio
+
+**Savonarola** (1 connections)
+- → [ruled] Piero de' Medici
+
+---
+
+## 15-ingest-name-refs-gemma4-thinking-off
+**Date:** 2026-10-22 21:29 UTC
+**Notes:** Name references and output diagnostics after run 14 failures
+**Data:** 16 space + 14 renaissance snippets, 9 questions, 20 probes
+**Scoring:** LLM-judged (not pattern-matched)
+**Judge model:** Pi tier cheap: `genetec-openai-responses/gpt-6-luna:medium`
+
+### Scores
+| Metric | Value |
+|--------|-------|
+| Space relationships | **NOT SCORED** |
+| Renaissance relationships | **NOT SCORED** |
+| Combined relationships | **NOT SCORED** |
+| Cross-domain isolation | **NOT SCORED** |
+| Total graph connections | **2** |
+| Recall with context | **2/9** |
+| Recall errors | **5/9** |
+| Recall total nodes cited | **2** |
+| Total wall time | **5227s** |
+
+### Latency
+| Phase | n | min | median | mean | p95 | max | total |
+|-------|---|-----|--------|------|-----|-----|-------|
+| ingest_staging | 30 | 0.13s | 0.14s | 0.15s | 0.19s | 0.21s | 4.49s |
+| pipeline_drain | 1 | 4467.39s | 4467.39s | 4467.39s | 4467.39s | 4467.39s | 4467.39s |
+| ingest_total | 1 | 4471.91s | 4471.91s | 4471.91s | 4471.91s | 4471.91s | 4471.91s |
+| recall | 9 | 4.46s | 41.35s | 32.1s | 58.06s | 58.06s | 288.93s |
+| graph | 20 | 9.3s | 40.92s | 39.3s | 46.24s | 51.23s | 786.05s |
+
+### Space Race Relationships
+- NOT SCORED: Not scored: Space graph coverage is incomplete (9 lookup errors, 9 probes without node data).
+
+### Renaissance Relationships
+- NOT SCORED: Not scored: Renaissance graph coverage is incomplete (10 lookup errors, 10 probes without node data).
+
+### Cross-Domain Isolation
+- NOT SCORED: Not scored: cross-domain graph coverage is incomplete.
+
+### Graph Probes — Space Race
+**Wernher von Braun** — LOOKUP FAILED: Could not resolve 'Wernher von Braun' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Korolev** — LOOKUP FAILED: Could not resolve 'Korolev' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Apollo 11** — LOOKUP FAILED: Could not resolve 'Apollo 11' after 3 recall attempts: POST /recall returned no cited entity matching 'Apollo 11'
+
+**Saturn V** — LOOKUP FAILED: Could not resolve 'Saturn V' after 3 recall attempts: POST /recall returned HTTP 502
+
+**V-2** — LOOKUP FAILED: Could not resolve 'V-2' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Sputnik** (2 connections)
+- → [launched_from] Baikonur Cosmodrome
+- ← [launched] R-7 Semyorka
+
+**MIT Instrumentation Lab** — LOOKUP FAILED: Could not resolve 'MIT Instrumentation Lab' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Operation Paperclip** — LOOKUP FAILED: Could not resolve 'Operation Paperclip' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Apollo 1** — LOOKUP FAILED: Could not resolve 'Apollo 1' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Explorer 1** — LOOKUP FAILED: Could not resolve 'Explorer 1' after 3 recall attempts: POST /recall returned HTTP 502
+
+### Graph Probes — Renaissance
+**Michelangelo** — LOOKUP FAILED: Could not resolve 'Michelangelo' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Lorenzo de' Medici** — LOOKUP FAILED: Could not resolve "Lorenzo de' Medici" after 3 recall attempts: POST /recall returned HTTP 502
+
+**Verrocchio** — LOOKUP FAILED: Could not resolve 'Verrocchio' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Brunelleschi** — LOOKUP FAILED: Could not resolve 'Brunelleschi' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Leonardo** — LOOKUP FAILED: Could not resolve 'Leonardo' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Raphael** — LOOKUP FAILED: Could not resolve 'Raphael' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Sistine Chapel** — LOOKUP FAILED: Could not resolve 'Sistine Chapel' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Bramante** — LOOKUP FAILED: Could not resolve 'Bramante' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Botticelli** — LOOKUP FAILED: Could not resolve 'Botticelli' after 3 recall attempts: POST /recall returned HTTP 502
+
+**Savonarola** — LOOKUP FAILED: Could not resolve 'Savonarola' after 3 recall attempts: POST /recall returned HTTP 502
+
+---

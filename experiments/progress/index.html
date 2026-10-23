@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Gemma4 baseline · progress</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #182331; background: #f3f6f9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px 16px 44px; }
+    main { max-width: 900px; margin: 0 auto; }
+    header { margin-bottom: 22px; }
+    .eyebrow { color: #52708b; font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 7px 0; font-size: clamp(1.6rem, 4vw, 2.2rem); letter-spacing: -.03em; }
+    .sub { color: #657789; }
+    .panel { background: #fff; border: 1px solid #e1e8ef; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px #132b4410; margin: 14px 0; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+    .badge { display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 999px; background: #eaf2fb; color: #215a91; font-size: .86rem; font-weight: 700; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #3287dc; }
+    .dot.done { background: #27936b; }
+    .dot.wait { background: #d38a1f; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 11px; margin-top: 18px; }
+    .metric { background: #f7f9fb; border-radius: 12px; padding: 14px; }
+    .metric .label { color: #6d7c8b; font-size: .78rem; }
+    .metric .value { margin-top: 5px; font-size: 1.45rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+    .bar { height: 10px; margin: 16px 0 7px; border-radius: 8px; background: #e7edf3; overflow: hidden; }
+    .fill { width: 0; height: 100%; background: linear-gradient(90deg, #397fbd, #31a981); transition: width .5s ease; }
+    .muted { color: #738293; font-size: .83rem; }
+    .phase { font-size: 1.05rem; font-weight: 700; }
+    .logs { max-height: 360px; overflow: auto; padding: 12px; border-radius: 10px; background: #101a24; color: #d4e1ed; font: .76rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    h2 { margin: 0 0 10px; font-size: 1rem; }
+    .error { color: #9e4e16; }
+    @media (max-width: 520px) { body { padding: 18px 12px 30px; } .panel { padding: 16px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Second Brain · benchmark monitor</div>
+    <h1>Gemma4 baseline</h1>
+    <div class="sub" id="run">Loading run…</div>
+  </header>
+  <section class="panel">
+    <div class="row">
+      <div><div class="muted">Current phase</div><div class="phase" id="phase">Loading…</div></div>
+      <div class="badge"><span class="dot" id="dot"></span><span id="status">Connecting</span></div>
+    </div>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div class="row muted"><span id="progress">Waiting for snapshot</span><span id="updated">—</span></div>
+    <div class="metrics">
+      <div class="metric"><div class="label">Source snippets staged</div><div class="value" id="staged">—</div></div>
+      <div class="metric"><div class="label">Chunks processed</div><div class="value" id="processed">—</div></div>
+      <div class="metric"><div class="label">Ready</div><div class="value" id="ready">—</div></div>
+      <div class="metric"><div class="label">Leased</div><div class="value" id="leased">—</div></div>
+      <div class="metric"><div class="label">Retry wait</div><div class="value" id="retry">—</div></div>
+      <div class="metric"><div class="label">Paused</div><div class="value" id="paused">—</div></div>
+    </div>
+  </section>
+  <section class="panel">
+    <div class="row"><strong>Ingestion status</strong><span class="muted" id="api">API status unknown</span></div>
+    <p class="muted" id="detail">This page reads a local status snapshot. It does not contact the model endpoint.</p>
+  </section>
+  <section class="panel">
+    <h2>Recent ingest and model logs</h2>
+    <pre class="logs" id="server-log">Waiting for log snapshot…</pre>
+    <h2 style="margin-top:16px">Benchmark progress log</h2>
+    <pre class="logs" id="runner-log">Waiting for log snapshot…</pre>
+  </section>
+  <footer class="muted">The local publisher updates this snapshot every 10 seconds. This page refreshes its view every 10 seconds.</footer>
+</main>
+<script>
+  const byId = (id) => document.getElementById(id);
+  const setText = (id, value) => { byId(id).textContent = String(value); };
+  async function refresh() {
+    try {
+      const response = await fetch(`./progress.json?t=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(`snapshot HTTP ${response.status}`);
+      const data = await response.json();
+      const staged = data.staging?.snippets_staged ?? 0;
+      const total = data.staging?.snippets_total ?? 30;
+      const chunks = data.staging?.chunks_total ?? 0;
+      const processed = data.pipeline?.processed_estimate ?? 0;
+      const pending = data.pipeline?.pending_chunks;
+      const isDone = data.phase === "done";
+      setText("run", data.run);
+      setText("phase", data.phase_label || data.phase);
+      setText("status", isDone ? "Complete" : (data.api_reachable ? "Running" : "API unavailable"));
+      byId("dot").className = `dot ${isDone ? "done" : (data.api_reachable ? "" : "wait")}`;
+      setText("staged", `${staged}/${total}`);
+      setText("processed", `${Math.min(processed, chunks)}/${chunks}`);
+      setText("ready", data.pipeline?.ready ?? "—");
+      setText("leased", data.pipeline?.leased ?? "—");
+      setText("retry", data.pipeline?.retry_wait ?? "—");
+      setText("paused", data.pipeline?.paused ?? "—");
+      setText("progress", pending === undefined ? "Queue status unavailable" : `${pending} chunks remain in the queue`);
+      setText("updated", `Updated ${data.checked_at || "—"}`);
+      setText("api", data.api_reachable ? "Pipeline API reachable" : "Showing last saved snapshot");
+      byId("fill").style.width = `${chunks ? Math.min(100, (processed / chunks) * 100) : 0}%`;
+      setText("detail", data.current?.label || (isDone ? "All benchmark phases completed." : "Waiting for queued ingestions to finish before retrieval."));
+      setText("server-log", (data.logs?.server || []).join("\n") || "No ingest/model log entries yet.");
+      setText("runner-log", (data.logs?.runner || []).join("\n") || "No benchmark log entries yet.");
+    } catch (error) {
+      setText("status", "Snapshot unavailable");
+      byId("dot").className = "dot wait";
+      setText("detail", error.message);
+    }
+  }
+  refresh();
+  setInterval(refresh, 10_000);
+</script>
+</body>
+</html>

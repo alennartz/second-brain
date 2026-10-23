@@ -14,10 +14,14 @@ from pydantic_ai.models import Model
 
 from second_brain.agents.ingestion_pipeline import IngestionPipeline
 from second_brain.agents.recall import (
+    NO_EVIDENCE_ANSWER,
+    RecallCitationError,
     RecallDeps,
-    RecallOutput,
+    RecallRunLimitExceeded,
     create_recall_agent,
     fetch_cited_context,
+    require_resolved_citations,
+    run_recall,
 )
 from second_brain.db import Storage
 from second_brain.models import Context, EnqueueResult, IntakeRequest
@@ -115,15 +119,22 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         logger.info("Converse → recall sub-agent starting")
         await _push(queue, "Searching knowledge base...")
 
-        kwargs: dict = dict(
-            deps=RecallDeps(storage=ctx.deps.storage),
-            model=ctx.deps.model_setting,
-        )
-        if queue is not None:
-            kwargs["event_stream_handler"] = _make_stream_handler(queue, _RECALL_STATUS)
-
-        result = await _recall_agent.run(question, **kwargs)
-        output: RecallOutput = result.output
+        try:
+            output = await run_recall(
+                question,
+                deps=RecallDeps(storage=ctx.deps.storage),
+                model=ctx.deps.model_setting,
+                agent=_recall_agent,
+                event_stream_handler=(
+                    _make_stream_handler(queue, _RECALL_STATUS)
+                    if queue is not None
+                    else None
+                ),
+            )
+        except RecallRunLimitExceeded as exc:
+            logger.warning("Converse recall could not produce a valid answer: %s", exc)
+            await _push(queue, "Recall could not complete")
+            return "I couldn't complete a grounded recall within the available limits. Try a narrower question."
         logger.info("Converse → recall sub-agent completed")
         await _push(queue, "Search complete")
 
@@ -131,6 +142,14 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
         # Malformed cited IDs and deleted intake chunks are skipped; agent output
         # is not trusted.
         fetched = await fetch_cited_context(ctx.deps.storage, output)
+        try:
+            require_resolved_citations(output, fetched)
+        except RecallCitationError as exc:
+            logger.error("Converse recall citations could not be resolved: %s", exc)
+            await _push(queue, "Recall citations could not be verified")
+            return (
+                "I found evidence but could not verify its citations. Please try again."
+            )
         existing_node_ids = {str(node["id"]) for node in ctx.deps.context.nodes}
         existing_edge_ids = {str(edge["id"]) for edge in ctx.deps.context.edges}
         existing_unprocessed_ids = {
@@ -152,7 +171,7 @@ def create_converse_agent() -> Agent[ConverseDeps, str]:
             if str(chunk.get("id")) not in existing_unprocessed_ids
         )
 
-        return output.answer
+        return output.answer if output.answer is not None else NO_EVIDENCE_ANSWER
 
     @agent.tool
     async def ingest(ctx: RunContext[ConverseDeps], text: str) -> str:

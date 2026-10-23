@@ -19,9 +19,14 @@ from second_brain.agents.converse import ConverseDeps, create_converse_agent
 from second_brain.agents.ingest import AgentIngestBatchRunner, create_ingest_agent
 from second_brain.agents.ingestion_pipeline import IngestionPipeline
 from second_brain.agents.recall import (
+    NO_EVIDENCE_ANSWER,
+    RecallCitationError,
     RecallDeps,
+    RecallRunLimitExceeded,
     create_recall_agent,
     fetch_cited_context,
+    require_resolved_citations,
+    run_recall,
 )
 from second_brain.config import settings
 from second_brain.db import Embedder, IdempotencyConflict, Storage
@@ -135,6 +140,8 @@ async def lifespan(app: FastAPI):
             settings.reasoning_key,
             base_url=settings.reasoning_base_url,
             reasoning_effort=settings.reasoning_effort,
+            chat_template_kwargs=settings.reasoning_chat_template_kwargs,
+            temperature=settings.reasoning_temperature,
         )
         embed_fn = create_embed_fn(
             settings.embedding_model,
@@ -314,12 +321,16 @@ async def run_recall_agent(
         prompt = f"Possibly related nodes: {hint_str}\n\n{question}"
 
     logger.info("Recall agent starting (question length=%d)", len(question))
-    result = await _recall_agent.run(
-        prompt,
-        deps=RecallDeps(storage=_storage),
-        model=_model,
-    )
-    output = result.output  # RecallOutput
+    try:
+        output = await run_recall(
+            prompt,
+            deps=RecallDeps(storage=_storage),
+            model=_model,
+            agent=_recall_agent,
+        )
+    except RecallRunLimitExceeded as exc:
+        logger.warning("Recall did not produce a valid answer: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     logger.info(
         "Recall agent completed (cited %d nodes, %d edges, %d unprocessed chunks)",
         len(output.cited_node_ids),
@@ -331,9 +342,15 @@ async def run_recall_agent(
     # while the answer was being generated are skipped.
     assert _storage is not None
     context = await fetch_cited_context(_storage, output)
-    if context.nodes or context.edges or context.unprocessed:
-        return RecallResponse(answer=output.answer, context=context)
-    return RecallResponse(answer=output.answer, context=None)
+    try:
+        require_resolved_citations(output, context)
+    except RecallCitationError as exc:
+        logger.error("Recall citations could not be resolved: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return RecallResponse(
+        answer=output.answer if output.answer is not None else NO_EVIDENCE_ANSWER,
+        context=context if output.has_evidence else None,
+    )
 
 
 async def run_converse_agent(

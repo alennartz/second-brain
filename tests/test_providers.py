@@ -55,6 +55,63 @@ def test_create_model_openai_compatible_effort_setting():
     assert result.settings["openai_reasoning_effort"] == "low"
 
 
+def test_create_model_base_url_sends_chat_template_kwargs():
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        base_url="http://jetson.ordernet:8082/v1",
+        reasoning_effort="low",
+        chat_template_kwargs={"enable_thinking": True},
+    )
+    assert result.settings["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": True}
+    }
+    assert result.settings["openai_reasoning_effort"] == "low"
+
+
+def test_create_model_base_url_extra_body_without_effort():
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        base_url="http://jetson.ordernet:8082/v1",
+        chat_template_kwargs={"enable_thinking": True},
+    )
+    assert result.settings["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": True}
+    }
+    assert "openai_reasoning_effort" not in result.settings
+
+
+def test_create_model_base_url_omits_extra_body_without_kwargs():
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        base_url="http://jetson.ordernet:8082/v1",
+        reasoning_effort="low",
+    )
+    assert "extra_body" not in result.settings
+
+
+def test_create_model_base_url_sets_temperature_zero():
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        base_url="http://jetson.ordernet:8082/v1",
+        temperature=0.0,
+    )
+    assert result.settings["temperature"] == 0.0
+    assert "openai_reasoning_effort" not in result.settings
+
+
+def test_create_model_base_url_omits_temperature_when_unset():
+    result = create_model(
+        "openai:gemma4-26b-a4b",
+        foundry_url=None,
+        base_url="http://jetson.ordernet:8082/v1",
+    )
+    assert result.settings is None
+
+
 def test_create_model_direct_effort_builds_openai_model(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     from pydantic_ai.models.openai import OpenAIChatModel

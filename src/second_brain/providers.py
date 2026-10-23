@@ -45,12 +45,21 @@ def _get_token_provider() -> Callable[[], str]:
 # ---------------------------------------------------------------------------
 
 
-def _openai_model_settings(reasoning_effort: ReasoningEffort | None) -> Any:
-    if reasoning_effort is None:
-        return None
+def _openai_model_settings(
+    reasoning_effort: ReasoningEffort | None,
+    extra_body: dict[str, object] | None = None,
+    temperature: float | None = None,
+) -> Any:
     from pydantic_ai.models.openai import OpenAIChatModelSettings
 
-    return OpenAIChatModelSettings(openai_reasoning_effort=reasoning_effort)
+    settings: dict[str, Any] = {}
+    if reasoning_effort is not None:
+        settings["openai_reasoning_effort"] = reasoning_effort
+    if temperature is not None:
+        settings["temperature"] = temperature
+    if extra_body is not None:
+        settings["extra_body"] = extra_body
+    return OpenAIChatModelSettings(**settings) if settings else None
 
 
 def _create_openai_foundry_model(
@@ -132,6 +141,8 @@ def create_model(
     key: str | None = None,
     base_url: str | None = None,
     reasoning_effort: ReasoningEffort | None = None,
+    chat_template_kwargs: dict[str, object] | None = None,
+    temperature: float | None = None,
 ) -> Any:
     """Create a pydantic-ai model from a provider:model_name string.
 
@@ -147,7 +158,9 @@ def create_model(
     *key* when provided, otherwise the SDK reads its own default env var
     (``AZURE_OPENAI_API_KEY`` for OpenAI, ``ANTHROPIC_API_KEY`` for
     Anthropic). *reasoning_effort* sets the OpenAI ``reasoning_effort`` request
-    parameter and is valid only for OpenAI models.
+    parameter and is valid only for OpenAI models. *chat_template_kwargs* is
+    sent as request ``extra_body`` for self-hosted servers (SGLang) and is
+    ignored elsewhere.
     """
     if base_url is not None:
         if foundry_url is not None:
@@ -184,7 +197,15 @@ def create_model(
         return TolerantOpenAIChatModel(
             model_name,
             provider=OpenAIProvider(openai_client=client),
-            settings=_openai_model_settings(reasoning_effort),
+            settings=_openai_model_settings(
+                reasoning_effort,
+                extra_body=(
+                    {"chat_template_kwargs": chat_template_kwargs}
+                    if chat_template_kwargs is not None
+                    else None
+                ),
+                temperature=temperature,
+            ),
         )
 
     if foundry_url is None:

@@ -25,12 +25,20 @@ LOG="$ROOT/experiments/data/${NAME}-run.log"
 PYTHON="$ROOT/.venv/bin/python"
 SCRIPT="$ROOT/experiments/run_experiment.py"
 ENV_ARGS=()
-for key in BRAIN_TEST_MODE BRAIN_REASONING_MODEL BRAIN_EMBEDDING_MODEL \
-  BRAIN_REASONING_BASE_URL BRAIN_EMBEDDING_BASE_URL BENCH_OP_TIMEOUT; do
+# Pi's CLI uses /usr/bin/env node, so preserve the caller's runtime PATH in services.
+for key in PATH BRAIN_TEST_MODE BRAIN_REASONING_MODEL BRAIN_EMBEDDING_MODEL \
+  BRAIN_REASONING_BASE_URL BRAIN_EMBEDDING_BASE_URL \
+  BRAIN_REASONING_TEMPERATURE BRAIN_REASONING_CHAT_TEMPLATE_KWARGS \
+  BRAIN_REASONING_EFFORT BENCH_OP_TIMEOUT \
+  BENCH_PIPELINE_POLL PI_CODING_AGENT_DIR PI_JUDGE_TIMEOUT_SECONDS; do
   if [[ -v $key ]]; then
     ENV_ARGS+=(--setenv "$key=${!key}")
   fi
 done
+PI_CLI="${PI_CLI_PATH:-$(command -v pi || true)}"
+if [[ -n "$PI_CLI" ]]; then
+  ENV_ARGS+=(--setenv "PI_CLI_PATH=$PI_CLI")
+fi
 
 case "$ACTION" in
   start)
@@ -83,8 +91,15 @@ import json, sys, time
 with open(sys.argv[1]) as f:
     d = json.load(f)
 cur = d.get("current") or {}
+pipeline = d.get("pipeline") or {}
+queue = pipeline.get("last_snapshot")
+pending = sum(int(queue.get(k, 0) or 0) for k in ("ready", "leased", "retry_wait", "paused")) if queue is not None else "unknown"
+staged = sum(1 for r in d["ingest"] if r.get("status") in ("staged", "complete"))
 active = f" | current={cur.get('label')} elapsed={time.time()-cur['started_epoch']:.0f}s" if cur.get("started_epoch") else ""
-print(f"state: phase={d['phase']} ingest={len(d['ingest'])}/30 recall={len(d['recall'])}/9 graph={len(d['graph'])}/20{active}")
+print(f"state: phase={d['phase']} staged={staged}/30 queue_pending={pending} recall={len(d['recall'])}/9 graph={len(d['graph'])}/20{active}")
+errors = pipeline.get("recent_errors") or []
+if errors:
+    print(f"pipeline recent errors: {len(errors)}; latest: {errors[-1].get('error')}")
 print(f"updated: {d.get('updated_utc', 'not yet')}")
 PY
     else

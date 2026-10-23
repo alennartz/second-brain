@@ -10,7 +10,14 @@ class Settings(BaseSettings):
     embedding_model: str = "openai:text-embedding-3-small"
     reasoning_model: str = "openai:gpt-4o-mini"
     reasoning_effort: ReasoningEffort | None = None
+    # Greedy decoding for tool-use discipline. Unset sampling let Gemma fall into
+    # stochastic tool-call fan-out and repetition collapse. Default 0 keeps the
+    # recall/ingest loops deterministic and single-call-per-turn.
+    reasoning_temperature: float | None = 0.0
     reasoning_base_url: str | None = None
+    # SGLang chat-template knobs sent as request extra_body. The gemma4 reasoning
+    # parser needs the thinking channel enabled or it leaks control tokens.
+    reasoning_chat_template_kwargs: dict[str, object] = {"enable_thinking": True}
     embedding_base_url: str | None = None
     embedding_dimensions: int = 1536
     test_mode: bool = False

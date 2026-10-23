@@ -59,12 +59,13 @@ Use the same replay harness and command for every baseline and candidate run:
 
 ```bash
 cd /tmp/second-brain-recall-campaign
-EXPERIMENT_PORT=8102 \
+PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
+TRIAL_ID=B00-1 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
 
-The runner writes each trial result and both logs under `/tmp/recall-reliability/`. Copy a fresh DB seed into the campaign worktree before each run. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `75fd8b9bb999d30e57d6f10a42e41b42e2e274caab66a8768f3dc6f21dc49c66`.
+The runner writes each trial result and both logs under `/tmp/recall-reliability/`. It copies a fresh DB seed before each run. The launcher forwards `PYTHONPATH` to the API service so it imports this clean snapshot instead of the main editable install. Record the exact source hash, effective model settings, DB snapshot hash, API restart, and score for each trial. Port 8102 isolates the campaign from existing port-8101 progress polling. Runner SHA-256: `75fd8b9bb999d30e57d6f10a42e41b42e2e274caab66a8768f3dc6f21dc49c66`.
 
 ## Candidate Queue
 

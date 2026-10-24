@@ -1,6 +1,44 @@
-# Local Production Server Verification
+# Manual Testing — local-production-server
 
 **Plan:** `docs/plans/local-production-server.md`
+
+## Smoke Suite
+
+- **Fresh active-database reset:** perform the agreed one-time reset, then verify
+  the service starts on a new `brain.db` while the archived database and
+  experiment databases remain recoverable.
+- **Runtime health and restart persistence:** verify health, image identity,
+  loopback binding, `/data` mount, and persistence across a service restart.
+- **Backup and timer operation:** create a daily archive, verify its contents and
+  permissions, and inspect the persistent 03:00 user timer.
+
+## Topic-Specific Tests
+
+- **Clean archive lifecycle:** with intake idle, exercise daily and pre-update
+  archive commands, service stop/start state, active database contents, and
+  independent retention behavior.
+- **Restore safety:** validate an explicitly selected archive and verify safety
+  copy retention and untouched experiment databases in a disposable deployment.
+- **Installer contract:** render the local image, loopback-only service, data
+  mount, stop timeouts, backup oneshot, and persistent timer.
+
+## Tools
+
+- **Reused:** `systemctl --user`, `docker`, `curl`, `ss`, `tar`, `stat`, `find`,
+  `journalctl`, `loginctl`, and `make` through the shell.
+- **New:** none. The deployment commands are the reusable drivers.
+- **Improved:** none.
+
+## Harness Limitations
+
+The smoke suite uses the real local Docker daemon, systemd user manager, image,
+mounted data directory, and provider-backed service. It does not use mocks. The
+restore journey requires a disposable deployment because it changes the active
+service database. No disposable deployment is configured yet, so restore
+extraction and startup-failure safety remain unexecuted until the parent agent
+authorizes a safe clone or restore operation. Provider-dependent ingestion can
+also be unavailable even when the deployment itself is healthy; deployment
+checks do not rely on LLM completion.
 
 ## Preconditions
 
@@ -9,10 +47,12 @@
 - Record experiment database paths and checksums before operations.
 - Confirm the environment file has mode `0600`.
 - Keep all credentials out of recorded results.
+- Do not repeat the fresh reset during routine updates.
 
 ## One-time fresh start
 
-This operation resets the active database. Do not repeat it during routine updates.
+This operation resets the active database. It is an operator action, not a
+routine deployment command.
 
 1. Stop the service and confirm a clean container exit before reading database files.
 2. Archive only the active `brain.db` directory into a dated, owner-only archive.
@@ -58,5 +98,23 @@ This operation resets the active database. Do not repeat it during routine updat
 
 ## Results
 
-Record the date, configured service and image, archive path, checks, and pass/fail result after execution.
-These journeys have not yet been executed.
+- **Fresh active-database reset:** pending execution.
+- **Runtime health and restart persistence:** pending execution.
+- **Backup and timer operation:** pending execution.
+- **Clean archive lifecycle:** pending execution.
+- **Restore safety:** open pending explicit authorization and a disposable deployment.
+- **Installer contract:** pending execution.
+
+## Plan Updates
+
+Empty. No primary user journey changed.
+
+## Open Issues
+
+- The checked-in machine configuration lacks `BRAIN_DEPLOY_BACKUP_DIR` and
+  `BRAIN_DEPLOY_DB_NAME`; live installation cannot proceed until those values
+  are supplied locally.
+- The current running unit uses the old wildcard binding and registry-pull
+  setup. The local-production installer must replace it before runtime checks.
+- Restore remains unexecuted until the parent agent authorizes a disposable
+  clone or an explicit production restore.

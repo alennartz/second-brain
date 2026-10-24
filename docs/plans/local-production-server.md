@@ -120,9 +120,26 @@ available for recovery.
 #### One-time database reset
 
 The requested fresh start is an operator action for this deployment only, not part
-of routine `deploy` behavior. It archives the current `brain.db`, stops the service,
-moves only that active directory aside, and starts the service so SurrealKV creates a
-new active directory. Experiment databases remain in place.
+of routine `deploy` behavior. It stops the service, waits for a clean exit, archives
+the current `brain.db`, moves only that active directory aside, and starts the
+service so SurrealKV creates a new active directory. Experiment databases remain in
+place.
+
+#### Operational verification contract
+
+A successful setup is observable when:
+
+- `GET /health` returns `{"status":"ok"}` through `127.0.0.1:8100`;
+- the host has no listener for the service on a non-loopback address;
+- the running container reports the configured local image and the `/data` bind
+  mount;
+- the fresh active database directory is distinct from the archived reset database
+  and lives under the mounted host data directory;
+- a service restart returns the same health response without recreating or losing
+  the active database;
+- a daily or pre-update archive exists in the backup directory, contains only the
+  configured active database directory, and has owner-only permissions; and
+- the user timer is enabled for the 03:00 local schedule.
 
 ### Technology Choices
 

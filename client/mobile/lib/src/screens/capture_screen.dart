@@ -17,6 +17,7 @@ final class CaptureScreen extends StatefulWidget {
     required this.onOpenSettings,
     this.initialDraft,
     this.healthNotice,
+    this.onCaptureSucceeded,
   });
 
   final BrainGateway gateway;
@@ -25,6 +26,7 @@ final class CaptureScreen extends StatefulWidget {
   final VoidCallback onOpenSettings;
   final PendingCapture? initialDraft;
   final String? healthNotice;
+  final VoidCallback? onCaptureSucceeded;
 
   @override
   State<CaptureScreen> createState() => _CaptureScreenState();
@@ -42,7 +44,6 @@ final class _CaptureScreenState extends State<CaptureScreen> {
   _CapturePhase _phase = _CapturePhase.idle;
   bool _ignoreChanges = false;
   int _draftRevision = 0;
-  bool _clearRequested = false;
   Future<void> _storageTail = Future<void>.value();
 
   @override
@@ -160,13 +161,13 @@ final class _CaptureScreenState extends State<CaptureScreen> {
     final text = _controller.text;
     if (text == _lastObservedText) return;
     _lastObservedText = text;
-    if (_phase == _CapturePhase.failed) {
-      setState(() {
+    setState(() {
+      if (_phase == _CapturePhase.failed) {
         _phase = _CapturePhase.idle;
         _failureMessage = null;
         _acknowledgement = null;
-      });
-    }
+      }
+    });
 
     final hasExistingDraft = _currentKey != null;
     if (!hasExistingDraft || text == _lastPersistedText) return;
@@ -175,7 +176,7 @@ final class _CaptureScreenState extends State<CaptureScreen> {
     _currentKey = key;
     _lastPersistedText = text;
     unawaited(
-      _scheduleDraft(PendingCapture(text: text, idempotencyKey: key))
+      _queueDraft(PendingCapture(text: text, idempotencyKey: key))
           .catchError((_) {}),
     );
   }
@@ -196,14 +197,15 @@ final class _CaptureScreenState extends State<CaptureScreen> {
     });
 
     try {
-      await _scheduleDraft(draft);
+      await _queueDraft(draft);
       if (!mounted) return;
       final receipt = await widget.gateway.stageIntake(
         text,
         idempotencyKey: key,
       );
-      await _clearDraft();
+      await _queueDraft(null);
       if (!mounted) return;
+      widget.onCaptureSucceeded?.call();
       _ignoreChanges = true;
       _controller.clear();
       _ignoreChanges = false;
@@ -223,41 +225,19 @@ final class _CaptureScreenState extends State<CaptureScreen> {
         _acknowledgement = null;
       });
     }
-
   }
 
-  Future<void> _scheduleDraft(PendingCapture draft) {
+  Future<void> _queueDraft(PendingCapture? draft) {
     final revision = ++_draftRevision;
-    _clearRequested = false;
     final previous = _storageTail;
-    final next = previous.then<void>(
-      (_) async {
-        if (revision != _draftRevision || _clearRequested) return;
-        await widget.settingsStore.savePendingCapture(draft);
-      },
-      onError: (_) async {
-        if (revision != _draftRevision || _clearRequested) return;
-        await widget.settingsStore.savePendingCapture(draft);
-      },
-    );
-    _storageTail = next.catchError((_) {});
-    return next;
-  }
-
-  Future<void> _clearDraft() {
-    final revision = ++_draftRevision;
-    _clearRequested = true;
-    final previous = _storageTail;
-    final next = previous.then<void>(
-      (_) async {
-        if (revision != _draftRevision || !_clearRequested) return;
+    final next = previous.then<void>((_) async {
+      if (revision != _draftRevision) return;
+      if (draft == null) {
         await widget.settingsStore.clearPendingCapture();
-      },
-      onError: (_) async {
-        if (revision != _draftRevision || !_clearRequested) return;
-        await widget.settingsStore.clearPendingCapture();
-      },
-    );
+      } else {
+        await widget.settingsStore.savePendingCapture(draft);
+      }
+    });
     _storageTail = next.catchError((_) {});
     return next;
   }

@@ -14,7 +14,11 @@ final class HttpBrainGateway implements BrainGateway {
     required this.client,
     this.healthTimeout = const Duration(seconds: 5),
     this.requestTimeout = const Duration(seconds: 30),
-  });
+    Duration? stageIntakeTimeout,
+  }) : stageIntakeTimeout = stageIntakeTimeout ??
+        (requestTimeout == const Duration(seconds: 30)
+            ? const Duration(minutes: 5)
+            : requestTimeout);
 
   /// A normalized absolute HTTP or HTTPS server URL.
   final String baseUrl;
@@ -25,8 +29,11 @@ final class HttpBrainGateway implements BrainGateway {
   /// The bounded timeout used for health checks.
   final Duration healthTimeout;
 
-  /// The bounded timeout used for intake and recall requests.
+  /// The bounded timeout used for recall requests.
   final Duration requestTimeout;
+
+  /// The bounded timeout used for server-side intake staging.
+  final Duration stageIntakeTimeout;
 
   @override
   Future<void> checkHealth() async {
@@ -60,7 +67,7 @@ final class HttpBrainGateway implements BrainGateway {
           'source': 'mobile',
         }),
       ),
-      timeout: requestTimeout,
+      timeout: stageIntakeTimeout,
     );
     final body = _decodeObject(response, endpoint: 'ingest');
     final chunksStored = body['chunks_stored'];
@@ -106,7 +113,7 @@ final class HttpBrainGateway implements BrainGateway {
         throw HttpStatusException(
           statusCode: response.statusCode,
           message: 'Brain server returned HTTP ${response.statusCode}',
-          body: response.body,
+          body: _responseText(response),
         );
       }
       return response;
@@ -119,11 +126,15 @@ final class HttpBrainGateway implements BrainGateway {
     }
   }
 
+  String _responseText(http.Response response) {
+    return utf8.decode(response.bodyBytes);
+  }
+
   Map<String, dynamic> _decodeObject(
     http.Response response, {
     required String endpoint,
   }) {
-    final decoded = _decodeJson(response.body, endpoint: endpoint);
+    final decoded = _decodeJson(_responseText(response), endpoint: endpoint);
     if (decoded is! Map<String, dynamic>) {
       throw MalformedResponseException(
         '$endpoint response must be a JSON object',
@@ -150,6 +161,11 @@ final class HttpBrainGateway implements BrainGateway {
       );
     }
 
+    if (!body.containsKey('context')) {
+      throw const MalformedResponseException(
+        'Recall response context must be an object or null',
+      );
+    }
     final rawContext = body['context'];
     if (rawContext == null) {
       return RecallResult(answer: answer, evidence: const []);
@@ -160,9 +176,9 @@ final class HttpBrainGateway implements BrainGateway {
       );
     }
 
-    final nodes = _decodeNodes(rawContext['nodes'] ?? const []);
-    final edges = _decodeEdges(rawContext['edges'] ?? const []);
-    final chunks = _decodeChunks(rawContext['unprocessed'] ?? const []);
+    final nodes = _decodeNodes(rawContext['nodes']);
+    final edges = _decodeEdges(rawContext['edges']);
+    final chunks = _decodeChunks(rawContext['unprocessed']);
     return RecallResult(
       answer: answer,
       evidence: _projectEvidence(nodes: nodes, edges: edges, chunks: chunks),

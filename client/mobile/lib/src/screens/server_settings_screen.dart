@@ -217,13 +217,13 @@ final class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       healthFailure = error;
     }
 
+    widget.onSaved(normalized, gateway, healthFailure);
     if (!mounted) return;
     setState(() {
       _saving = false;
       _healthFailure = healthFailure;
       _healthOk = healthFailure == null;
     });
-    widget.onSaved(normalized, gateway, healthFailure);
   }
 }
 
@@ -234,7 +234,7 @@ String? normalizeServerUrl(String value) {
   final uri = Uri.tryParse(trimmed);
   if (uri == null || !uri.isAbsolute) return null;
   if (uri.scheme != 'http' && uri.scheme != 'https') return null;
-  if (uri.host.isEmpty) return null;
+  if (uri.host.isEmpty || uri.hasQuery || uri.hasFragment) return null;
   return trimmed.replaceFirst(RegExp(r'/+$'), '');
 }
 

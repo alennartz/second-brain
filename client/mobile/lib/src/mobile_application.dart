@@ -211,6 +211,7 @@ final class _ConfiguredApplicationState extends State<_ConfiguredApplication> {
           createIdempotencyKey: widget.createIdempotencyKey,
           initialDraft: widget.initialDraft,
           healthNotice: _healthNotice,
+          onCaptureSucceeded: _clearHealthNotice,
           onOpenSettings: _openSettings,
         ),
         AskScreen(
@@ -222,7 +223,7 @@ final class _ConfiguredApplicationState extends State<_ConfiguredApplication> {
     );
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      body: Offstage(offstage: _routeOpen, child: shell),
+      body: shell,
       bottomNavigationBar: _routeOpen
           ? null
           : NavigationBar(
@@ -275,6 +276,11 @@ final class _ConfiguredApplicationState extends State<_ConfiguredApplication> {
           ? null
           : 'URL saved. The server did not respond to /health. You can try again later.';
     });
+  }
+
+  void _clearHealthNotice() {
+    if (_healthNotice == null || !mounted) return;
+    setState(() => _healthNotice = null);
   }
 
   void _openResult(String question) {

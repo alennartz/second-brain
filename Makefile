@@ -46,6 +46,20 @@ test-client: ## Run Go unit tests
 lint-client: ## Lint Go code
 	cd client && golangci-lint run
 
+# --- Flutter mobile quality ---
+
+.PHONY: build-mobile
+build-mobile: ## Build the Android Flutter client
+	cd client/mobile && flutter build apk
+
+.PHONY: test-mobile
+test-mobile: ## Run Flutter mobile tests
+	cd client/mobile && flutter test
+
+.PHONY: analyze-mobile
+analyze-mobile: ## Analyze the Flutter mobile client
+	cd client/mobile && flutter analyze
+
 # --- All quality ---
 
 .PHONY: check-all

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// One failed or edited Capture draft retained for explicit retry.
@@ -25,30 +27,49 @@ abstract interface class SettingsStore {
 final class SharedPreferencesSettingsStore implements SettingsStore {
   const SharedPreferencesSettingsStore(this.preferences);
 
+  static const _baseUrlKey = 'second_brain_mobile.base_url';
+  static const _pendingCaptureKey = 'second_brain_mobile.pending_capture';
+
   final SharedPreferences preferences;
 
   @override
-  Future<String?> loadBaseUrl() {
-    throw UnimplementedError('not implemented');
+  Future<String?> loadBaseUrl() async {
+    return preferences.getString(_baseUrlKey);
   }
 
   @override
-  Future<void> saveBaseUrl(String value) {
-    throw UnimplementedError('not implemented');
+  Future<void> saveBaseUrl(String value) async {
+    await preferences.setString(_baseUrlKey, value);
   }
 
   @override
-  Future<PendingCapture?> loadPendingCapture() {
-    throw UnimplementedError('not implemented');
+  Future<PendingCapture?> loadPendingCapture() async {
+    final encoded = preferences.getString(_pendingCaptureKey);
+    if (encoded == null) return null;
+
+    try {
+      final decoded = jsonDecode(encoded);
+      if (decoded is! Map<String, dynamic>) return null;
+      final text = decoded['text'];
+      final idempotencyKey = decoded['idempotency_key'];
+      if (text is! String || idempotencyKey is! String) return null;
+      return PendingCapture(text: text, idempotencyKey: idempotencyKey);
+    } on FormatException {
+      return null;
+    }
   }
 
   @override
-  Future<void> savePendingCapture(PendingCapture value) {
-    throw UnimplementedError('not implemented');
+  Future<void> savePendingCapture(PendingCapture value) async {
+    final encoded = jsonEncode({
+      'text': value.text,
+      'idempotency_key': value.idempotencyKey,
+    });
+    await preferences.setString(_pendingCaptureKey, encoded);
   }
 
   @override
-  Future<void> clearPendingCapture() {
-    throw UnimplementedError('not implemented');
+  Future<void> clearPendingCapture() async {
+    await preferences.remove(_pendingCaptureKey);
   }
 }

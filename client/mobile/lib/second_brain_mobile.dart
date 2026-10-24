@@ -7,3 +7,4 @@ export 'src/gateway/errors.dart';
 export 'src/gateway/http_brain_gateway.dart';
 export 'src/gateway/models.dart';
 export 'src/persistence/settings_store.dart';
+export 'src/screens/server_settings_screen.dart';

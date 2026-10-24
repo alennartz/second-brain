@@ -62,7 +62,7 @@ Use the same replay harness and command for every baseline and candidate run:
 ```bash
 cd /tmp/second-brain-recall-campaign
 PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
-TRIAL_ID=E007-4 EXPERIMENT_PORT=8102 \
+TRIAL_ID=E008-1 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
@@ -81,7 +81,7 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 | E005 | Raise total tool-call cap to request limit | `RECALL_TOOL_CALL_LIMIT`: 8 → 12 | Cap 9 still failed on call 10; the existing request limit is 12 | Across three replays, no tool-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; request limit bound first |
 | E006 | Return cached node on duplicate read | Cache successfully fetched nodes and return the cached node on duplicate `get_node` calls | The model repeated `get_node` many times before hitting the request limit | Across three replays, no duplicate-driven usage-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; duplicate cache did not stop loop |
 | E007 | PydanticAI output retry for parser errors | Make `RecallOutputError` inherit `ModelRetry` | Installed PydanticAI turns parser `ModelRetry` into an output retry; the current custom exception bypasses that path | Across three replays, ≤1 format 502 total; median context ≥7/9; no added tool-budget failures versus paired reference; p95 <39.5s | Won; `c5a64e7` |
-| E008 | Finalize after tool-budget exhaustion | Build a bounded evidence buffer and run one no-tool finalizer after usage-limit errors | The only remaining paired failure is repeated `get_node` exploration past the tool cap | Across three replays, zero usage-limit 502s; context ≥8/9; no unsupported claim; p95 <45s | Queued next; design before edit |
+| E008 | Finalize after tool-budget exhaustion | On `UsageLimitExceeded`, make one no-tool finalizer call using bounded evidence collected during the run | `UsageLimitExceeded` carries no run history; `RecallDeps` can preserve search/get-node results | Across three replays, zero usage-limit 502s; context ≥8/9; only cite buffered IDs; preserve cross-domain isolation; p95 <39.5s | Design recorded; ready to implement |
 | E009 | Native structured output | Change final output mode | A prior live probe returned truncated JSON at a 2,048-token cap | Do not retry without a new SGLang/PydanticAI mechanism or a verified token-budget change | Deferred |
 | E010 | Repetition penalty | Change one supported inference parameter | Could reduce repeated tool calls | Defer until SGLang support and effective request behavior are verified | Deferred |
 
@@ -139,5 +139,8 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 - **E007-4 vs B00-5:** the candidate recovered probe 1 with one PydanticAI output retry; the reference exhausted both attempts. Probe 6 hit the same tool-call limit in both runs. Context improved from 7/9 to 8/9; HTTP 502 attempts fell from 4 to 2.
 - **E007 win:** both paired runs recovered one probe with the built-in output retry, raised context by one, and kept tool-budget failures equal to the paired reference. Across four candidate replays, no format-related 502 occurred. Commit: `c5a64e7` (`fix(recall): E007 retry invalid output (2 paired rescues)`). Committed recall.py SHA-256: `a33211427e1f8a4f6a00ff76ca9ae1a76c0fef4852694486c8d3357a43594b03`. Rollback: revert `c5a64e7`, or restore `RecallOutputError(RuntimeError)` and remove the `ModelRetry` import.
 - **Active reference after E007:** 8/9 HTTP 200, 8/9 with context, 18 nodes, one exhausted probe, two tool-limit 502 attempts, and p95 31.56s. Use this reference for E008.
-- **E008 hypothesis:** after a tool-budget exception, a no-tool finalizer using evidence collected during exploration can recover the remaining probe without another graph call.
-- **E008-1: queued.** Design the bounded evidence buffer and finalizer before changing code.
+- **E008 mechanism research:** PydanticAI's `UsageLimitExceeded` stores only an error message, not the failed run's message history. `search_memory()` returns bounded graph nodes and unprocessed chunks; `get_node()` returns an enriched node. `RecallDeps` persists across those tool calls, so it can buffer the evidence for recovery.
+- **E008 hypothesis:** after the exploration agent exceeds its usage limit, a no-tool finalizer can answer from the evidence already collected and avoid another graph-tool loop.
+- **E008 interface:** add an internal evidence snapshot to `RecallDeps`; retain unique search nodes, unprocessed chunks, and successfully fetched nodes. On `UsageLimitExceeded`, fail closed if the snapshot is empty. Otherwise, run one finalizer agent with no tools. Give it the question and a bounded JSON evidence snapshot. Let it return `RecallOutput` through the existing parser; the API still resolves every cited ID before returning context.
+- **E008 safety:** the finalizer can cite only buffered IDs. It cannot search, fetch nodes, or write to the database. The current evidence, citation, and cross-domain checks remain unchanged.
+- **E008-1: ready.** Implement this single recovery behavior in `src/second_brain/agents/recall.py`, then run the nine recall probes against the frozen DB.

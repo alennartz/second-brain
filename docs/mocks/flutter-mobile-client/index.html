@@ -1,0 +1,1100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Second Brain mobile · interaction mock</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: #f3eee7;
+      --paper: #ffffff;
+      --card: #fffdfa;
+      --ink: #2a2018;
+      --ink-2: #5e5146;
+      --ink-3: #8c7f73;
+      --line: #ece4d9;
+      --line-2: #dccfbf;
+      --accent: #8a5a2b;
+      --accent-ink: #ffffff;
+      --accent-soft: #f6ece0;
+      --accent-2: #6e4620;
+      --frame: #3a2a1d;
+      --ok: #2f6b45;
+      --ok-soft: #e8f2ea;
+      --warn: #94520a;
+      --warn-soft: #fbf0e0;
+      --err: #a8321f;
+      --err-soft: #fbebe7;
+      --skeleton: #f1eadf;
+      --radius: 16px;
+      --radius-sm: 12px;
+      --shadow: 0 1px 2px rgba(58, 42, 29, .06), 0 8px 24px rgba(58, 42, 29, .07);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--page);
+      color: var(--ink);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    button, input, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; }
+    svg.i { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    svg.i.sm { width: 18px; height: 18px; }
+    .hidden { display: none !important; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* Stage */
+    .stage {
+      min-height: 100dvh;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 32px;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 32px 24px;
+    }
+    .device {
+      position: relative;
+      width: 390px;
+      max-width: 100%;
+      height: min(844px, calc(100dvh - 64px));
+      min-height: 640px;
+      display: flex;
+      flex-direction: column;
+      background: var(--paper);
+      border-radius: 44px;
+      border: 10px solid var(--frame);
+      box-shadow: 0 30px 60px rgba(58, 42, 29, .18);
+      overflow: hidden;
+    }
+    .statusbar {
+      flex: none;
+      height: 34px;
+      padding: 0 26px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .statusbar .dots { display: flex; gap: 5px; align-items: center; }
+    .statusbar .dots span { width: 15px; height: 9px; border-radius: 3px; background: currentColor; opacity: .85; }
+    .statusbar .dots span:first-child { width: 11px; opacity: .5; }
+    .screen { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+    /* Views */
+    .view { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: enter .22s ease-out; }
+    @keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .view.push { animation: push .24s ease-out; }
+    @keyframes push { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+
+    .topbar {
+      flex: none;
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px 4px 20px;
+    }
+    .topbar.with-back { padding-left: 4px; }
+    .topbar h1 { flex: 1; min-width: 0; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.01em; }
+    .topbar .title-sm { flex: 1; min-width: 0; margin: 0; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .topbar.raised { border-bottom: 1px solid var(--line); background: var(--paper); }
+    .iconbtn {
+      position: relative;
+      width: 48px; height: 48px;
+      display: grid; place-items: center;
+      border: 0; border-radius: 50%;
+      background: transparent;
+      color: var(--accent);
+    }
+    .iconbtn:hover, .iconbtn:active { background: var(--accent-soft); }
+    .iconbtn:focus-visible, .btn:focus-visible, .navitem:focus-visible, .chip-btn:focus-visible, .ev-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+    .iconbtn .badge { position: absolute; top: 11px; right: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--warn); border: 2px solid var(--paper); }
+
+    .body { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 4px 20px 20px; display: flex; flex-direction: column; }
+    .dock { flex: none; position: relative; padding: 12px 16px 16px; display: grid; gap: 10px; background: var(--paper); }
+    .kb .dock { padding-bottom: 10px; border-top: 1px solid var(--line); }
+
+    /* Buttons */
+    .btn {
+      min-height: 52px;
+      width: 100%;
+      padding: 0 20px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      font-weight: 600;
+      font-size: 16px;
+      transition: background .15s, opacity .15s;
+    }
+    .btn.primary { background: var(--accent); color: var(--accent-ink); }
+    .btn.primary:hover:not(:disabled), .btn.primary:active:not(:disabled) { background: var(--accent-2); }
+    .btn.secondary { background: transparent; border-color: var(--line-2); color: var(--ink); }
+    .btn.secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+    .btn:disabled { opacity: .42; }
+    .btn.busy:disabled { opacity: .8; }
+    .btn.primary:disabled:not(.busy) { opacity: 1; background: #ece1d3; color: #8a735c; }
+    .btn.inline { width: auto; min-height: 48px; }
+    .spin { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; flex: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Fields */
+    .label { display: block; font-size: 14px; font-weight: 600; color: var(--ink-2); margin: 0 0 8px; }
+    .input, .textarea {
+      width: 100%;
+      background: var(--card);
+      border: 1.5px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .input { min-height: 54px; font-size: 16px; }
+    .input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent); }
+    .input[aria-invalid="true"] { border-color: var(--err); }
+    .input:disabled, .textarea[readonly] { opacity: .7; }
+    .textarea { resize: none; font-size: 18px; line-height: 1.55; }
+    .textarea::placeholder, .input::placeholder { color: var(--ink-3); }
+    .help { margin: 8px 2px 0; font-size: 14px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+    .help.err { color: var(--err); }
+
+    /* Notices */
+    .notice {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 14px 16px;
+      border-radius: var(--radius);
+      font-size: 15px;
+      line-height: 1.45;
+      animation: enter .2s ease-out;
+    }
+    .notice strong { display: block; font-size: 15px; margin-bottom: 2px; }
+    .notice p { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+    .notice.ok { background: var(--ok-soft); }
+    .notice.ok > svg { color: var(--ok); }
+    .notice.warn { background: var(--warn-soft); }
+    .notice.warn > svg { color: var(--warn); }
+    .notice.err { background: var(--err-soft); }
+    .notice.err > svg { color: var(--err); }
+
+    .snackbar {
+      position: absolute;
+      left: 16px; right: 16px;
+      bottom: calc(100% + 4px);
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: var(--ink);
+      color: var(--paper);
+      font-size: 15px;
+      box-shadow: var(--shadow);
+      animation: snack .25s ease-out;
+    }
+    .snackbar svg { color: #e2bf93; }
+    @keyframes snack { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+    /* Bottom navigation */
+    .nav {
+      flex: none;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      padding: 6px 12px 10px;
+      border-top: 1px solid var(--line);
+      background: var(--paper);
+    }
+    .navitem {
+      min-height: 64px;
+      border: 0; background: transparent;
+      display: grid; justify-items: center; align-content: center; gap: 4px;
+      font-size: 13px; font-weight: 600; color: var(--ink-2);
+      border-radius: 16px;
+    }
+    .navitem .pill { width: 60px; height: 32px; border-radius: 16px; display: grid; place-items: center; transition: background .15s; }
+    .navitem[aria-current="page"] { color: var(--ink); }
+    .navitem[aria-current="page"] .pill { background: var(--accent-soft); color: var(--accent); }
+
+    /* Setup */
+    .setup-body { justify-content: safe center; gap: 28px; padding-top: 24px; }
+    .brand { width: 64px; height: 64px; border-radius: 20px; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; box-shadow: var(--shadow); }
+    .brand svg { width: 34px; height: 34px; }
+    .hero h2 { margin: 18px 0 8px; font-size: 28px; line-height: 1.2; letter-spacing: -.02em; }
+    .hero p { margin: 0; color: var(--ink-2); font-size: 16px; }
+    .kb .setup-body { justify-content: flex-start; gap: 18px; padding-top: 16px; }
+    .kb .brand { display: none; }
+    .kb .hero h2 { margin-top: 0; font-size: 22px; }
+    .kb .hero p { font-size: 15px; }
+
+    /* Capture / Ask composer: fields start compact, grow with text, and shrink when the keyboard takes space */
+    .compose { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+    .compose > * { flex-shrink: 0; }
+    .compose .textarea { flex: 0 1 auto; min-height: 92px; overflow-y: auto; }
+    .compose .help { margin-top: -2px; }
+    .help svg { color: var(--accent); }
+    .suggest h3 { margin: 10px 2px 10px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+    .chips { display: grid; gap: 8px; }
+    .chip-btn {
+      min-height: 52px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px;
+      text-align: left;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--card);
+      color: var(--ink);
+      font-size: 15px;
+    }
+    .chip-btn:hover { border-color: var(--line-2); }
+    .chip-btn svg { color: var(--accent); }
+    .chip-btn:active { background: var(--accent-soft); }
+
+    /* Settings */
+    .group { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 16px; }
+    .group h2 { margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+    .health { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--ink-2); }
+    .health .when { margin-left: auto; font-size: 13px; color: var(--ink-3); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ink-3); flex: none; margin-left: 4px; }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+    .dot.fail { background: var(--warn); box-shadow: 0 0 0 4px var(--warn-soft); }
+    .dot.checking { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .3; } }
+    .foot { margin: auto 0 0; padding-top: 24px; text-align: center; font-size: 13px; color: var(--ink-3); }
+    .kb .foot { display: none; }
+
+    /* Result */
+    .result-body { padding-top: 12px; padding-bottom: 32px; }
+    .loading-head { display: flex; align-items: center; gap: 12px; color: var(--ink-2); font-size: 15px; margin: 8px 0 24px; }
+    .loading-head .spin { color: var(--accent); }
+    .sk { height: 16px; border-radius: 8px; background: var(--skeleton); margin-bottom: 12px; position: relative; overflow: hidden; }
+    .sk::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--card) 70%, transparent), transparent); animation: shimmer 1.3s infinite; }
+    @keyframes shimmer { to { transform: translateX(100%); } }
+    .sk.gap { margin-top: 26px; }
+
+    .state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px 8px; gap: 6px; }
+    .state .glyph { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 10px; }
+    .state .glyph.err { background: var(--err-soft); color: var(--err); }
+    .state h2 { margin: 0; font-size: 20px; }
+    .state p { margin: 0 0 18px; color: var(--ink-2); max-width: 30ch; overflow-wrap: anywhere; }
+
+    .answer { font-size: 17.5px; line-height: 1.68; color: var(--ink); overflow-wrap: break-word; }
+    .answer p { margin: 0 0 16px; }
+    .answer ul { margin: 0 0 16px; padding-left: 22px; }
+    .answer li { margin-bottom: 8px; padding-left: 2px; }
+    .answer li::marker { color: var(--ink-3); }
+    .answer h3 { font-size: 18px; margin: 22px 0 8px; }
+    .answer strong { font-weight: 650; }
+    .answer code { font-family: var(--mono); font-size: .88em; background: var(--skeleton); padding: 1px 5px; border-radius: 5px; }
+
+    .evidence { margin-top: 12px; border-top: 1px solid var(--line); }
+    .ev-toggle {
+      width: 100%; min-height: 60px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 0;
+      border: 0; background: transparent;
+      text-align: left;
+    }
+    .ev-toggle .t { flex: 1; min-width: 0; }
+    .ev-toggle .t strong { display: block; font-size: 17px; }
+    .ev-toggle .t span { font-size: 14px; color: var(--ink-3); }
+    .ev-toggle .count { min-width: 30px; height: 26px; padding: 0 9px; border-radius: 13px; background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 700; display: grid; place-items: center; }
+    .ev-toggle svg { color: var(--ink-3); transition: transform .2s; }
+    .ev-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+    .ev-empty { padding: 16px 0 8px; color: var(--ink-3); font-size: 15px; }
+    .ev-list { display: grid; gap: 12px; padding: 4px 0 8px; }
+
+    .ev { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; overflow-wrap: anywhere; }
+    .ev-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .tag { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12.5px; font-weight: 650; letter-spacing: .01em; }
+    .tag.entity { background: var(--accent-soft); color: var(--accent); }
+    .tag.note { background: transparent; border: 1px solid var(--line-2); color: var(--accent-2); }
+    .tag.raw { background: var(--warn-soft); color: var(--warn); }
+    .tag.other { background: var(--skeleton); color: var(--ink-2); }
+    .ev-id { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+    .ev h3 { margin: 0 0 4px; font-size: 16.5px; line-height: 1.35; }
+    .ev p.txt { margin: 0; color: var(--ink-2); font-size: 15px; line-height: 1.55; }
+    .ev.raw { border-style: dashed; border-color: var(--line-2); background: transparent; }
+    .ev.raw p.txt { color: var(--ink); }
+    .meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 13px; color: var(--ink-3); }
+    .meta .hint { font-family: var(--mono); background: var(--skeleton); color: var(--ink-2); border-radius: 6px; padding: 1px 7px; }
+
+    .links { list-style: none; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+    .links li { display: grid; grid-template-columns: 28px 1fr; gap: 8px; align-items: start; }
+    .links .ico { width: 28px; height: 28px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+    .links .ico svg { width: 16px; height: 16px; }
+    .links .line { font-size: 14.5px; line-height: 1.4; color: var(--ink); }
+    .links .rel { display: inline-block; font-size: 12px; font-weight: 650; text-transform: lowercase; color: var(--ink-2); border: 1px solid var(--line-2); border-radius: 6px; padding: 0 6px; margin-right: 4px; }
+    .links .ctx { margin: 3px 0 0; font-size: 14px; color: var(--ink-2); }
+
+    /* Software keyboard: the screen shrinks, and the dock sits directly above the keyboard */
+    .kb .nav { display: none; }
+    .keyboard {
+      flex: none;
+      height: min(42%, 292px);
+      display: grid;
+      grid-template-rows: auto repeat(4, 1fr);
+      gap: 7px;
+      padding: 6px 5px 10px;
+      background: #ece5db;
+      border-top: 1px solid rgba(58, 42, 29, .1);
+      user-select: none;
+      -webkit-user-select: none;
+      animation: kbup .2s ease-out;
+    }
+    @keyframes kbup { from { transform: translateY(40%); opacity: .4; } to { transform: none; opacity: 1; } }
+    .keyboard .bar { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 0 8px; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+    .keyboard .bar button { min-height: 32px; min-width: 48px; border: 0; border-radius: 8px; background: transparent; color: inherit; display: grid; place-items: center; }
+    .keyboard .row { display: flex; gap: 5px; justify-content: center; min-height: 0; }
+    .keyboard .key {
+      flex: 1 1 0; min-width: 0; max-width: 40px;
+      border: 0; border-radius: 6px;
+      background: #fff; color: var(--ink);
+      font-size: 17px; padding: 0;
+      box-shadow: 0 1px 0 rgba(58, 42, 29, .25);
+      display: grid; place-items: center;
+    }
+    .keyboard .key:active { background: var(--accent-soft); }
+    .keyboard .key.mod { max-width: 56px; flex-grow: 1.5; background: #d9cdbd; font-size: 15px; font-weight: 600; }
+    .keyboard .key.space { max-width: none; flex-grow: 5; font-size: 13px; color: var(--ink-3); }
+    .keyboard .key.go { max-width: 70px; flex-grow: 1.8; background: var(--accent); color: var(--accent-ink); }
+    .keyboard .key svg { width: 20px; height: 20px; }
+
+    /* Mock controls */
+    .panel { width: 340px; max-width: 100%; display: grid; gap: 16px; font-size: 14px; color: var(--ink-2); }
+    .panel section { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+    .panel h2 { margin: 0 0 4px; font-size: 15px; color: var(--ink); }
+    .panel h3 { margin: 0 0 10px; font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+    .panel p { margin: 0 0 12px; }
+    .panel ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+    .panel code { font-family: var(--mono); font-size: 12.5px; color: var(--ink); }
+    .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; color: var(--ink); font-weight: 600; cursor: pointer; }
+    .switch input { appearance: none; width: 46px; height: 28px; border-radius: 14px; background: var(--line-2); position: relative; cursor: pointer; transition: background .15s; flex: none; margin: 0; }
+    .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+    .switch input:checked { background: var(--accent); }
+    .switch input:checked::after { transform: translateX(18px); }
+    .panel .btn { min-height: 44px; font-size: 14px; }
+    pre.log { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); max-height: 360px; overflow-y: auto; }
+    pre.log .k { color: var(--ink-3); }
+
+    @media (max-width: 520px) {
+      .stage { padding: 0; gap: 0; display: block; }
+      .device { width: 100%; height: var(--app-h, 100dvh); min-height: 0; border: 0; border-radius: 0; box-shadow: none; }
+      .device.kb-real { position: fixed; left: 0; right: 0; top: var(--app-top, 0px); z-index: 10; }
+      .statusbar { display: none; }
+      .panel { width: 100%; padding: 20px 16px 32px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="device" role="application" aria-label="Second Brain mobile app mock">
+      <div class="statusbar" aria-hidden="true"><span>9:41</span><span class="dots"><span></span><span></span></span></div>
+      <div class="screen" id="screen">
+
+        <!-- First launch -->
+        <section class="view" id="view-setup" aria-labelledby="setup-title">
+          <div class="body setup-body">
+            <div class="hero">
+              <div class="brand" aria-hidden="true">
+                <svg class="i" viewBox="0 0 24 24"><circle cx="9" cy="12" r="5"/><circle cx="15" cy="12" r="5"/></svg>
+              </div>
+              <h2 id="setup-title">Connect to your Second Brain</h2>
+              <p>Enter your server address once. You can change it later in Settings.</p>
+            </div>
+            <div>
+              <label class="label" for="setup-url">Server URL</label>
+              <input class="input" id="setup-url" type="text" inputmode="url" autocapitalize="off" autocomplete="url" enterkeyhint="go" spellcheck="false" placeholder="http://192.168.1.20:8000" value="http://192.168.1.20:8000">
+              <p class="help" id="setup-help">The app checks <code>/health</code> after it saves.</p>
+            </div>
+            <div id="setup-notice"></div>
+          </div>
+          <div class="dock" id="setup-dock"></div>
+        </section>
+
+        <!-- Capture -->
+        <section class="view hidden" id="view-capture" aria-labelledby="capture-title">
+          <header class="topbar">
+            <h1 id="capture-title">Capture</h1>
+            <button class="iconbtn settings-btn" aria-label="Settings"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="badge hidden"></span></button>
+          </header>
+          <div class="body">
+            <div class="compose">
+              <div id="capture-notice"></div>
+              <label class="sr" for="capture-text">Thought</label>
+              <textarea class="textarea" id="capture-text" rows="4" enterkeyhint="enter" placeholder="What's on your mind?"></textarea>
+              <p class="help"><svg class="i sm" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg>Use your keyboard's mic to dictate.</p>
+            </div>
+          </div>
+          <div class="dock">
+            <div id="capture-snack"></div>
+            <button class="btn primary" id="capture-submit" disabled>Capture</button>
+          </div>
+        </section>
+
+        <!-- Ask composer -->
+        <section class="view hidden" id="view-ask" aria-labelledby="ask-title">
+          <header class="topbar">
+            <h1 id="ask-title">Ask</h1>
+            <button class="iconbtn settings-btn" aria-label="Settings"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="badge hidden"></span></button>
+          </header>
+          <div class="body">
+            <div class="compose">
+              <label class="sr" for="ask-text">Question</label>
+              <textarea class="textarea" id="ask-text" rows="3" enterkeyhint="enter" placeholder="Ask your memory a question"></textarea>
+              <div class="suggest" id="ask-suggest">
+                <h3>Try asking</h3>
+                <div class="chips">
+                  <button class="chip-btn" data-q="What did I decide about the garden layout?"><svg class="i sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>What did I decide about the garden layout?</button>
+                  <button class="chip-btn" data-q="What do I know about sailing?"><svg class="i sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>What do I know about sailing?</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="dock">
+            <button class="btn primary" id="ask-submit" disabled>Ask</button>
+          </div>
+        </section>
+
+        <!-- Ask result: top bar with Back, everything else is results -->
+        <section class="view hidden" id="view-result" aria-labelledby="result-title">
+          <header class="topbar with-back raised">
+            <button class="iconbtn" id="result-back" aria-label="Back"><svg class="i" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+            <h1 class="title-sm" id="result-title">Answer</h1>
+          </header>
+          <div class="body result-body" id="result-body" aria-live="polite"></div>
+        </section>
+
+        <!-- Settings -->
+        <section class="view hidden" id="view-settings" aria-labelledby="settings-title">
+          <header class="topbar with-back">
+            <button class="iconbtn" id="settings-back" aria-label="Back"><svg class="i" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
+            <h1 class="title-sm" id="settings-title" style="font-size:20px">Settings</h1>
+          </header>
+          <div class="body" style="gap:16px">
+            <div class="group">
+              <h2>Server</h2>
+              <div>
+                <label class="label" for="settings-url">Server URL</label>
+                <input class="input" id="settings-url" type="text" inputmode="url" autocapitalize="off" autocomplete="url" enterkeyhint="go" spellcheck="false">
+                <p class="help hidden" id="settings-help"></p>
+              </div>
+              <div class="health" id="settings-health"></div>
+            </div>
+            <div id="settings-notice"></div>
+            <p class="foot">Second Brain mobile</p>
+          </div>
+          <div class="dock">
+            <button class="btn primary" id="settings-save">Save and check</button>
+          </div>
+        </section>
+
+        <nav class="nav hidden" id="nav" aria-label="Main">
+          <button class="navitem" data-tab="capture" aria-current="page"><span class="pill"><svg class="i" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></span>Capture</button>
+          <button class="navitem" data-tab="ask"><span class="pill"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg></span>Ask</button>
+        </nav>
+      </div>
+      <div class="keyboard hidden" id="keyboard" aria-hidden="true">
+        <div class="bar"><span>Simulated keyboard</span><button data-k="hide" title="Hide keyboard"><svg class="i sm" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button></div>
+        <div class="row"><button class="key" data-k="q">q</button><button class="key" data-k="w">w</button><button class="key" data-k="e">e</button><button class="key" data-k="r">r</button><button class="key" data-k="t">t</button><button class="key" data-k="y">y</button><button class="key" data-k="u">u</button><button class="key" data-k="i">i</button><button class="key" data-k="o">o</button><button class="key" data-k="p">p</button></div>
+        <div class="row"><button class="key" data-k="a">a</button><button class="key" data-k="s">s</button><button class="key" data-k="d">d</button><button class="key" data-k="f">f</button><button class="key" data-k="g">g</button><button class="key" data-k="h">h</button><button class="key" data-k="j">j</button><button class="key" data-k="k">k</button><button class="key" data-k="l">l</button></div>
+        <div class="row"><button class="key mod" data-k="/">/</button><button class="key" data-k="z">z</button><button class="key" data-k="x">x</button><button class="key" data-k="c">c</button><button class="key" data-k="v">v</button><button class="key" data-k="b">b</button><button class="key" data-k="n">n</button><button class="key" data-k="m">m</button><button class="key mod" data-k="back" title="Backspace"><svg class="i" viewBox="0 0 24 24"><path d="M21 5H8l-6 7 6 7h13z"/><path d="M16 9l-5 6M11 9l5 6"/></svg></button></div>
+        <div class="row"><button class="key mod" data-k=":">:</button><button class="key mod" data-k="mic" title="Dictate"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4"/></svg></button><button class="key space" data-k=" ">space</button><button class="key mod" data-k=".">.</button><button class="key go" data-k="enter" title="Enter"><svg class="i" viewBox="0 0 24 24"><path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg></button></div>
+      </div>
+    </div>
+
+    <aside class="panel" aria-label="Mock controls">
+      <section>
+        <h2>Mock controls</h2>
+        <p>Fake responses run locally. No network calls.</p>
+        <label class="switch">Server reachable <input type="checkbox" id="ctl-server" checked></label>
+        <label class="switch">Simulate keyboard on focus <input type="checkbox" id="ctl-kb" checked></label>
+        <button class="btn secondary" id="ctl-reset" style="margin-top:8px">Reset to first launch</button>
+      </section>
+      <section>
+        <h3>Paths to try</h3>
+        <ul>
+          <li>URL containing <code>down</code> fails the health check. The URL still saves.</li>
+          <li>Capture text containing <code>fail</code> fails once. Retry succeeds with the same <code>Idempotency-Key</code>.</li>
+          <li>A question containing <code>fail</code> fails once. Try again succeeds.</li>
+          <li>A question about <code>sailing</code> returns <code>context: null</code>.</li>
+          <li>Turn off <em>Server reachable</em> to fail every request.</li>
+          <li>Tap a field to open the keyboard. The screen shrinks and the submit button stays above it. Tap outside the field or press the chevron to hide it. The mic key inserts dictated text.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Last request</h3>
+        <pre class="log" id="log">No requests yet.</pre>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const ICON = {
+      check: '<svg class="i" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>',
+      alert: '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>',
+      cloudOff: '<svg class="i" viewBox="0 0 24 24"><path d="M2 2l20 20"/><path d="M5.8 8.6A6 6 0 0 0 7 20h10c.7 0 1.4-.1 2-.4M21.6 15.8A4.5 4.5 0 0 0 18 9.1 6 6 0 0 0 10.2 5"/></svg>',
+      chevron: '<svg class="i" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+      inArrow: '<svg class="i" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
+      outArrow: '<svg class="i" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+    };
+
+    const state = {
+      view: 'setup',
+      tab: 'capture',
+      url: '',
+      health: 'unknown',
+      checkedAt: null,
+      serverUp: true,
+      setupPhase: 'idle',
+      capture: { status: 'idle', key: null, failedKeys: new Set() },
+      ask: { question: '', status: 'idle', response: null, failedOnce: new Set(), evidenceOpen: true },
+      settingsPhase: 'idle',
+      token: 0,
+    };
+
+    /* ---------- Fake server ---------- */
+    const GARDEN = {
+      answer: [
+        'You decided to plant **tomatoes and basil in the two south beds** of your Riverside plot for full sun. The herbs move to the shaded north strip.',
+        '- Keep a **60 cm path** between beds for the wheelbarrow.\n- The soil test showed **low nitrogen**. Add composted manure before planting in April.\n- Mara shares the plot and suggested the soil test.',
+        'A recent capture, not yet organized, mentions trellising the tomatoes with Mara\'s spare bamboo poles instead of cages.',
+      ].join('\n\n'),
+      context: {
+        nodes: [
+          { id: 'note:layout_decision', table: 'note', summary: 'Garden layout decision', content: 'Tomatoes and basil go in the two south beds for full sun. Herbs move to the shaded north strip. Keep a 60 cm path between beds for the wheelbarrow.' },
+          { id: 'entity:garden_plot', table: 'entity', name: 'Riverside garden plot', type: 'place', description: 'Community plot 14 at Riverside Gardens. Raised beds along the south fence.' },
+          { id: 'note:soil_test', table: 'note', summary: 'Soil test results', content: 'pH 6.4, low nitrogen. Add composted manure before planting in April.' },
+          { id: 'entity:mara', table: 'entity', name: 'Mara Lindqvist', type: 'person', description: 'Neighbor who shares plot 14.' },
+        ],
+        edges: [
+          { id: 'references:r1', table: 'references', from: 'note:layout_decision', to: 'entity:garden_plot', context: 'The layout applies to the south beds of this plot.' },
+          { id: 'relates_to:r2', table: 'relates_to', from: 'entity:mara', to: 'entity:garden_plot', context: 'Shares the plot and waters it on weekends.' },
+          { id: 'references:r3', table: 'references', from: 'note:layout_decision', to: 'note:soil_test', context: 'The bed choice depends on the low-nitrogen result.' },
+          { id: 'relates_to:r4', table: 'relates_to', from: 'entity:mara', to: 'note:soil_test', context: 'Mara suggested the test.' },
+        ],
+        unprocessed: [
+          { id: 'intake_chunk:9c2d', intake_id: 'intake:2f9a', chunk_index: 0, total_chunks: 2, content: 'Thinking about trellising the tomatoes this year instead of cages. Mara has spare bamboo poles in her shed.', source: 'mobile', hints: ['garden'], unprocessed: true },
+        ],
+      },
+    };
+    const EMPTY = { answer: 'I could not find anything about that in your memory yet. Capture a thought about it and ask again later.', context: null };
+
+    function newKey() {
+      const h = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0');
+      return `${h()}${h()}-${h()}-4${h().slice(1)}-${h()}-${h()}${h()}${h()}`;
+    }
+    function log(req, res) {
+      const lines = [`<span class="k">${req.method}</span> ${esc(state.url + req.path)}`];
+      if (req.headers) for (const [k, v] of Object.entries(req.headers)) lines.push(`<span class="k">${esc(k)}:</span> ${esc(v)}`);
+      if (req.body) lines.push('', esc(JSON.stringify(req.body, null, 2)));
+      lines.push('', res.ok ? `<span class="k">← ${res.status}</span>` : `<span class="k">← network error</span>`);
+      if (res.json) lines.push(esc(JSON.stringify(res.json, null, 2)));
+      $('log').innerHTML = lines.join('\n');
+    }
+    function fake(req, delay, decide) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          const r = decide();
+          log(req, r);
+          r.ok ? resolve(r.json) : reject(new Error('unreachable'));
+        }, delay);
+      });
+    }
+    const api = {
+      health: () => fake({ method: 'GET', path: '/health' }, 900, () =>
+        state.serverUp && !/down/i.test(state.url) ? { ok: true, status: 200, json: { status: 'ok' } } : { ok: false }),
+      ingest: (text, key) => {
+        const req = { method: 'POST', path: '/ingest', headers: { 'Idempotency-Key': key }, body: { text, hints: [], source: 'mobile' } };
+        return fake(req, 1100, () => {
+          if (!state.serverUp) return { ok: false };
+          if (/fail/i.test(text) && !state.capture.failedKeys.has(key)) { state.capture.failedKeys.add(key); return { ok: false }; }
+          return { ok: true, status: 200, json: { chunks_stored: Math.max(1, Math.ceil(text.length / 400)) } };
+        });
+      },
+      recall: (question) => {
+        const req = { method: 'POST', path: '/recall', body: { question, hints: [] } };
+        return fake(req, 1500, () => {
+          if (!state.serverUp) return { ok: false };
+          if (/fail/i.test(question) && !state.ask.failedOnce.has(question)) { state.ask.failedOnce.add(question); return { ok: false }; }
+          return { ok: true, status: 200, json: /sailing/i.test(question) ? EMPTY : GARDEN };
+        });
+      },
+    };
+
+    /* ---------- Software keyboard and viewport ---------- */
+    const coarse = matchMedia('(pointer: coarse)').matches;
+    const kb = { simulate: !coarse };
+    const device = document.querySelector('.device');
+    if (coarse) $('ctl-kb').checked = false;
+
+    function autosize(t) {
+      if (!t.offsetParent) return;
+      t.style.height = 'auto';
+      t.style.height = (t.scrollHeight + 3) + 'px';
+    }
+    function isField(el) {
+      return !!el && $('screen').contains(el) && el.matches('input, textarea') && !el.disabled;
+    }
+    function reveal(el) {
+      const body = el.closest('.body');
+      if (!body) return;
+      const r = el.getBoundingClientRect();
+      const b = body.getBoundingClientRect();
+      if (r.top < b.top) body.scrollTop += r.top - b.top - 12;
+      else if (r.bottom > b.bottom) body.scrollTop += Math.min(r.bottom - b.bottom + 12, r.top - b.top - 12);
+    }
+    function syncKeyboard() {
+      const focused = isField(document.activeElement);
+      const sim = kb.simulate && focused;
+      const real = !kb.simulate && coarse && focused;
+      device.classList.toggle('kb', sim || real);
+      device.classList.toggle('kb-real', real);
+      $('keyboard').classList.toggle('hidden', !sim);
+      if (focused) requestAnimationFrame(() => reveal(document.activeElement));
+    }
+    function syncViewport() {
+      const vv = window.visualViewport;
+      if (!vv) return;
+      document.documentElement.style.setProperty('--app-h', vv.height + 'px');
+      document.documentElement.style.setProperty('--app-top', vv.offsetTop + 'px');
+      if (isField(document.activeElement)) reveal(document.activeElement);
+    }
+    if (window.visualViewport) {
+      visualViewport.addEventListener('resize', syncViewport);
+      visualViewport.addEventListener('scroll', syncViewport);
+      syncViewport();
+    }
+    document.addEventListener('focusin', syncKeyboard);
+    document.addEventListener('focusout', () => setTimeout(syncKeyboard, 0));
+
+    // Taps on the submit dock, suggestions, and keys keep the field focused, so the keyboard stays open.
+    device.addEventListener('mousedown', (e) => {
+      if (isField(document.activeElement) && e.target.closest('.dock button, .chip-btn, .keyboard')) e.preventDefault();
+    });
+
+    const DICTATION = {
+      'capture-text': 'Pick up seed potatoes on Saturday and ask Mara about the bamboo poles.',
+      'ask-text': 'What did I decide about the garden layout?',
+    };
+    function insert(el, text) {
+      if (el.readOnly) return;
+      el.setRangeText(text, el.selectionStart, el.selectionEnd, 'end');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      if (el.selectionEnd === el.value.length) el.scrollTop = el.scrollHeight;
+    }
+    $('keyboard').addEventListener('click', (e) => {
+      const k = e.target.closest('[data-k]')?.dataset.k;
+      const el = document.activeElement;
+      if (!k || !isField(el)) return;
+      if (k === 'hide') { el.blur(); return; }
+      if (k === 'enter') {
+        if (el.tagName === 'TEXTAREA') insert(el, '\n');
+        else el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        return;
+      }
+      if (k === 'back') {
+        if (el.readOnly) return;
+        const s = el.selectionStart, end = el.selectionEnd;
+        if (s === end && s > 0) el.setRangeText('', s - 1, s, 'end'); else el.setRangeText('', s, end, 'end');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+      if (k === 'mic') {
+        const phrase = DICTATION[el.id];
+        if (!phrase) return;
+        const before = el.value.slice(0, el.selectionStart);
+        insert(el, (before && !/\s$/.test(before) ? ' ' : '') + phrase);
+        return;
+      }
+      insert(el, k);
+    });
+
+    /* ---------- Navigation ---------- */
+    const VIEWS = ['setup', 'capture', 'ask', 'result', 'settings'];
+    let settingsReturn = 'capture';
+    function go(view, { push = false } = {}) {
+      if ($('screen').contains(document.activeElement)) document.activeElement.blur();
+      state.view = view;
+      for (const v of VIEWS) {
+        const el = $('view-' + v);
+        el.classList.toggle('hidden', v !== view);
+        el.classList.toggle('push', push && v === view);
+      }
+      if (view === 'capture' || view === 'ask') state.tab = view;
+      $('nav').classList.toggle('hidden', !(view === 'capture' || view === 'ask'));
+      document.querySelectorAll('.navitem').forEach((b) => {
+        if (b.dataset.tab === state.tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+      });
+      document.querySelectorAll('.settings-btn .badge').forEach((b) => b.classList.toggle('hidden', state.health !== 'fail'));
+      if (view === 'settings') renderSettings();
+      document.querySelectorAll('#view-' + view + ' textarea').forEach(autosize);
+      syncKeyboard();
+    }
+    document.querySelectorAll('.navitem').forEach((b) => b.addEventListener('click', () => go(b.dataset.tab)));
+    document.querySelectorAll('.settings-btn').forEach((b) => b.addEventListener('click', () => {
+      settingsReturn = state.view;
+      state.settingsPhase = 'idle';
+      $('settings-url').value = state.url;
+      $('settings-notice').innerHTML = '';
+      go('settings', { push: true });
+    }));
+
+    function validUrl(u) { return /^https?:\/\/[^\s/]+/i.test(u); }
+    function notice(kind, title, text) {
+      const icon = kind === 'ok' ? ICON.check : ICON.alert;
+      return `<div class="notice ${kind}" role="status">${icon}<div><strong>${esc(title)}</strong>${text ? `<p>${text}</p>` : ''}</div></div>`;
+    }
+
+    /* ---------- Setup ---------- */
+    function renderSetup() {
+      const p = state.setupPhase;
+      const dock = $('setup-dock');
+      $('setup-url').disabled = p === 'checking';
+      if (p === 'failed') {
+        dock.innerHTML = '<button class="btn primary" id="setup-continue">Continue to Capture</button><button class="btn secondary" id="setup-retry">Check again</button>';
+        $('setup-continue').onclick = () => go('capture');
+        $('setup-retry').onclick = setupSave;
+      } else if (p === 'checking') {
+        dock.innerHTML = '<button class="btn primary busy" disabled><span class="spin"></span>Checking server…</button>';
+      } else if (p === 'ok') {
+        dock.innerHTML = `<button class="btn primary" disabled>${ICON.check}Connected</button>`;
+      } else {
+        dock.innerHTML = '<button class="btn primary" id="setup-save">Save and connect</button>';
+        $('setup-save').onclick = setupSave;
+      }
+    }
+    async function setupSave() {
+      const url = $('setup-url').value.trim().replace(/\/+$/, '');
+      const help = $('setup-help');
+      if (!validUrl(url)) {
+        $('setup-url').setAttribute('aria-invalid', 'true');
+        help.className = 'help err';
+        help.textContent = 'Enter a full URL that starts with http:// or https://.';
+        return;
+      }
+      $('setup-url').blur();
+      $('setup-url').removeAttribute('aria-invalid');
+      help.className = 'help';
+      help.innerHTML = 'Saved on this device.';
+      state.url = url;
+      state.setupPhase = 'checking';
+      $('setup-notice').innerHTML = '';
+      renderSetup();
+      try {
+        await api.health();
+        state.health = 'ok'; state.checkedAt = new Date();
+        state.setupPhase = 'ok';
+        $('setup-notice').innerHTML = notice('ok', 'Server is healthy', 'You are ready to capture.');
+        renderSetup();
+        setTimeout(() => { if (state.view === 'setup') go('capture'); }, 900);
+      } catch {
+        state.health = 'fail'; state.checkedAt = new Date();
+        state.setupPhase = 'failed';
+        $('setup-notice').innerHTML = notice('warn', 'URL saved. The server did not respond.', 'No answer from <code>/health</code> at this address. You can continue now and fix it later in Settings.');
+        renderSetup();
+      }
+    }
+    $('setup-url').addEventListener('input', () => {
+      if (state.setupPhase === 'failed') { state.setupPhase = 'idle'; $('setup-notice').innerHTML = ''; renderSetup(); }
+    });
+    $('setup-url').addEventListener('keydown', (e) => { if (e.key === 'Enter' && state.setupPhase !== 'checking') setupSave(); });
+
+    /* ---------- Capture ---------- */
+    let snackTimer;
+    function renderCapture() {
+      const c = state.capture;
+      const text = $('capture-text').value.trim();
+      const btn = $('capture-submit');
+      $('capture-text').readOnly = c.status === 'sending';
+      btn.classList.toggle('busy', c.status === 'sending');
+      if (c.status === 'sending') {
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spin"></span>${c.retrying ? 'Retrying…' : 'Capturing…'}`;
+      } else if (c.status === 'error') {
+        btn.disabled = !text;
+        btn.textContent = 'Retry';
+      } else {
+        btn.disabled = !text;
+        btn.textContent = 'Capture';
+      }
+      $('capture-notice').innerHTML = c.status === 'error'
+        ? notice('err', 'Not captured', 'The server did not respond. Your draft is safe. Retry will not store it twice.')
+        : '';
+    }
+    async function submitCapture() {
+      const c = state.capture;
+      const text = $('capture-text').value.trim();
+      if (!text || c.status === 'sending') return;
+      c.retrying = c.status === 'error';
+      if (!c.key) c.key = newKey();
+      c.status = 'sending';
+      $('capture-snack').innerHTML = '';
+      renderCapture();
+      try {
+        const res = await api.ingest(text, c.key);
+        c.status = 'idle'; c.key = null;
+        $('capture-text').value = '';
+        autosize($('capture-text'));
+        const n = res.chunks_stored;
+        clearTimeout(snackTimer);
+        $('capture-snack').innerHTML = `<div class="snackbar" role="status">${ICON.check}<span>Captured. Stored as ${n} chunk${n === 1 ? '' : 's'}.</span></div>`;
+        snackTimer = setTimeout(() => { $('capture-snack').innerHTML = ''; }, 3500);
+      } catch {
+        c.status = 'error';
+      }
+      renderCapture();
+      if (isField(document.activeElement)) reveal(document.activeElement);
+    }
+    $('capture-text').addEventListener('input', () => {
+      autosize($('capture-text'));
+      const c = state.capture;
+      if (c.status === 'error') { c.status = 'idle'; }
+      c.key = null;
+      $('capture-snack').innerHTML = '';
+      renderCapture();
+    });
+    $('capture-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitCapture(); });
+    $('capture-submit').addEventListener('click', submitCapture);
+
+    /* ---------- Ask composer ---------- */
+    function renderAsk() {
+      const q = $('ask-text').value.trim();
+      $('ask-submit').disabled = !q;
+      $('ask-suggest').classList.toggle('hidden', !!q);
+    }
+    $('ask-text').addEventListener('input', () => { autosize($('ask-text')); renderAsk(); });
+    $('ask-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submitAsk(); });
+    $('ask-submit').addEventListener('click', submitAsk);
+    document.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
+      $('ask-text').value = b.dataset.q; autosize($('ask-text')); renderAsk(); $('ask-text').focus();
+    }));
+
+    function submitAsk() {
+      const q = $('ask-text').value.trim();
+      if (!q) return;
+      state.ask.question = q;
+      state.ask.evidenceOpen = true;
+      $('result-title').textContent = q;
+      $('result-title').title = q;
+      go('result', { push: true });
+      $('result-body').scrollTop = 0;
+      runRecall();
+    }
+    async function runRecall() {
+      const a = state.ask;
+      const token = ++state.token;
+      a.status = 'loading';
+      renderResult();
+      try {
+        const res = await api.recall(a.question);
+        if (token !== state.token) return;
+        a.response = res; a.status = 'done';
+      } catch {
+        if (token !== state.token) return;
+        a.status = 'error';
+      }
+      renderResult();
+    }
+    function backToComposer() {
+      state.token++;
+      go('ask');
+      renderAsk();
+    }
+    $('result-back').addEventListener('click', backToComposer);
+
+    /* ---------- Result ---------- */
+    function md(src) {
+      const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`(.+?)`/g, '<code>$1</code>');
+      return src.split(/\n{2,}/).map((block) => {
+        const lines = block.split('\n');
+        if (lines.every((l) => /^[-*] /.test(l))) return '<ul>' + lines.map((l) => `<li>${inline(l.slice(2))}</li>`).join('') + '</ul>';
+        if (/^#{1,3} /.test(block)) return `<h3>${inline(block.replace(/^#{1,3} /, ''))}</h3>`;
+        return `<p>${inline(lines.join(' '))}</p>`;
+      }).join('');
+    }
+
+    function nodeTitle(n) { return n.name || n.summary || (n.content ? n.content.split(/[.!?]/)[0] : '') || n.id; }
+    function nodeText(n) {
+      const t = n.description || n.content || n.summary || '';
+      return t === nodeTitle(n) ? '' : t;
+    }
+    function humanize(s) { return String(s).replace(/_/g, ' '); }
+
+    function buildEvidence(ctx) {
+      const byId = new Map();
+      const items = [];
+      if (!ctx) return { items, byId };
+      for (const n of ctx.nodes || []) { const it = { kind: 'node', node: n, links: [] }; byId.set(n.id, it); items.push(it); }
+      for (const e of ctx.edges || []) {
+        if (byId.has(e.to)) byId.get(e.to).links.push({ dir: 'in', edge: e, other: e.from });
+        else if (byId.has(e.from)) byId.get(e.from).links.push({ dir: 'out', edge: e, other: e.to });
+        else {
+          const stub = { kind: 'node', node: { id: e.to, table: e.to.split(':')[0] }, links: [{ dir: 'in', edge: e, other: e.from }] };
+          byId.set(e.to, stub); items.push(stub);
+        }
+      }
+      for (const u of ctx.unprocessed || []) items.push({ kind: 'raw', chunk: u });
+      return { items, byId };
+    }
+
+    function renderNode(it, byId) {
+      const n = it.node;
+      const cls = n.table === 'entity' ? 'entity' : n.table === 'note' ? 'note' : 'other';
+      const label = humanize(n.table).replace(/^./, (c) => c.toUpperCase()) + (n.type ? ` · ${humanize(n.type)}` : '');
+      const text = nodeText(n);
+      const links = it.links.map((l) => {
+        const other = byId.get(l.other);
+        const name = other ? esc(nodeTitle(other.node)) : `<span class="ev-id">${esc(l.other)}</span>`;
+        const rel = `<span class="rel">${esc(humanize(l.edge.table))}</span>`;
+        const line = l.dir === 'in' ? `${rel} from <strong>${name}</strong>` : `${rel} → <strong>${name}</strong>`;
+        return `<li><span class="ico" aria-hidden="true">${l.dir === 'in' ? ICON.inArrow : ICON.outArrow}</span><div><div class="line">${line}</div>${l.edge.context ? `<p class="ctx">${esc(l.edge.context)}</p>` : ''}</div></li>`;
+      }).join('');
+      return `<article class="ev">
+        <div class="ev-head"><span class="tag ${cls}">${esc(label)}</span><span class="ev-id">${esc(n.id)}</span></div>
+        <h3>${esc(nodeTitle(n))}</h3>
+        ${text ? `<p class="txt">${esc(text)}</p>` : ''}
+        ${links ? `<ul class="links" aria-label="Connections">${links}</ul>` : ''}
+      </article>`;
+    }
+    function renderRaw(it) {
+      const u = it.chunk;
+      const hints = (u.hints || []).map((h) => `<span class="hint">${esc(h)}</span>`).join(' ');
+      return `<article class="ev raw">
+        <div class="ev-head"><span class="tag raw">Unprocessed · chunk ${u.chunk_index + 1} of ${u.total_chunks}</span></div>
+        <p class="txt">${esc(u.content)}</p>
+        <div class="meta">${u.source ? `<span>from ${esc(u.source)}</span>` : ''}${hints ? `<span>${hints}</span>` : ''}<span class="ev-id">${esc(u.intake_id)}</span></div>
+      </article>`;
+    }
+
+    function renderResult() {
+      const a = state.ask;
+      const body = $('result-body');
+      if (a.status === 'loading') {
+        body.innerHTML = `<div class="loading-head"><span class="spin"></span>Searching your memory…</div>
+          <div class="sk" style="width:94%"></div><div class="sk" style="width:100%"></div><div class="sk" style="width:86%"></div><div class="sk" style="width:62%"></div>
+          <div class="sk gap" style="width:90%"></div><div class="sk" style="width:97%"></div><div class="sk" style="width:48%"></div>`;
+        return;
+      }
+      if (a.status === 'error') {
+        body.innerHTML = `<div class="state">
+          <div class="glyph err">${ICON.cloudOff}</div>
+          <h2>No answer yet</h2>
+          <p>The server at ${esc(state.url || 'your server')} did not respond.</p>
+          <button class="btn primary inline" id="result-retry">Try again</button>
+        </div>`;
+        $('result-retry').onclick = runRecall;
+        return;
+      }
+      const res = a.response;
+      const { items, byId } = buildEvidence(res.context);
+      const graph = items.filter((i) => i.kind === 'node').length;
+      const raw = items.length - graph;
+      const parts = [];
+      if (graph) parts.push(`${graph} graph`);
+      if (raw) parts.push(`${raw} unprocessed`);
+      const evidence = items.length
+        ? `<button class="ev-toggle" id="ev-toggle" aria-expanded="${a.evidenceOpen}" aria-controls="ev-list">
+            <span class="t"><strong>Evidence</strong><span>${parts.join(' · ')}</span></span>
+            <span class="count">${items.length}</span>${ICON.chevron}
+          </button>
+          <div class="ev-list ${a.evidenceOpen ? '' : 'hidden'}" id="ev-list">
+            ${items.map((it) => it.kind === 'node' ? renderNode(it, byId) : renderRaw(it)).join('')}
+          </div>`
+        : `<p class="ev-empty">No evidence was returned for this answer.</p>`;
+      body.innerHTML = `<article class="answer">${md(res.answer)}</article><section class="evidence" aria-label="Evidence">${evidence}</section>`;
+      const t = $('ev-toggle');
+      if (t) t.onclick = () => {
+        a.evidenceOpen = !a.evidenceOpen;
+        t.setAttribute('aria-expanded', a.evidenceOpen);
+        $('ev-list').classList.toggle('hidden', !a.evidenceOpen);
+      };
+    }
+
+    /* ---------- Settings ---------- */
+    function renderSettings() {
+      const h = $('settings-health');
+      const at = state.checkedAt ? state.checkedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      if (state.settingsPhase === 'checking') h.innerHTML = '<span class="dot checking"></span>Checking server…';
+      else if (state.health === 'ok') h.innerHTML = `<span class="dot ok"></span>Healthy<span class="when">${at}</span>`;
+      else if (state.health === 'fail') h.innerHTML = `<span class="dot fail"></span>Not responding<span class="when">${at}</span>`;
+      else h.innerHTML = '<span class="dot"></span>Not checked yet';
+      const btn = $('settings-save');
+      $('settings-url').disabled = state.settingsPhase === 'checking';
+      btn.disabled = state.settingsPhase === 'checking';
+      btn.classList.toggle('busy', state.settingsPhase === 'checking');
+      btn.innerHTML = state.settingsPhase === 'checking' ? '<span class="spin"></span>Checking…' : 'Save and check';
+    }
+    $('settings-save').addEventListener('click', async () => {
+      const url = $('settings-url').value.trim().replace(/\/+$/, '');
+      const help = $('settings-help');
+      if (!validUrl(url)) {
+        $('settings-url').setAttribute('aria-invalid', 'true');
+        help.className = 'help err';
+        help.textContent = 'Enter a full URL that starts with http:// or https://.';
+        return;
+      }
+      $('settings-url').blur();
+      $('settings-url').removeAttribute('aria-invalid');
+      help.className = 'help hidden';
+      state.url = url;
+      $('settings-url').value = url;
+      state.settingsPhase = 'checking';
+      $('settings-notice').innerHTML = '';
+      renderSettings();
+      try {
+        await api.health();
+        state.health = 'ok';
+        $('settings-notice').innerHTML = notice('ok', 'Saved. Server is healthy.', '');
+      } catch {
+        state.health = 'fail';
+        $('settings-notice').innerHTML = notice('warn', 'Saved. The server did not respond.', 'Capture and Ask will fail until the server answers. Check the address or the server.');
+      }
+      state.checkedAt = new Date();
+      state.settingsPhase = 'idle';
+      if (state.view === 'settings') renderSettings();
+    });
+    $('settings-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('settings-save').click(); });
+    $('settings-back').addEventListener('click', () => go(settingsReturn));
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (isField(document.activeElement)) document.activeElement.blur();
+      else if (state.view === 'result') backToComposer();
+      else if (state.view === 'settings') go(settingsReturn);
+    });
+
+    /* ---------- Mock controls ---------- */
+    $('ctl-server').addEventListener('change', (e) => { state.serverUp = e.target.checked; });
+    $('ctl-kb').addEventListener('change', (e) => { kb.simulate = e.target.checked; syncKeyboard(); });
+    $('ctl-reset').addEventListener('click', () => {
+      state.token++;
+      Object.assign(state, { url: '', health: 'unknown', checkedAt: null, setupPhase: 'idle', tab: 'capture' });
+      state.capture = { status: 'idle', key: null, failedKeys: new Set() };
+      state.ask = { question: '', status: 'idle', response: null, failedOnce: new Set(), evidenceOpen: true };
+      $('capture-text').value = ''; $('ask-text').value = '';
+      $('capture-text').style.height = ''; $('ask-text').style.height = '';
+      $('setup-url').value = 'http://192.168.1.20:8000';
+      $('setup-url').removeAttribute('aria-invalid');
+      $('setup-help').className = 'help';
+      $('setup-help').innerHTML = 'The app checks <code>/health</code> after it saves.';
+      $('setup-notice').innerHTML = ''; $('capture-snack').innerHTML = '';
+      $('log').textContent = 'No requests yet.';
+      renderSetup(); renderCapture(); renderAsk();
+      go('setup');
+    });
+
+    renderSetup(); renderCapture(); renderAsk();
+  </script>
+</body>
+</html>

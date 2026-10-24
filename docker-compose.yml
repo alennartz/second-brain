@@ -29,7 +29,7 @@ services:
   server-mobile:
     build: .
     ports:
-      - "${MOBILE_SERVER_BIND_ADDRESS}:8200:8000"
+      - "${MOBILE_SERVER_BIND_ADDRESS:?MOBILE_SERVER_BIND_ADDRESS is required; pass --env-file .env.mobile.local}:8200:8000"
     env_file: "${MOBILE_ENV_FILE:-.env.mobile.local}"
     environment:
       BRAIN_DB_PATH: /data/brain.db

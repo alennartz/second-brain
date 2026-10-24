@@ -13,7 +13,7 @@ mobile_require_compose
 mobile_log "starting isolated server-mobile on ${MOBILE_SERVER_BIND_ADDRESS}:8200"
 mobile_compose up -d --build server-mobile
 
-container_id=$(mobile_compose ps -q server-mobile | head -n 1)
+container_id=$(mobile_compose ps -aq server-mobile | head -n 1)
 [[ -n "$container_id" ]] || mobile_error "server-mobile did not create a container"
 health_status=""
 for _ in $(seq 1 30); do

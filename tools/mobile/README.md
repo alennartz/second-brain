@@ -10,8 +10,9 @@ ADB executable at `/home/alenna/android/platform-tools/adb`.
 committed OCI digest in `versions.env`. The image verifies Flutter 3.22.3 and
 Android command-line tools `10406996`, then verifies platform-tools 35.0.1 and
 installs Android platform 34, build-tools 34.0.0 and the Android Gradle Plugin
-8.1.0 build-tools 33.0.1, NDK 23.1.7779620, and JDK 17. It matches the app's
-Android Gradle plugin 8.1.0, Kotlin 1.8.22, and Gradle wrapper 8.2.
+8.1.0 build-tools 33.0.1, NDK 23.1.7779620, and the exact Ubuntu JDK
+package version recorded in `versions.env`. It matches the app's Android
+Gradle plugin 8.1.0, Kotlin 1.8.22, and Gradle wrapper 8.2.
 
 The repository mounts at `/workspace`. The app remains at
 `/workspace/client/mobile`. Named Docker volumes preserve Pub and Gradle caches:
@@ -143,6 +144,8 @@ requirement.
 - A missing or malformed local value fails before Docker builds or device
   changes. `MOBILE_SERVER_URL` must use the isolated port `8200`, and the
   Compose profile uses the same environment file as the scripts.
+- Direct Compose commands must pass `--env-file .env.mobile.local`. Compose
+  requires `MOBILE_SERVER_BIND_ADDRESS` and refuses an empty wildcard binding.
 - Device commands fail before selecting an arbitrary phone.
 
 Container checks are automated and device-independent. Phone installation and

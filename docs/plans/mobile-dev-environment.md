@@ -152,7 +152,7 @@ Require Docker for container commands and Linux for host-network device commands
 
 ### Step 2: Materialize the pinned toolchain
 
-Create `tools/mobile/Dockerfile` and `tools/mobile/versions.env`. Select and commit an exact Flutter base image release and immutable digest. Record the matching Android command-line tools, platform, build-tools, and JDK 17 versions. Resolve SDK packages from that Flutter release, not a floating tag.
+Create `tools/mobile/Dockerfile` and `tools/mobile/versions.env`. Select and commit an exact Flutter base image release and immutable digest. Record the matching Android command-line tools, platform, build-tools, and exact JDK 17 package version. Resolve SDK packages from that Flutter release, not a floating tag.
 
 Match `client/mobile/pubspec.yaml` constraints, Android Gradle plugin `8.1.0`, Kotlin `1.8.22`, and the Gradle `8.2` wrapper. The app delegates compile SDK, target SDK, and NDK values to Flutter. Install or verify their required packages in the image. Accept Android licenses during image construction. Do not change application behavior or upgrade its Gradle plugins to accommodate an unsuitable image. Permit only minimal Flutter, Android resource, and generated-project compatibility updates required by this pinned toolchain, and record them with an explicit no-product-behavior-change constraint.
 

@@ -102,6 +102,7 @@ args=(
     --env PUB_CACHE=/cache/pub
     --env GRADLE_USER_HOME=/cache/gradle
     --env FLUTTER_SUPPRESS_ANALYTICS=true
+    --env TINI_KILL_PROCESS_GROUP=1
     --env ANDROID_HOME=/opt/android-sdk-linux
     --env ANDROID_SDK_ROOT=/opt/android-sdk-linux
 )

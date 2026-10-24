@@ -17,7 +17,9 @@ ARG MOBILE_ANDROID_BUILD_TOOLS_VERSION
 ARG MOBILE_ANDROID_AGP_BUILD_TOOLS_VERSION
 ARG MOBILE_ANDROID_NDK_VERSION
 ARG MOBILE_JAVA_MAJOR_VERSION
+ARG MOBILE_JAVA_PACKAGE_VERSION
 ARG MOBILE_GRADLE_VERSION
+ARG MOBILE_GRADLE_DIST_SHA256
 ARG MOBILE_ANDROID_GRADLE_PLUGIN_VERSION
 ARG MOBILE_KOTLIN_VERSION
 
@@ -35,7 +37,7 @@ RUN apt-get update \
         ca-certificates \
         curl \
         git \
-        openjdk-17-jdk-headless \
+        openjdk-17-jdk-headless=${MOBILE_JAVA_PACKAGE_VERSION} \
         unzip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -61,7 +63,9 @@ RUN set -eux; \
     test "$MOBILE_ANDROID_AGP_BUILD_TOOLS_VERSION" = "$ANDROID_AGP_BUILD_TOOLS_VERSION"; \
     test "$MOBILE_ANDROID_NDK_VERSION" = "$ANDROID_NDK_VERSION"; \
     test "$MOBILE_JAVA_MAJOR_VERSION" = "$JAVA_MAJOR_VERSION"; \
+    test "$MOBILE_JAVA_PACKAGE_VERSION" = "$JAVA_PACKAGE_VERSION"; \
     test "$MOBILE_GRADLE_VERSION" = "$GRADLE_VERSION"; \
+    test "$MOBILE_GRADLE_DIST_SHA256" = "$GRADLE_DIST_SHA256"; \
     test "$MOBILE_ANDROID_GRADLE_PLUGIN_VERSION" = "$ANDROID_GRADLE_PLUGIN_VERSION"; \
     test "$MOBILE_KOTLIN_VERSION" = "$KOTLIN_VERSION"; \
     test "${ANDROID_SDK_TOOLS_VERSION:-}" = "$MOBILE_ANDROID_SDK_TOOLS_VERSION"; \
@@ -90,6 +94,8 @@ RUN set -eux; \
     test "$ndk_revision" = "$MOBILE_ANDROID_NDK_VERSION"; \
     java_major=$(java -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p'); \
     test "$java_major" = "$MOBILE_JAVA_MAJOR_VERSION"; \
+    java_package_version=$(dpkg-query -W -f='${Version}' openjdk-17-jdk-headless); \
+    test "$java_package_version" = "$MOBILE_JAVA_PACKAGE_VERSION"; \
     flutter config --no-analytics; \
     flutter precache --android; \
     git config --system --add safe.directory /sdks/flutter; \
@@ -104,6 +110,7 @@ RUN set -eux; \
     curl --fail --silent --show-error --location \
         "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
         --output /tmp/gradle.zip; \
+    printf '%s  %s\n' "$GRADLE_DIST_SHA256" /tmp/gradle.zip | sha256sum --check --status; \
     unzip -q /tmp/gradle.zip -d /opt/gradle; \
     ln -sfn "/opt/gradle/gradle-${GRADLE_VERSION}" /opt/gradle/current; \
     rm /tmp/gradle.zip

@@ -37,7 +37,7 @@ The fixes resolve the critical toolchain, server URL, test-scope, ADB selection,
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `tools/mobile/run-container:95, mobile-check:10-15, mobile-build:13-17, mobile-debug`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Enable `TINI_KILL_PROCESS_GROUP=1` or `exec` each Flutter command so interrupts reach every child.
 
 The runner now uses `--init`, but Tini forwards SIGINT to its direct wrapper-shell child. The shell does not `exec` the Flutter commands, so `pub get`, `analyze`, or `test` can continue after Ctrl-C and the shell can start the next step. This leaves the documented interruption contract incomplete.
@@ -47,7 +47,7 @@ The runner now uses `--init`, but Tini forwards SIGINT to its direct wrapper-she
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `docker-compose.yml:32`, `tools/mobile/common.sh:106-118`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Require `MOBILE_SERVER_BIND_ADDRESS` in Compose interpolation or default it to a safe loopback address.
 
 The service now uses `MOBILE_SERVER_BIND_ADDRESS`, and the scripts reject unsafe values. Compose itself has no default. When an operator runs the mobile profile without the wrapper and variable, Docker expands an empty host address and publishes port `8200` on every interface. That preserves the prior debugger-exposure risk through a supported Compose entry point.
@@ -57,7 +57,7 @@ The service now uses `MOBILE_SERVER_BIND_ADDRESS`, and the scripts reject unsafe
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `tools/mobile/common.sh:225-232,289-294,321-322`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Print pairing instructions only after an unauthorized state or an authentication/pairing failure, with mDNS pairing data as supplemental detail.
 
 The helper now detects pairing services, but it prints `adb pair` instructions whenever one is advertised. A pairing service can exist while the selected device failed for another reason. The command then gives a misleading one-time pairing procedure, contrary to the interface requirement that it appear only when authorization is needed.
@@ -67,7 +67,7 @@ The helper now detects pairing services, but it prints `adb pair` instructions w
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `tools/mobile/Dockerfile:17-24`, `tools/mobile/versions.env:12-14`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Pin the exact JDK package version or document and enforce a deliberate major-only JDK policy.
 
 The fix verifies that Java reports version 17, but the apt package remains floating. A later repository update can change the compiler patch release without changing the recorded toolchain inputs. Step 2 requires committed toolchain versions for the materialized image.
@@ -77,7 +77,7 @@ The fix verifies that Java reports version 17, but the apt package remains float
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `tools/mobile/common.sh:139-142`, `docker-compose.yml:33`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Resolve `MOBILE_ENV_FILE` to an absolute repository-relative path before passing it to both scripts and Compose.
 
 The scripts and Compose now accept the same selected environment file, but a relative override is resolved from the caller's current directory by the scripts and from the repository root by Compose. The script can validate one file while Compose loads another.
@@ -87,7 +87,7 @@ The scripts and Compose now accept the same selected environment file, but a rel
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `tools/mobile/Dockerfile:101-112`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Verify the published SHA-256 checksum or remove the standalone download and verify the wrapper distribution instead.
 
 The image downloads a Gradle archive from `services.gradle.org` without checking its checksum. The project uses the wrapper, so the downloaded binary is only needed for version reporting and does not justify an unverified supply-chain input.
@@ -97,7 +97,7 @@ The image downloads a Gradle archive from `services.gradle.org` without checking
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `tools/mobile/common.sh:157-192`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Return immediately after a failed connect when the serial is absent, and poll only after a reachable target is found.
 
 The helper now polls for up to ten seconds, but it does so even after `adb connect` fails outright. A single mDNS candidate can cause another ten-second wait before the same failure is reported, slowing diagnostics without improving selection.
@@ -107,7 +107,7 @@ The helper now polls for up to ten seconds, but it does so even after `adb conne
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `tools/mobile/mobile-server-up:16-17`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Query all containers with `docker compose ps -aq` or inspect the service state directly.
 
 Using `compose ps -q` without `-a` hides an exited container. If the service crashes during startup, the script reports that it did not create a container instead of showing the exit state. It still exits nonzero, but the diagnostic misdirects the operator.

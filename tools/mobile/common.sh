@@ -9,6 +9,9 @@ set -o pipefail
 MOBILE_TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MOBILE_ROOT_DIR="$(cd "$MOBILE_TOOL_DIR/../.." && pwd)"
 MOBILE_ENV_FILE="${MOBILE_ENV_FILE:-$MOBILE_ROOT_DIR/.env.mobile.local}"
+if [[ "$MOBILE_ENV_FILE" != /* ]]; then
+    MOBILE_ENV_FILE="$MOBILE_ROOT_DIR/$MOBILE_ENV_FILE"
+fi
 MOBILE_ADB="${MOBILE_ADB:-/home/alenna/android/platform-tools/adb}"
 MOBILE_IMAGE="${MOBILE_IMAGE:-second-brain-mobile-toolchain}"
 MOBILE_PUB_CACHE_VOLUME="${MOBILE_PUB_CACHE_VOLUME:-second-brain-mobile-pub-cache}"
@@ -163,11 +166,17 @@ mobile_connect_address() {
     if ! output=$("$MOBILE_ADB" connect "$address" 2>&1); then
         MOBILE_CONNECT_ERROR=$output
         mobile_log "adb connect $address failed: ${output:-no diagnostic output}"
-    elif [[ -n "$output" ]]; then
+        output_lower=${output,,}
+        if [[ "$output_lower" == *authenticat* || "$output_lower" == *unauthorized* || "$output_lower" == *pairing* || "$output_lower" == *not\ paired* ]]; then
+            MOBILE_PAIRING_REQUIRED=true
+        fi
+        return 1
+    fi
+    if [[ -n "$output" ]]; then
         mobile_log "adb connect $address: $output"
     fi
     output_lower=${output,,}
-    if [[ "$output_lower" == *authenticat* || "$output_lower" == *pair* || "$output_lower" == *unauthorized* ]]; then
+    if [[ "$output_lower" == *authenticat* || "$output_lower" == *unauthorized* || "$output_lower" == *pairing* || "$output_lower" == *not\ paired* ]]; then
         MOBILE_PAIRING_REQUIRED=true
     fi
 
@@ -318,7 +327,7 @@ mobile_select_device() {
         [[ "$candidate_state" == "unauthorized" ]] && unauthorized_target="${candidates[0]}"
     fi
 
-    if [[ -n "$unauthorized_target" || "$pairing_required" == true || -n "$pairing_address" ]]; then
+    if [[ -n "$unauthorized_target" || "$pairing_required" == true ]]; then
         mobile_pairing_instructions "${unauthorized_target:-$target}" "$pairing_address"
     fi
     mobile_error "could not authorize a wireless ADB device at $target"

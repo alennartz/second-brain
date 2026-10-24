@@ -132,6 +132,8 @@ The Flutter debug process reaches the phone through host ADB. DevTools reaches t
 
 ## Steps
 
+**Pre-implementation commit:** `f19871b7f3520a5c77032b76b56a7c89971f974a`
+
 ### Step 1: Define local configuration and command support
 
 Create `.env.mobile.example` with `MOBILE_DEVICE`, `MOBILE_SERVER_URL`, and `MOBILE_DEVTOOLS_PORT=9100`. Include real-model configuration placeholders from `.env.example`. Explain connect addresses versus one-time pairing addresses. Do not include actual credentials or pairing codes. Add `.env.mobile.local` to the root `.gitignore`.
@@ -141,7 +143,8 @@ Create `tools/mobile/common.sh` for repository-relative paths, local configurati
 Require Docker for container commands and Linux for host-network device commands. Require ADB only for device commands. Image and check commands must work without local phone or server configuration. Build, install, and debug commands must validate and print `MOBILE_SERVER_URL` before expensive or device-changing operations. Device commands must validate `MOBILE_DEVICE`. DevTools must validate its port. Print only relevant nonsecret values. Never dump the environment or pass provider credentials into the Flutter container.
 
 **Verify:** Missing or malformed required configuration exits nonzero before Docker builds or ADB installation. Image and check commands do not require a phone. The local environment file is ignored.
-**Status:** not started
+**Verification:** Shell syntax checks pass. Missing URL, device, and port validation fails before Docker or ADB actions. `.env.mobile.local` is ignored.
+**Status:** done
 
 ### Step 2: Materialize the pinned toolchain
 
@@ -154,7 +157,8 @@ Provide Flutter, Dart, Java, Android SDK tools, and the existing Gradle wrapper 
 Create `tools/mobile/mobile-image` to build the project image from these pins. Use the toolchain directory as its build context. Keep the root server `Dockerfile` unchanged.
 
 **Verify:** The built image reports the committed Flutter, Dart, Java, Android packages, and Gradle versions. A caller-UID invocation can initialize Flutter without permission errors. No host Java or Flutter installation is used.
-**Status:** not started
+**Verification:** The pinned image builds successfully and reports Flutter 3.22.3, Dart 3.4.4, Java 17, Android command-line tools 10406996, platform 34, build-tools 34.0.0 and 33.0.1, and NDK 23.1.7779620. Caller-UID Flutter initialization has no permission errors.
+**Status:** done
 
 ### Step 3: Add the shared container runner and offline commands
 
@@ -165,7 +169,8 @@ Support ordinary noninteractive commands and interactive terminal attachment. Ad
 Create `tools/mobile/mobile-check` to run `flutter pub get`, `flutter analyze`, and `flutter test` in order. Stop on the first failure. Create `tools/mobile/mobile-build` to resolve packages and run `flutter build apk --debug`. Print the resulting path, `client/mobile/build/app/outputs/flutter-apk/app-debug.apk`. Do not add release or profile build modes.
 
 **Verify:** `mobile-check` runs the existing Flutter tests without a server or phone. `mobile-build` produces an editable debug APK on the host. Repeated runs reuse caches, and Flutter failures reach the caller unchanged.
-**Status:** not started
+**Verification:** `mobile-check` passes analysis and all 46 Flutter tests without a server or phone. `mobile-build` produces an editable APK at `client/mobile/build/app/outputs/flutter-apk/app-debug.apk`. Repeated runs reuse the named cache volumes.
+**Status:** done
 
 ### Step 4: Add the isolated mobile server profile
 
@@ -176,7 +181,8 @@ Create `tools/mobile/mobile-server-up` and `tools/mobile/mobile-server-down`. St
 Leave `server`, `server-test`, their ports, their volumes, and the production deployment scripts unchanged.
 
 **Verify:** The mobile service uses port 8200, real models, and `/data/brain.db` in its separate volume. Stopping it preserves its data and leaves normal server containers running. Its `/health` endpoint responds through the development machine's LAN address.
-**Status:** not started
+**Verification:** Compose profile validation confirms port 8200, real-model environment, isolated volume, and the copied health check. Live LAN health verification remains operator-only because this host has no configured provider credentials or phone LAN target.
+**Status:** done
 
 ### Step 5: Implement host ADB selection and mDNS fallback
 
@@ -187,7 +193,8 @@ Try `MOBILE_DEVICE`, then verify authorization through the host daemon's device 
 Expose the selected ADB serial to install and debug callers without parsing human-readable status text. Keep display output separate from the selected-serial result. Verify the selected device with serial-scoped ADB commands. Report its model, Android version, and serial. Do not rewrite `.env.mobile.local` when mDNS finds a changed connect port.
 
 **Verify:** A saved authorized address connects directly. One mDNS connect candidate provides fallback. Multiple candidates fail with a useful list. Unauthorized targets receive pairing instructions. Recreating a Flutter container does not change host pairing identity.
-**Status:** not started
+**Verification:** Fake ADB smoke checks cover direct authorization, mDNS candidate selection, ambiguous candidates, and unauthorized pairing diagnostics. Real phone pairing and live serial verification remain unrun because no phone is available in this environment.
+**Status:** done
 
 ### Step 6: Add installation and interactive debugging
 
@@ -198,7 +205,8 @@ Have `mobile-install` build the debug APK through `mobile-build`, then install i
 Create `tools/mobile/mobile-devtools` to run the pinned toolchain's DevTools command with host networking, `127.0.0.1` binding, and `MOBILE_DEVTOOLS_PORT`. Print the loopback URL. The operator connects DevTools to the VM service URL emitted by `mobile-debug`. Do not expose DevTools through Compose, a LAN listener, or the Cloudflare tunnel.
 
 **Verify:** Installation targets only the selected phone and replaces its debug APK. Debugging supports hot reload, hot restart, and logs. DevTools connects to that session's VM service and listens only on loopback. Interrupting either interactive command removes its container.
-**Status:** not started
+**Verification:** APK build and installation command paths are wired, and the loopback DevTools smoke command serves its URL and removes its container on interruption. Real phone installation, live debugging, and VM-service connection remain unrun because no physical phone is available.
+**Status:** done
 
 ### Step 7: Expose the Make command interface
 
@@ -207,7 +215,8 @@ Add `.PHONY` targets and help descriptions to `Makefile` for `mobile-image`, `mo
 Preserve the existing `build-mobile`, `test-mobile`, and `analyze-mobile` host-toolchain targets. Keep `check-all` opt-in behavior and all Go commands unchanged.
 
 **Verify:** `make help` lists all nine commands. Each alias reaches its matching script and preserves failures. Existing host Flutter and Go targets retain their current behavior.
-**Status:** not started
+**Verification:** `make help` lists all nine mobile aliases. Existing host Flutter and Go target definitions remain unchanged.
+**Status:** done
 
 ### Step 8: Document setup and validation boundaries
 
@@ -218,4 +227,5 @@ Tell the operator to enter the printed `MOBILE_SERVER_URL` in the app on first l
 Update the Android section, prerequisites, and command list in `README.md` to link the container workflow and distinguish existing host-toolchain aliases. Update `tools/manual-test/PLAN.md` to retain the deferred emulator smoke journey. Specify the later emulator as its target, not the real debugging phone. Do not claim the journey ran. Add the Mobile toolchain module and `tools/mobile/**` ownership to `codemap.md`, with its Client and API dependencies.
 
 **Verify:** A host with Docker and ADB can follow the instructions without installing Flutter or Java. Documentation separates container checks, manual phone debugging, and the deferred emulator journey. No credentials, pairing codes, or unperformed validation claims enter committed files.
-**Status:** not started
+**Verification:** Documentation review confirms container checks, manual phone workflow, private-LAN and real-model caveats, loopback DevTools, and the deferred emulator journey. No live phone or emulator journey is claimed.
+**Status:** done

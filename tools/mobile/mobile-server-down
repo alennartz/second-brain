@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_require_compose
+mobile_log "stopping only server-mobile"
+mobile_compose stop server-mobile
+mobile_log "mobile-brain-data was preserved"

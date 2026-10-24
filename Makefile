@@ -60,6 +60,44 @@ test-mobile: ## Run Flutter mobile tests
 analyze-mobile: ## Analyze the Flutter mobile client
 	cd client/mobile && flutter analyze
 
+# --- Containerized Flutter mobile workflow ---
+
+.PHONY: mobile-image
+mobile-image: ## Build the pinned Flutter toolchain image
+	bash tools/mobile/mobile-image
+
+.PHONY: mobile-check
+mobile-check: ## Run Flutter package, analysis, and widget checks in Docker
+	bash tools/mobile/mobile-check
+
+.PHONY: mobile-build
+mobile-build: ## Build a debug APK in the container
+	bash tools/mobile/mobile-build
+
+.PHONY: mobile-server-up
+mobile-server-up: ## Start the isolated real-model mobile server
+	bash tools/mobile/mobile-server-up
+
+.PHONY: mobile-server-down
+mobile-server-down: ## Stop only the isolated mobile server
+	bash tools/mobile/mobile-server-down
+
+.PHONY: mobile-connect
+mobile-connect: ## Connect and verify the wireless debugging phone
+	bash tools/mobile/mobile-connect
+
+.PHONY: mobile-install
+mobile-install: ## Build and install the debug APK on the selected phone
+	bash tools/mobile/mobile-install
+
+.PHONY: mobile-debug
+mobile-debug: ## Run an interactive Flutter debug session on the phone
+	bash tools/mobile/mobile-debug
+
+.PHONY: mobile-devtools
+mobile-devtools: ## Run loopback-only Flutter DevTools
+	bash tools/mobile/mobile-devtools
+
 # --- All quality ---
 
 .PHONY: check-all

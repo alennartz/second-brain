@@ -211,6 +211,31 @@ Client applications: a Go terminal client with a Cobra CLI and Bubble Tea TUI, p
 - `client/.gitignore`
 - `client/mobile/**`
 
+### Mobile toolchain
+
+Project-owned Docker and Bash seams for the Android Flutter development
+environment. The pinned image owns Flutter, Dart, Java, Gradle, and Android SDK
+tools. Host scripts own local configuration, ADB pairing and mDNS selection,
+APK installation, the isolated mobile server profile, and loopback DevTools.
+
+**Responsibilities:** pinned Flutter image and version contract, caller-owned
+Pub and Gradle caches, host-visible APK output, Linux host ADB bridging,
+wireless-device selection, isolated real-model Compose server controls, and
+manual first-launch and DevTools instructions
+
+**Dependencies:** Client (`client/mobile/` Flutter project), API (the
+`server-mobile` Compose profile), Docker, and host ADB. It does not own ADB
+pairing keys or server data.
+
+**Files:**
+- `tools/mobile/Dockerfile`
+- `tools/mobile/versions.env`
+- `tools/mobile/common.sh`
+- `tools/mobile/run-container`
+- `tools/mobile/mobile-*`
+- `.env.mobile.example`
+- `.env.mobile.local` (ignored)
+
 ### Manual Test Tools
 
 Permanent home for reusable manual-test drivers and documented operator journeys.

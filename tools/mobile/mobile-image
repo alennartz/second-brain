@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_require_docker
+mobile_log "building $MOBILE_IMAGE from the pinned Flutter toolchain"
+(cd "$MOBILE_ROOT_DIR" && docker build \
+    --file "$SCRIPT_DIR/Dockerfile" \
+    --tag "$MOBILE_IMAGE" \
+    "$SCRIPT_DIR")
+mobile_log "toolchain image ready: $MOBILE_IMAGE"

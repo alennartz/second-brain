@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_load_config
+mobile_require_server_url
+mobile_require_device
+mobile_print_server_url
+mobile_require_linux
+mobile_require_adb
+mobile_require_docker
+
+serial=$(mobile_select_device "$MOBILE_DEVICE")
+mobile_log "building before installing on $serial"
+"$SCRIPT_DIR/mobile-build"
+[[ -f "$MOBILE_APK_PATH" ]] || mobile_error "debug APK is missing: $MOBILE_APK_PATH"
+mobile_log "installing $MOBILE_APK_PATH on $serial"
+"$MOBILE_ADB" -s "$serial" install -r "$MOBILE_APK_PATH"

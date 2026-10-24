@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_load_config
+mobile_require_devtools_port
+mobile_require_linux
+mobile_require_docker
+
+mobile_log "Flutter DevTools will listen only on http://127.0.0.1:$MOBILE_DEVTOOLS_PORT"
+printf 'DevTools URL=http://127.0.0.1:%s\n' "$MOBILE_DEVTOOLS_PORT"
+exec "$SCRIPT_DIR/run-container" --host-network --interactive -- bash -lc '
+    exec dart devtools --host=127.0.0.1 --port="$1" --no-launch-browser
+' mobile-devtools "$MOBILE_DEVTOOLS_PORT"

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_require_docker
+mobile_log "running Flutter package, analysis, and widget checks"
+exec "$SCRIPT_DIR/run-container" -- bash -lc '
+    set -e
+    flutter pub get
+    flutter analyze
+    flutter test
+'

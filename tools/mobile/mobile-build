@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_load_config
+mobile_require_server_url
+mobile_print_server_url
+mobile_require_docker
+mobile_log "building the debug APK"
+"$SCRIPT_DIR/run-container" -- bash -lc '
+    set -e
+    flutter pub get
+    exec flutter build apk --debug
+'
+
+[[ -f "$MOBILE_APK_PATH" ]] || mobile_error "Flutter did not produce $MOBILE_APK_PATH"
+printf 'APK=client/mobile/build/app/outputs/flutter-apk/app-debug.apk\n'

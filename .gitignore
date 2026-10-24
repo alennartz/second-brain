@@ -17,3 +17,4 @@ test_*.json
 test_*_output.txt
 server.log
 deploy/deploy.env
+.env.mobile.local

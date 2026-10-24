@@ -14,9 +14,9 @@ final class NetworkException extends BrainClientException {
 final class HttpStatusException extends BrainClientException {
   const HttpStatusException({
     required this.statusCode,
-    required super.message,
+    required String message,
     this.body,
-  });
+  }) : super(message);
 
   final int statusCode;
   final String? body;

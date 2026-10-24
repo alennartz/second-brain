@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_load_config
+mobile_require_device
+mobile_require_linux
+mobile_require_adb
+
+serial=$(mobile_select_device "$MOBILE_DEVICE")
+printf 'ADB_SERIAL=%s\n' "$serial"

@@ -26,5 +26,24 @@ services:
     profiles:
       - test
 
+  server-mobile:
+    build: .
+    ports:
+      - "8200:8000"
+    env_file: .env.mobile.local
+    environment:
+      BRAIN_DB_PATH: /data/brain.db
+      BRAIN_TEST_MODE: "false"
+    volumes:
+      - mobile-brain-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - mobile
+
 volumes:
   brain-data:
+  mobile-brain-data:

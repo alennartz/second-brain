@@ -311,7 +311,7 @@ final class _StartupError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final message = error is BrainClientException
-        ? error.message
+        ? (error as BrainClientException).message
         : 'Could not load mobile settings.';
     return Scaffold(
       body: Center(

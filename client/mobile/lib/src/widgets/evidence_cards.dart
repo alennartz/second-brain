@@ -159,9 +159,9 @@ final class _ChunkCard extends StatelessWidget {
           runSpacing: 6,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            Chip(
-              avatar: const Icon(Icons.pending_outlined, size: 16),
-              label: const Text('Unprocessed'),
+            const Chip(
+              avatar: Icon(Icons.pending_outlined, size: 16),
+              label: Text('Unprocessed'),
             ),
             Text(
               chunk.id,

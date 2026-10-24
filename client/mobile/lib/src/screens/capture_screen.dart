@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../gateway/brain_gateway.dart';
 import '../gateway/errors.dart';
-import '../gateway/models.dart';
 import '../persistence/settings_store.dart';
 
 /// The Capture composer and its durable retry state.

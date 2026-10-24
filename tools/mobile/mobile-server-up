@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_load_config
+mobile_require_server_url
+mobile_require_compose
+
+mobile_log "starting isolated server-mobile on port 8200"
+mobile_compose up -d --build server-mobile
+
+health_url="${MOBILE_SERVER_URL%/}/health"
+mobile_log "mobile server URL: $MOBILE_SERVER_URL"
+mobile_log "waiting for $health_url"
+if command -v curl >/dev/null 2>&1; then
+    ready=false
+    for _ in $(seq 1 30); do
+        if curl --fail --silent --show-error --max-time 3 "$health_url" >/dev/null; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+    if ! $ready; then
+        mobile_error "server-mobile did not report healthy at $health_url"
+        exit 1
+    fi
+    mobile_log "server-mobile is healthy"
+else
+    mobile_log "curl is unavailable; inspect server-mobile health with Docker Compose"
+    mobile_compose ps server-mobile
+fi
+
+printf 'MOBILE_SERVER_URL=%s\n' "$MOBILE_SERVER_URL"

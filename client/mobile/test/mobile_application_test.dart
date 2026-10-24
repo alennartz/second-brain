@@ -73,8 +73,9 @@ void main() {
     await tester.pumpAndSettle();
   }
   Future<void> submit(WidgetTester tester, String label) async {
-    await tester.tap(action(label));
     await tester.pump();
+    await tester.tap(action(label));
+    await tester.pumpAndSettle();
   }
   Future<void> ask(WidgetTester tester) async {
     brain.recallResponse = Completer<RecallResult>();
@@ -170,7 +171,16 @@ void main() {
     expect(find.textContaining('Garden connection'), findsWidgets);
     expect(find.textContaining('Raw garden thought'), findsWidgets);
     expect(find.textContaining('**Remember**'), findsNothing);
-    expect(find.byWidgetPredicate((widget) => widget is RichText && widget.text.toPlainText().contains('Remember')), findsWidgets);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            (widget is RichText && widget.text.toPlainText().contains('Remember')) ||
+            (widget is SelectableText &&
+                ((widget.data?.contains('Remember') ?? false) ||
+                    (widget.textSpan?.toPlainText().contains('Remember') ?? false))),
+      ),
+      findsWidgets,
+    );
     await tester.tap(find.text('Evidence'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Raw garden thought'), findsNothing);

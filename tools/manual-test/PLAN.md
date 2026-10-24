@@ -37,7 +37,9 @@ as scope limitations.
 **Status:** deferred. This checkout has no Flutter, Dart, or Android toolchain,
 so manual testing did not run.
 
-In a Flutter-enabled environment, use an Android emulator or device to verify:
+In a later Flutter and Android emulator environment, use an Android emulator to verify
+this journey. It targets the emulator, not the real phone used for wireless live
+debugging:
 
 1. First-launch server setup.
 2. Capture success and the stored chunk acknowledgement.

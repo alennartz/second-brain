@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+mobile_load_config
+mobile_require_server_url
+mobile_require_device
+mobile_print_server_url
+mobile_require_linux
+mobile_require_adb
+mobile_require_docker
+
+serial=$(mobile_select_device "$MOBILE_DEVICE")
+mobile_log "starting interactive Flutter debugging for $serial"
+exec "$SCRIPT_DIR/run-container" --device --interactive -- bash -lc '
+    set -e
+    flutter pub get
+    exec flutter run -d "$1"
+' mobile-debug "$serial"

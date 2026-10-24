@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=common.sh
+source "$SCRIPT_DIR/common.sh"
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: run-container [--device] [--host-network] [--interactive] -- command [args...]
+
+Run a command in the pinned Flutter toolchain image. --device uses the host ADB
+server and --host-network shares the host network without enabling ADB access.
+EOF
+}
+
+use_host_network=false
+interactive=false
+while (($#)); do
+    case "$1" in
+        --device)
+            use_host_network=true
+            shift
+            ;;
+        --host-network)
+            use_host_network=true
+            shift
+            ;;
+        --interactive)
+            interactive=true
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+(($# > 0)) || { usage; exit 2; }
+mobile_require_docker
+if $use_host_network; then
+    mobile_require_linux
+fi
+
+uid=$(id -u)
+gid=$(id -g)
+
+# Docker creates named volumes as root. Prepare them once per invocation so a
+# caller-owned container can write caches without running Flutter as root.
+prepare_cache_volume() {
+    local volume=$1
+    local path=$2
+    docker volume create "$volume" >/dev/null
+    docker run --rm \
+        --user 0:0 \
+        --mount "type=volume,source=$volume,target=$path" \
+        --entrypoint /bin/sh \
+        "$MOBILE_IMAGE" \
+        -c "mkdir -p '$path' && chown -R $uid:$gid '$path'"
+}
+
+prepare_cache_volume "$MOBILE_PUB_CACHE_VOLUME" /cache/pub
+prepare_cache_volume "$MOBILE_GRADLE_CACHE_VOLUME" /cache/gradle
+
+args=(
+    --rm
+    --user "$uid:$gid"
+    --mount "type=bind,source=$MOBILE_ROOT_DIR,target=/workspace"
+    --mount "type=volume,source=$MOBILE_PUB_CACHE_VOLUME,target=/cache/pub"
+    --mount "type=volume,source=$MOBILE_GRADLE_CACHE_VOLUME,target=/cache/gradle"
+    --workdir /workspace/client/mobile
+    --env HOME=/tmp/mobile-home
+    --env PUB_CACHE=/cache/pub
+    --env GRADLE_USER_HOME=/cache/gradle
+    --env FLUTTER_SUPPRESS_ANALYTICS=true
+    --env ANDROID_HOME=/opt/android-sdk-linux
+    --env ANDROID_SDK_ROOT=/opt/android-sdk-linux
+)
+
+if $use_host_network; then
+    args+=(--network host --env ADB_SERVER_SOCKET=tcp:127.0.0.1:5037)
+fi
+if $interactive; then
+    if [[ -t 0 && -t 1 ]]; then
+        args+=(-it)
+    else
+        args+=(-i)
+    fi
+fi
+
+# The wrapper creates the caller-owned HOME, then execs the requested command so
+# its exit code and terminal signals reach the host unchanged.
+docker run "${args[@]}" \
+    --entrypoint /bin/bash \
+    "$MOBILE_IMAGE" \
+    -lc 'mkdir -p "$HOME" && exec "$@"' mobile-container "$@"

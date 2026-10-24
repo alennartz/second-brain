@@ -4,7 +4,7 @@ Second Brain stores, connects, and retrieves your notes and ideas. It combines S
 
 ## Quickstart
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) (Python). The Go CLI needs [Go 1.22+](https://go.dev/dl/). The Android client needs Flutter and Android build tools.
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) (Python). The Go CLI needs [Go 1.22+](https://go.dev/dl/). The containerized Android workflow needs Docker, Linux, and host ADB. Host Flutter and Java are optional for the existing host-toolchain aliases.
 
 ```bash
 # Install dependencies and pre-commit hooks
@@ -65,7 +65,24 @@ Use `GET /ingest/pipeline` to inspect queue counts, worker activity, retries, st
 
 The Android-first Flutter app provides two actions: Capture stages a thought, and Ask performs one-shot recall. It stores the server URL and one failed Capture draft. It does not keep question or answer history. iOS packaging is not included.
 
-Build the Android APK with `make build-mobile`. It requires Flutter, Dart, and Android build tools. Run `make test-mobile` and `make analyze-mobile` for mobile checks. These opt-in targets are not part of `make check-all` and require Flutter and Dart. This checkout lacks the mobile toolchain, so the checks and Android smoke journey have not run. See the [manual test plan](tools/manual-test/PLAN.md) for the deferred device journey.
+Use the containerized workflow when the host has Docker, Linux, and host ADB:
+
+```bash
+cp .env.mobile.example .env.mobile.local
+# Set MOBILE_DEVICE, MOBILE_SERVER_URL, MOBILE_DEVTOOLS_PORT, and model credentials.
+make mobile-image
+make mobile-check
+make mobile-server-up
+make mobile-connect
+make mobile-install
+make mobile-debug
+# In another terminal:
+make mobile-devtools
+```
+
+`mobile-build`, `mobile-install`, and `mobile-debug` print `MOBILE_SERVER_URL` for the app's first-launch setup. The mobile server uses real models, a separate database volume, and port 8200 on a trusted private LAN. See [`tools/mobile/README.md`](tools/mobile/README.md) for pairing, mDNS recovery, cache paths, and DevTools boundaries.
+
+The existing `make build-mobile`, `make test-mobile`, and `make analyze-mobile` targets remain host-toolchain aliases. They require Flutter, Dart, and Android build tools on the host. These opt-in targets are not part of `make check-all`. The Android emulator smoke journey remains deferred; see the [manual test plan](tools/manual-test/PLAN.md).
 
 ## Configuration
 
@@ -235,9 +252,18 @@ The `.env` file is mounted into the container. Data persists in a Docker volume.
 make install            # Install deps + pre-commit hooks
 make dev                # Start server with hot reload
 make build-client       # Build the Go TUI binary
-make build-mobile       # Build the Android Flutter APK (requires Flutter + Android tools)
-make test-mobile        # Run Flutter mobile tests
-make analyze-mobile     # Analyze the Flutter mobile client
+make build-mobile       # Host-toolchain Android APK build (requires Flutter + Android tools)
+make test-mobile        # Host-toolchain Flutter mobile tests
+make analyze-mobile     # Host-toolchain Flutter analysis
+make mobile-image       # Build the pinned containerized Flutter toolchain
+make mobile-check       # Run containerized Flutter checks
+make mobile-build       # Build a containerized debug APK
+make mobile-server-up   # Start the isolated mobile API profile
+make mobile-server-down # Stop the isolated mobile API profile
+make mobile-connect     # Connect the wireless-debugged phone
+make mobile-install     # Install the containerized debug APK
+make mobile-debug       # Run interactive Flutter debugging
+make mobile-devtools    # Run loopback-only Flutter DevTools
 make check              # Lint + typecheck + test (Python)
 make check-all          # All checks (Python + Go; excludes optional Flutter checks)
 make docker-build       # Build Docker image

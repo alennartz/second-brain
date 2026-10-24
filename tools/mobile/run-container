@@ -88,6 +88,7 @@ prepare_cache_volume() {
 if $prepare_caches; then
     prepare_cache_volume "$MOBILE_PUB_CACHE_VOLUME" /cache/pub
     prepare_cache_volume "$MOBILE_GRADLE_CACHE_VOLUME" /cache/gradle
+    prepare_cache_volume "$MOBILE_HOME_VOLUME" /tmp/mobile-home
 fi
 
 args=(
@@ -97,6 +98,7 @@ args=(
     --mount "type=bind,source=$MOBILE_ROOT_DIR,target=/workspace"
     --mount "type=volume,source=$MOBILE_PUB_CACHE_VOLUME,target=/cache/pub"
     --mount "type=volume,source=$MOBILE_GRADLE_CACHE_VOLUME,target=/cache/gradle"
+    --mount "type=volume,source=$MOBILE_HOME_VOLUME,target=/tmp/mobile-home"
     --workdir /workspace/client/mobile
     --env HOME=/tmp/mobile-home
     --env PUB_CACHE=/cache/pub

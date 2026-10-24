@@ -21,12 +21,16 @@ The repository mounts at `/workspace`. The app remains at
 `/workspace/client/mobile`. Named Docker volumes preserve Pub and Gradle caches:
 
 - `second-brain-mobile-pub-cache` at `/cache/pub`;
-- `second-brain-mobile-gradle-cache` at `/cache/gradle`.
+- `second-brain-mobile-gradle-cache` at `/cache/gradle`;
+- `second-brain-mobile-home` at `/tmp/mobile-home`, which preserves the Android
+  debug signing key across builds.
 
 Generated APKs stay in the host-visible
 `client/mobile/build/app/outputs/flutter-apk/` directory. Containers run with
 the caller's numeric UID and GID, so generated files remain editable. The
-container never mounts host ADB keys.
+container never mounts host ADB keys. The persistent mobile home volume keeps
+successive debug APKs signed by the same container-owned key, so `adb install
+-r` can update the app without uninstalling it.
 
 ## Local configuration
 

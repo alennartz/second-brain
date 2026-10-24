@@ -23,6 +23,7 @@ fi
 MOBILE_IMAGE="${MOBILE_IMAGE:-second-brain-mobile-toolchain}"
 MOBILE_PUB_CACHE_VOLUME="${MOBILE_PUB_CACHE_VOLUME:-second-brain-mobile-pub-cache}"
 MOBILE_GRADLE_CACHE_VOLUME="${MOBILE_GRADLE_CACHE_VOLUME:-second-brain-mobile-gradle-cache}"
+MOBILE_HOME_VOLUME="${MOBILE_HOME_VOLUME:-second-brain-mobile-home}"
 MOBILE_APK_PATH="$MOBILE_ROOT_DIR/client/mobile/build/app/outputs/flutter-apk/app-debug.apk"
 
 mobile_error() {
@@ -161,7 +162,7 @@ mobile_setup_adb() {
 
 mobile_device_state() {
     local serial=$1
-    "$MOBILE_ADB" devices 2>/dev/null | awk -v serial="$serial" '$1 == serial { print $2; exit }'
+    "$MOBILE_ADB" devices 2>/dev/null | tr -d '\r' | awk -v serial="$serial" '$1 == serial { print $2; exit }'
 }
 
 mobile_connect_address() {

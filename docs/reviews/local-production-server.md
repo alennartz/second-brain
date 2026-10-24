@@ -32,7 +32,7 @@ The fix commit resolves most baseline defects, including the activity parser, im
 - **Category:** code correctness
 - **Severity:** critical
 - **Location:** `deploy/backup.sh:167-178`, `325-351`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Read `ActiveState`, skip only `inactive` or `failed`, and treat systemd bus errors and transitional states as errors or stop them first.
 
 The inactive-service path treats `systemctl --user is-active` exit statuses for bus failures and transitional states as ordinary inactivity. It can therefore skip the pipeline check and stop operation while the database is still live or while systemd will restart the container. The archive can capture concurrent writes, and a crash-loop can restart during the archive.
@@ -42,7 +42,7 @@ The inactive-service path treats `systemctl --user is-active` exit statuses for 
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `deploy/backup.sh:87-102`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Move the safety copy back with `mv`, or check `cp -a` and forbid service start when recovery fails.
 
 Failure cleanup copies the safety database back with `cp -a` but does not check its status. Disk exhaustion can leave a partial active database, after which cleanup starts the service. The service can then open and write the partial restore.
@@ -52,7 +52,7 @@ Failure cleanup copies the safety database back with `cp -a` but does not check 
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `deploy/backup.sh:203-211`, `deploy/update.sh:47-50`, `deploy/README.md:152-188`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Hold the deployment lock through image tagging, installation, and restart, and acquire the same lock for the reset procedure.
 
 The backup command releases its lock when the pre-update archive completes. Another daily backup can then stop and restart the service while `update.sh` installs the new unit and restarts it. The reset procedure also runs without the lock. This leaves a race between the update or reset lifecycle and archive operations.
@@ -62,7 +62,7 @@ The backup command releases its lock when the pre-update archive completes. Anot
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `deploy/backup.sh:320-341`, `369-375`; `deploy/README.md:76-91`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Amend the plan and operator documentation to state that an inactive service skips the pipeline request and remains inactive after a successful archive.
 
 The fix safely skips the pipeline request when the service is inactive and preserves that prior state. The plan still requires the request for daily and pre-update modes and says the service starts after publication. The implementation and plan now specify different operational contracts.
@@ -72,7 +72,7 @@ The fix safely skips the pipeline request when the service is inactive and prese
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `deploy/backup.sh:349-356`, `499-506`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Require `systemctl --user show -p Result --value` to report `success` before reading or moving the database.
 
 The timeout calculation now allows two grace periods plus margin, but a Docker kill can still produce a successful `systemctl stop` command result. The archive paths proceed without checking the unit result, so they can read a database after an unclean container termination.
@@ -82,7 +82,7 @@ The timeout calculation now allows two grace periods plus margin, but a Docker k
 - **Category:** plan deviation | code correctness
 - **Severity:** warning
 - **Location:** `deploy/README.md:152-188`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Start the service unconditionally after a successful safety move; keep prior-state checks only in failure cleanup.
 
 The reset starts the service only when it was active before the reset. If it was initially inactive, SurrealKV does not create the requested fresh active directory, contrary to the reset contract.
@@ -92,7 +92,7 @@ The reset starts the service only when it was active before the reset. If it was
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `deploy/backup.sh:144`, `203-211`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Add a finite `curl --max-time`, such as 10 seconds, and release the lock on timeout through the existing cleanup path.
 
 The pipeline request has no timeout. The new exclusive lock is held while it runs, so a hung endpoint blocks restores, manual backups, the timer, and later updates indefinitely.
@@ -102,7 +102,7 @@ The pipeline request has no timeout. The new exclusive lock is held while it run
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `deploy/README.md:141-189`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Present the procedure as a standalone script or a `bash -euo pipefail` heredoc so traps and shell options do not persist in the operator's shell.
 
 Pasting the documented block into an interactive shell enables `set -euo pipefail` and installs an `EXIT` trap that calls `exit`. The successful procedure leaves those settings and the trap in the operator's shell, while a later unrelated command failure can close the session.
@@ -112,7 +112,7 @@ Pasting the documented block into an interactive shell enables `set -euo pipefai
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `deploy/backup.sh:286-304`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Sort the numeric suffix separately, or zero-pad suffixes before reverse sorting.
 
 The collision suffixes are not zero-padded. Reverse lexical ordering ranks the base name and `-2` above `-10`, so a burst of same-second archives can rotate out the newest archive at the seven-file boundary.

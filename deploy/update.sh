@@ -29,6 +29,7 @@ for variable in "${required_values[@]}"; do
 done
 
 image_id_file="$(mktemp)"
+DEPLOY_LOCK_FD=""
 cleanup() {
   rm -f -- "$image_id_file"
 }
@@ -43,6 +44,16 @@ if [[ -z "$image_id" ]]; then
   echo "error: Docker did not report the built image ID" >&2
   exit 1
 fi
+
+if ! exec {DEPLOY_LOCK_FD}>"$BRAIN_DEPLOY_BACKUP_DIR/.backup.lock"; then
+  echo "error: unable to open deployment lock in $BRAIN_DEPLOY_BACKUP_DIR" >&2
+  exit 1
+fi
+if ! flock --exclusive "$DEPLOY_LOCK_FD"; then
+  echo "error: unable to acquire deployment lock in $BRAIN_DEPLOY_BACKUP_DIR" >&2
+  exit 1
+fi
+export BRAIN_DEPLOY_LOCK_FD="$DEPLOY_LOCK_FD"
 
 bash "$DEPLOY_DIR/backup.sh" pre-update
 docker tag "$image_id" "$BRAIN_IMAGE"

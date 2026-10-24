@@ -53,6 +53,7 @@ PIPELINE_URL="http://127.0.0.1:${BRAIN_DEPLOY_PORT}/ingest/pipeline"
 # archive failures, and partial restores without starting an inactive service.
 LOCK_FD=""
 OP_WAS_ACTIVE=0
+OP_STOP_REQUIRED=0
 OP_STOPPED=0
 OP_TEMP=""
 OP_TEMP_LIST=""
@@ -70,7 +71,7 @@ cleanup_operation() {
   set +e
   trap - INT TERM
 
-  local temporary
+  local temporary recovery_path
   for temporary in "$OP_TEMP" "$OP_TEMP_LIST" "$OP_TEMP_VERBOSE"; do
     [[ -n "$temporary" ]] || continue
     if [[ -d "$temporary" ]]; then
@@ -84,12 +85,21 @@ cleanup_operation() {
   OP_TEMP_VERBOSE=""
 
   # A failed restore must never start the service on a missing or partial
-  # database. Copy the safety directory back while retaining the safety copy.
+  # database. Rebuild the active path through a temporary copy, then publish
+  # it atomically while retaining the safety copy.
   if [[ "$status" -ne 0 && "$OP_ACTIVE_MOVED" == 1 &&
     "$OP_RESTORE_COMMITTED" == 0 && "$OP_RECOVER_ALLOWED" == 1 &&
     -n "$OP_SAFETY" && -d "$OP_SAFETY" &&
     ! -e "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]]; then
-    cp -a -- "$OP_SAFETY" "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
+    recovery_path="$BRAIN_DEPLOY_DATA_DIR/.${BRAIN_DEPLOY_DB_NAME}.recovery-$$"
+    if cp -a -- "$OP_SAFETY" "$recovery_path" &&
+      mv -- "$recovery_path" "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"; then
+      :
+    else
+      rm -rf -- "$recovery_path"
+      printf 'error: unable to restore the safety database; service remains stopped\n' >&2
+      OP_RECOVER_ALLOWED=0
+    fi
   fi
 
   if [[ "$status" -ne 0 && "$OP_STOPPED" == 1 &&
@@ -141,7 +151,7 @@ pipeline_activity_json() {
 
 pipeline_is_non_idle() {
   local response parsed
-  if ! response="$(curl --fail --silent --show-error "$PIPELINE_URL")"; then
+  if ! response="$(curl --fail --silent --show-error --max-time 10 "$PIPELINE_URL")"; then
     return 2
   fi
   if ! parsed="$(pipeline_activity_json <<<"$response")"; then
@@ -164,21 +174,23 @@ defer_or_fail_pipeline() {
   fail "$reason"
 }
 
-service_was_active() {
-  local status
-  systemctl --user is-active --quiet "$SERVICE_NAME" >/dev/null 2>&1
-  status=$?
-  case "$status" in
-    0) return 0 ;;
-    # systemd uses 3 for inactive or failed units. The test command used by
-    # operators returns 1 for the same stopped state.
-    1|3) return 1 ;;
+service_state() {
+  local state
+  if ! state="$(systemctl --user show "$SERVICE_NAME" \
+    --property=ActiveState --value 2>/dev/null)"; then
+    return 2
+  fi
+  case "$state" in
+    active) return 0 ;;
+    inactive) return 1 ;;
+    failed) return 3 ;;
     *) return 2 ;;
   esac
 }
 
 prepare_operation() {
   OP_WAS_ACTIVE=0
+  OP_STOP_REQUIRED=0
   OP_STOPPED=0
   OP_TEMP=""
   OP_TEMP_LIST=""
@@ -189,18 +201,53 @@ prepare_operation() {
   OP_ACTIVE_MOVED=0
   OP_RESTORE_COMMITTED=0
   OP_RECOVER_ALLOWED=1
-  if service_was_active; then
-    OP_WAS_ACTIVE=1
+  local status
+  if service_state; then
+    status=0
   else
-    local status=$?
-    if [[ "$status" == 2 ]]; then
+    status=$?
+  fi
+  case "$status" in
+    0)
+      OP_WAS_ACTIVE=1
+      OP_STOP_REQUIRED=1
+      ;;
+    1)
+      ;;
+    3)
+      # Stop a failed unit before archiving so Restart=on-failure cannot race
+      # the snapshot. Preserve its inactive state after a successful archive.
+      OP_STOP_REQUIRED=1
+      ;;
+    *)
       fail "unable to determine the state of $SERVICE_NAME"
       return 1
-    fi
+      ;;
+  esac
+}
+
+verify_clean_stop() {
+  local result
+  if ! result="$(systemctl --user show "$SERVICE_NAME" \
+    --property=Result --value 2>/dev/null)"; then
+    fail "unable to verify the stop result for $SERVICE_NAME"
+    return 1
+  fi
+  if [[ "$result" != "success" ]]; then
+    fail "$SERVICE_NAME stopped with result $result"
+    return 1
   fi
 }
 
 acquire_lock() {
+  if [[ -n "${BRAIN_DEPLOY_LOCK_FD:-}" ]]; then
+    if ! : >&"$BRAIN_DEPLOY_LOCK_FD"; then
+      fail "inherited deployment lock is not available"
+      return 1
+    fi
+    LOCK_FD="$BRAIN_DEPLOY_LOCK_FD"
+    return 0
+  fi
   if ! exec {LOCK_FD}>"$BRAIN_DEPLOY_BACKUP_DIR/.backup.lock"; then
     fail "unable to open backup lock in $BRAIN_DEPLOY_BACKUP_DIR"
     return 1
@@ -284,18 +331,21 @@ create_archive() {
 }
 
 rotate_archives() {
-  local prefix=$1 backup_dir=$2 path base index
-  local pattern="^${prefix}-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(-[0-9]+)?\\.tar\\.gz$"
+  local prefix=$1 backup_dir=$2 path base timestamp suffix record index
+  local pattern="^${prefix}-([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z)(-([0-9]+))?\\.tar\\.gz$"
   local -a ordered=()
 
-  while IFS= read -r -d '' base; do
-    ordered+=("$backup_dir/$base")
+  while IFS= read -r -d '' record; do
+    ordered+=("$backup_dir/${record##*$'\t'}")
   done < <(
     for path in "$backup_dir"/*.tar.gz; do
       [[ -f "$path" ]] || continue
       base="${path##*/}"
       [[ "$base" =~ $pattern ]] || continue
-      printf '%s\0' "$base"
+      timestamp="${BASH_REMATCH[1]}"
+      suffix="${BASH_REMATCH[3]:-0}"
+      # Sort the timestamp first and the numeric collision suffix second.
+      printf '%s%010d\t%s\0' "$timestamp" "$suffix" "$base"
     done | sort -z -r
   )
 
@@ -346,12 +396,15 @@ run_backup() {
     return 1
   fi
 
-  if ((OP_WAS_ACTIVE == 1)); then
+  if ((OP_STOP_REQUIRED == 1)); then
     # Mark the service for recovery before invoking stop. An interrupt during
     # the stop command must not leave a previously active service down.
     OP_STOPPED=1
     if ! systemctl --user stop "$SERVICE_NAME"; then
       printf 'error: failed to stop %s; no archive was created\n' "$SERVICE_NAME" >&2
+      return 1
+    fi
+    if ! verify_clean_stop; then
       return 1
     fi
   fi
@@ -371,6 +424,8 @@ run_backup() {
       printf 'error: failed to start %s after archive\n' "$SERVICE_NAME" >&2
       return 1
     fi
+    OP_STOPPED=0
+  else
     OP_STOPPED=0
   fi
 
@@ -494,10 +549,13 @@ restore_archive() {
     OP_RECOVER_ALLOWED=0
   fi
 
-  if ((OP_WAS_ACTIVE == 1)); then
+  if ((OP_STOP_REQUIRED == 1)); then
     OP_STOPPED=1
     if ! systemctl --user stop "$SERVICE_NAME"; then
       printf 'error: failed to stop %s; data was not moved\n' "$SERVICE_NAME" >&2
+      return 1
+    fi
+    if ! verify_clean_stop; then
       return 1
     fi
   fi

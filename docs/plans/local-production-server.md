@@ -76,9 +76,10 @@ before the archive command reads the database directory.
 
 The deployment command builds the current checkout into `BRAIN_IMAGE`. A failed
 build leaves the running service untouched. After a successful build, the command
-requests a `pre-update` archive, then renders the unit and restarts the service.
-The installer never performs a registry pull. The configured local tag remains the
-operator-facing image identity for this single machine.
+holds the deployment lock while it requests a `pre-update` archive, tags the
+candidate image, renders the unit, and restarts the service. The installer never
+performs a registry pull. The configured local tag remains the operator-facing
+image identity for this single machine.
 
 #### Archive command
 
@@ -90,22 +91,28 @@ backup pre-update
 restore <archive>
 ```
 
-For `daily`, the command checks `/ingest/pipeline`. Positive `ready`, `leased`,
-`retry_wait`, `worker_count`, or `active_leases` values mean non-idle intake.
-Paused-only work does not block an archive. Non-idle intake or a pipeline request
-or parsing error produces a logged deferred result without stopping the service.
-The next timer run retries it. This check is not the correctness guarantee for
-dreaming or other requests. The host uses `jq` to parse the pipeline response.
+For `daily`, an active service checks `/ingest/pipeline`. Positive `ready`,
+`leased`, `retry_wait`, or `active_leases` values mean non-idle intake. The
+worker-loop count is not intake work. Paused-only work does not block an archive.
+Non-idle intake or a pipeline request or parsing error produces a logged deferred
+result without stopping the service. If the service is inactive, the command
+skips the endpoint request and preserves that inactive state after a successful
+archive. The next timer run retries deferred work. This check is not the
+correctness guarantee for dreaming or other requests. The host uses `jq` to parse
+the pipeline response.
 
-For `pre-update`, non-idle intake or a pipeline error is an error. The update must
-not restart the service without a successful pre-update archive.
+For `pre-update`, non-idle intake or a pipeline error is an error when the service
+is active. An inactive service skips the endpoint request. The update must not
+restart the service without a successful pre-update archive.
 
-When the mode proceeds, the command stops the service, waits for a clean exit, and
-writes one temporary `tar.gz` archive of
+When the mode proceeds, the command stops an active or failed service, waits for a
+successful stop result, and writes one temporary `tar.gz` archive of
 `${BRAIN_DEPLOY_DATA_DIR}/${BRAIN_DEPLOY_DB_NAME}`. It atomically renames the
 completed archive into `${BRAIN_DEPLOY_BACKUP_DIR}` with owner-only permissions,
-then starts the service again. A failure path attempts to restore the service's
-prior active state and returns a non-zero status.
+then starts a service that was active before the operation. An inactive or failed
+service remains stopped. A failure path attempts to restore the service's prior
+active state and returns a non-zero status. Backup, restore, update, and reset
+operations share one exclusive deployment lock.
 
 Daily archives retain the seven newest `daily-*` files. Pre-update archives retain
 the seven newest `pre-update-*` files. The two retention sets are independent.
@@ -122,10 +129,10 @@ available for recovery.
 #### One-time database reset
 
 The requested fresh start is an operator action for this deployment only, not part
-of routine `deploy` behavior. It stops the service, waits for a clean exit, archives
-the current `brain.db`, moves only that active directory aside, and starts the
-service so SurrealKV creates a new active directory. Experiment databases remain in
-place.
+of routine `deploy` behavior. It acquires the deployment lock, stops the service,
+waits for a clean exit, archives the current `brain.db`, moves only that active
+directory aside, and starts the service so SurrealKV creates a new active
+directory. Experiment databases remain in place.
 
 #### Operational verification contract
 
@@ -279,12 +286,12 @@ command interface. Use explicit function arguments and invocation-local lifecycl
 state, not shared mutable state.
 
 Request `http://127.0.0.1:${BRAIN_DEPLOY_PORT}/ingest/pipeline` with `curl` and
-parse the response with host `jq`. Check `ready`, `leased`, `retry_wait`,
-`worker_count`, and `active_leases`. Accept absent optional activity fields as
-zero, as existing tests supply count-only snapshots. Ignore paused-only work.
-Treat request failures and invalid snapshots as non-idle. Daily mode prints a
-`deferred` result and exits successfully without stopping. Pre-update mode exits
-with an error without stopping.
+parse the response with host `jq`. Check `ready`, `leased`, `retry_wait`, and
+`active_leases`. Accept absent optional activity fields as zero, as existing tests
+supply count-only snapshots. Ignore the long-lived worker-loop count and paused-
+only work. Treat request failures and invalid snapshots as non-idle. Daily mode
+prints a `deferred` result and exits successfully without stopping. Pre-update
+mode exits with an error without stopping. An inactive service skips the request.
 
 Record the prior active service state. Stop the configured user service and wait
 for successful completion before invoking `tar`. A failed stop must prevent any

@@ -45,6 +45,21 @@ fi
 if [[ "${SYSTEMCTL_FAIL:-0}" == "1" ]]; then
   exit 1
 fi
+if [[ "$*" == *" show "* ]]; then
+  if [[ "$*" == *"ActiveState"* ]]; then
+    case "${SERVICE_ACTIVE:-active}" in
+      active|inactive|failed|activating|deactivating)
+        printf '%s\\n' "${SERVICE_ACTIVE:-active}"
+        ;;
+      *)
+        exit 1
+        ;;
+    esac
+  elif [[ "$*" == *"Result"* ]]; then
+    printf '%s\\n' "${SYSTEMCTL_RESULT:-success}"
+  fi
+  exit 0
+fi
 if [[ "$*" == *" is-active "* ]]; then
   [[ "${SERVICE_ACTIVE:-active}" == "active" ]]
   exit $?
@@ -78,6 +93,8 @@ exit 0
     _write_executable(
         fake_bin / "curl",
         """
+mkdir -p "$FAKE_LOG_DIR"
+printf '%s\\n' "$*" >> "$FAKE_LOG_DIR/curl.log"
 if [[ "${CURL_FAIL:-0}" == "1" ]]; then
   exit 1
 fi
@@ -86,6 +103,15 @@ if [[ -z "$response" ]]; then
   response='{"ready":0,"leased":0,"retry_wait":0,"paused":0}'
 fi
 printf '%s\\n' "$response"
+""",
+    )
+    _write_executable(
+        fake_bin / "cp",
+        """
+if [[ "${CP_FAIL:-0}" == "1" ]]; then
+  exit 1
+fi
+exec /usr/bin/cp "$@"
 """,
     )
     _write_executable(
@@ -375,6 +401,30 @@ def test_restore_allows_a_missing_active_database(deployment_workspace):
     ).read_text() == "active database"
 
 
+def test_restore_does_not_start_after_safety_copy_recovery_fails(
+    deployment_workspace,
+):
+    archive = deployment_workspace.backup / "selected.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as stream:
+        stream.add(deployment_workspace.data / "brain.db", arcname="brain.db")
+
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        "restore",
+        str(archive),
+        env_overrides={"TAR_EXTRACT_FAIL": "1", "CP_FAIL": "1"},
+    )
+
+    assert result.returncode != 0
+    assert not (deployment_workspace.data / "brain.db").exists()
+    assert list(deployment_workspace.data.glob("brain.db.safety-*"))
+    assert not any(
+        " start " in f" {line} "
+        for line in _log_lines(deployment_workspace, "systemctl.log")
+    )
+
+
 def test_update_builds_local_image_and_archives_before_restarting(
     deployment_workspace: DeploymentWorkspace,
 ) -> None:
@@ -601,6 +651,21 @@ def test_archive_retention_keeps_seven_newest_in_each_independent_set(
     assert unrelated.read_bytes() == b"keep me"
 
 
+def test_archive_retention_orders_numeric_same_second_suffixes(
+    deployment_workspace,
+):
+    timestamp = "2026-01-01T030000Z"
+    for suffix in ["", "-1", "-2", "-3", "-4", "-5", "-6", "-7", "-8", "-9", "-10"]:
+        path = deployment_workspace.backup / f"daily-{timestamp}{suffix}.tar.gz"
+        path.write_bytes(b"old archive")
+    result = _run(deployment_workspace, "backup.sh", "daily")
+    assert result.returncode == 0, result.stderr
+    kept = {path.name for path in _archives(deployment_workspace, "daily")}
+    assert len(kept) == 7
+    assert f"daily-{timestamp}-10.tar.gz" in kept
+    assert f"daily-{timestamp}-4.tar.gz" not in kept
+
+
 @pytest.mark.parametrize("action", ["stop", "start"])
 def test_backup_reports_service_failure(deployment_workspace, action):
     result = _run(
@@ -643,6 +708,74 @@ def test_backup_archives_an_inactive_service_without_pipeline_access(
     service_log = _log_lines(deployment_workspace, "systemctl.log")
     assert not any(" stop " in f" {line} " for line in service_log)
     assert not any(" start " in f" {line} " for line in service_log)
+    assert not _log_lines(deployment_workspace, "curl.log")
+
+
+def test_pipeline_request_has_a_finite_timeout(deployment_workspace):
+    result = _run(deployment_workspace, "backup.sh", "daily")
+    assert result.returncode == 0, result.stderr
+    assert any(
+        "--max-time 10" in line for line in _log_lines(deployment_workspace, "curl.log")
+    )
+
+
+@pytest.mark.parametrize("state", ["activating", "deactivating"])
+def test_transitional_service_state_fails_closed(deployment_workspace, state):
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        "daily",
+        env_overrides={"SERVICE_ACTIVE": state},
+    )
+    assert result.returncode != 0
+    assert not _archives(deployment_workspace, "daily")
+    assert not _log_lines(deployment_workspace, "tar.log")
+
+
+def test_systemd_state_error_fails_closed(deployment_workspace):
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        "daily",
+        env_overrides={"SYSTEMCTL_FAIL_ACTION": "show"},
+    )
+    assert result.returncode != 0
+    assert not _archives(deployment_workspace, "daily")
+    assert not _log_lines(deployment_workspace, "tar.log")
+
+
+def test_failed_service_is_stopped_without_starting_after_backup(
+    deployment_workspace,
+):
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        "daily",
+        env_overrides={"SERVICE_ACTIVE": "failed"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(_archives(deployment_workspace, "daily")) == 1
+    service_log = _log_lines(deployment_workspace, "systemctl.log")
+    assert any("stop second-brain.service" in line for line in service_log)
+    assert not any("start second-brain.service" in line for line in service_log)
+
+
+def test_unclean_stop_result_prevents_archive_and_recovers_active_service(
+    deployment_workspace,
+):
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        "daily",
+        env_overrides={"SYSTEMCTL_RESULT": "timeout"},
+    )
+    assert result.returncode != 0
+    assert not _archives(deployment_workspace, "daily")
+    assert not _log_lines(deployment_workspace, "tar.log")
+    assert any(
+        "start second-brain.service" in line
+        for line in _log_lines(deployment_workspace, "systemctl.log")
+    )
 
 
 def test_update_does_not_install_or_restart_after_pre_update_failure(

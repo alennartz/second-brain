@@ -63,9 +63,10 @@ bash deploy/install.sh
 
 Use `make deploy` for routine updates after the service has an active database.
 It runs `deploy/update.sh`, which builds a candidate image without changing the
-configured tag, creates a successful `pre-update` archive, tags the candidate,
-renders the current units, and restarts the service. A build or archive failure
-leaves the running service and configured image tag untouched.
+configured tag, acquires the deployment lock, creates a successful `pre-update`
+archive, tags the candidate, renders the current units, and restarts the service.
+A build or archive failure leaves the running service and configured image tag
+untouched.
 
 The main unit uses:
 
@@ -90,14 +91,16 @@ Daily mode requests `/ingest/pipeline` through loopback. Positive `ready`,
 stopping the service. The worker-loop count is not intake work. Paused-only
 work does not defer it. A request or parsing error also defers it. The
 persistent timer retries on its next run. If the service is already inactive,
-the command skips the endpoint check and preserves that inactive state.
+the command skips the endpoint check and preserves that inactive state. A failed
+unit is stopped before the archive and remains stopped afterward.
 
 Pre-update mode treats non-idle work and pipeline errors as failures. The update
 will not install or restart the service without a successful pre-update archive.
 Both modes stop an active service before reading the database, publish one
 owner-only (`0600`) `tar.gz` archive, and restart it after publication. A failed
 operation removes temporary output and recovers only a service that was active
-before the operation. Backup and restore operations share an exclusive lock.
+before the operation. Backup, restore, update, and reset operations share the
+exclusive deployment lock.
 
 Daily and pre-update archives rotate independently. Each set keeps its seven
 newest files. Temporary files, the other mode, and unrelated operator archives
@@ -133,17 +136,19 @@ place.
 ## One-time fresh database reset
 
 A fresh start is an operator action. It is not part of `make deploy` and does
-not run during routine updates. The commands below fail closed: they stop before
-moving data, remove incomplete output, and recover a service that was active
-before the reset:
+not run during routine updates. Run the standalone shell below. It fails closed:
+it stops before moving data, removes incomplete output, and recovers a service
+that was active before the reset.
 
 ```bash
-set -euo pipefail
+bash -euo pipefail <<'RESET'
 . deploy/deploy.env
 
 service="${BRAIN_DEPLOY_NAME}.service"
 active="$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
 mkdir -p "$BRAIN_DEPLOY_BACKUP_DIR"
+exec {lock_fd}>"$BRAIN_DEPLOY_BACKUP_DIR/.backup.lock"
+flock --exclusive "$lock_fd"
 if [[ ! -d "$active" || -L "$active" ]]; then
   echo "active database is missing: $active" >&2
   exit 1
@@ -183,10 +188,9 @@ chmod 0600 "$temporary"
 mv -- "$temporary" "$archive"
 temporary=""
 mv -- "$active" "$safety"
-if ((was_active == 1)); then
-  systemctl --user start "$service"
-fi
+systemctl --user start "$service"
 trap - EXIT
+RESET
 ```
 
 This procedure archives and moves only `brain.db`. It never moves experiment

@@ -62,7 +62,7 @@ Use the same replay harness and command for every baseline and candidate run:
 ```bash
 cd /tmp/second-brain-recall-campaign
 PYTHONPATH=/tmp/second-brain-recall-campaign:/tmp/second-brain-recall-campaign/src \
-TRIAL_ID=E007-1 EXPERIMENT_PORT=8102 \
+TRIAL_ID=B00-4 EXPERIMENT_PORT=8102 \
 BRAIN_REASONING_CHAT_TEMPLATE_KWARGS='{"enable_thinking":false}' \
 .venv/bin/python -u /tmp/recall_campaign_runner.py
 ```
@@ -80,7 +80,7 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 | E004 | Normalize no-evidence output | For `has_evidence=false`, discard model answer text and citations instead of rejecting the whole output | One probe produced valid JSON that failed the no-evidence consistency validator | Remove that schema 502 without returning model claims or context; no other failure increase | Deferred; target not reproduced |
 | E005 | Raise total tool-call cap to request limit | `RECALL_TOOL_CALL_LIMIT`: 8 → 12 | Cap 9 still failed on call 10; the existing request limit is 12 | Across three replays, no tool-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; request limit bound first |
 | E006 | Return cached node on duplicate read | Cache successfully fetched nodes and return the cached node on duplicate `get_node` calls | The model repeated `get_node` many times before hitting the request limit | Across three replays, no duplicate-driven usage-limit 502s; median context ≥7/9; no quality veto; p95 <39.5s | Rejected; duplicate cache did not stop loop |
-| E007 | PydanticAI output retry for parser errors | Make `RecallOutputError` inherit `ModelRetry` | Installed PydanticAI turns parser `ModelRetry` into an output retry; the current custom exception bypasses that path | Across three replays, ≤1 format 502 total; median context ≥7/9; no added tool-budget failures; p95 <39.5s | Queued next; source mechanism verified |
+| E007 | PydanticAI output retry for parser errors | Make `RecallOutputError` inherit `ModelRetry` | Installed PydanticAI turns parser `ModelRetry` into an output retry; the current custom exception bypasses that path | Across three replays, ≤1 format 502 total; median context ≥7/9; no added tool-budget failures; p95 <39.5s | Pair confirmation required |
 | E008 | Application-level finalizer | One bounded no-tool retry using collected evidence | Use only if E007's built-in retry fails | Defer until E007 is tested | Deferred |
 | E009 | Native structured output | Change final output mode | A prior live probe returned truncated JSON at a 2,048-token cap | Do not retry without a new SGLang/PydanticAI mechanism or a verified token-budget change | Deferred |
 | E010 | Repetition penalty | Change one supported inference parameter | Could reduce repeated tool calls | Defer until SGLang support and effective request behavior are verified | Deferred |
@@ -128,4 +128,8 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 - **E006 rollback:** restored `recall.py` to baseline SHA-256 `22bac9af8293ff1941acf7126cc2b7a372e23f608361d985228e38f57cd463b0`. The API stopped and the owner lock is clear.
 - **E007 mechanism research:** installed PydanticAI's `execute_output_function()` converts `ModelRetry` from a `TextOutput` parser into `ToolRetryError`. `_agent_graph` consumes one output retry and sends a correction prompt. The default output retry budget is one. `RecallOutputError` is not `ModelRetry`, so the current parser error bypasses this path and becomes HTTP 502.
 - **E007 hypothesis:** making `RecallOutputError` inherit `ModelRetry` will trigger the built-in output retry with the same conversation and evidence.
-- **E007-1: queued.** Change only the parser retry mechanism; keep the prompts and tool budgets unchanged.
+- **E007-1: complete.** Candidate source hash `d3060a74ebb3679afd6f64106260f66e090210bbc4d21025394ca2329c133ab3`; DB hash unchanged. Results: 2 HTTP 502 attempts, 1/9 exhausted, 8/9 with context, 18 nodes. Probe time: total 108.90s, median 9.60s, p95 31.54s. The first probe emitted no JSON at `23:58:23Z`; PydanticAI retried at `23:58:24Z`, then fetched a node and completed with HTTP 200. Probe 6 still hit the tool limit at `23:59:04.568Z` and `23:59:25.290Z`. No format-related 502s occurred.
+- **E007-2: complete.** Candidate source hash unchanged; DB hash unchanged. Results: 2 HTTP 502 attempts, 1/9 exhausted, 8/9 with context, 18 nodes. Probe time: total 109.73s, median 9.65s, p95 31.56s. PydanticAI retried the malformed no-JSON response and the probe completed; no format-related 502 occurred. Probe 6 still exceeded the 8-call limit at `00:02:33.344Z` and `00:02:54.161Z`.
+- **E007-3: complete.** Candidate source hash unchanged; DB hash unchanged. Results: 2 HTTP 502 attempts, 1/9 exhausted, 8/9 with context, 18 nodes. Probe time: total 109.63s, median 9.69s, p95 31.64s. One no-JSON response at `00:06:55Z` triggered the PydanticAI retry and recovered. Probe 6 still exceeded the 8-call limit at `00:07:36.142Z` and `00:07:56.504Z`.
+- **E007 aggregate:** all three candidate runs had 8/9 context and one exhausted probe. They had no format-related 502s, but six tool-limit 502 attempts. The baseline had four tool-limit 502 attempts across three runs. This fails the predeclared no-regression condition. Run one paired baseline and candidate before deciding whether variance explains the difference.
+- **B00-4: queued.** Restore the baseline exception type and replay once. Then restore E007 and run E007-4 with the same DB seed.

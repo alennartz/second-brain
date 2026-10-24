@@ -219,3 +219,160 @@ None. Existing decision records cover ingest and storage behavior and remain val
 - Manual journeys remain unexecuted until deployment verification.
 
 **Review status:** approved
+
+## Steps
+
+### Step 1: Validate deployment configuration
+
+In `deploy/install.sh`, require all seven deployment values listed above before
+changing units or starting services. Resolve the checkout from the script location,
+not the caller's working directory. Preserve support for `XDG_CONFIG_HOME`.
+
+Require an existing application environment file and a locally available
+`BRAIN_IMAGE`, checked through Docker image inspection. Never pull an image.
+Create the configured data and backup directories. Set the application environment
+file to mode `0600` before enabling services.
+
+Update `deploy/deploy.env.example` to use `second-brain:local`, port `8100`, a
+sibling backup directory, and active database name `brain.db`. Document the
+application setting `BRAIN_DB_PATH=/data/brain.db` so storage uses the mounted
+active database. Do not change the ignored machine configuration.
+
+**Verify:** Installer tests reject every missing required value and unavailable image. The environment permission test passes.
+**Status:** not started
+
+### Step 2: Render the local service and backup timer
+
+Change `deploy/second-brain.service.in` to remove the registry-pull command and
+publish only `127.0.0.1:{{PORT}}:8000`. Keep `--pull never`, the configured `/data`
+bind mount, and `Restart=on-failure`.
+
+In `deploy/install.sh`, read `BRAIN_INTAKE_SHUTDOWN_GRACE_SECONDS` from the
+application environment file without executing its contents. Use the default of
+60 seconds from `src/second_brain/config.py` when unset. Render integer Docker
+stop and systemd stop timeouts above the configured grace, including fractional
+grace values. Give systemd additional time beyond Docker's stop timeout.
+
+Render and install `${BRAIN_DEPLOY_NAME}.service`,
+`${BRAIN_DEPLOY_NAME}-backup.service`, and
+`${BRAIN_DEPLOY_NAME}-backup.timer` under the systemd user unit directory.
+Extend template substitution for the stop timeouts and backup script's absolute
+path. Render `deploy/second-brain-backup.service.in` with an executable invocation
+of `deploy/backup.sh daily`. Keep the timer's existing persistent 03:00 schedule
+and configured backup unit name.
+
+Reload the user manager. Enable the main service and enable the backup timer with
+`--now`. Keep all runtime lifecycle changes outside `src/second_brain/app.py`.
+Its existing lifespan already stops the pipeline and scheduler, then closes Storage.
+
+**Verify:** Installer tests confirm all three units, loopback binding, local image policy, data mount, restart policy, timer enablement, and timeouts above a 90-second grace.
+**Status:** not started
+
+### Step 3: Implement quiesced archives
+
+Replace the stub in `deploy/backup.sh` with the `daily` and `pre-update` command
+modes. Load configuration relative to the script and validate the values needed
+for the archive operation. Keep service recovery and archive handling behind this
+command interface. Use explicit function arguments and invocation-local lifecycle
+state, not shared mutable state.
+
+Request `http://127.0.0.1:${BRAIN_DEPLOY_PORT}/ingest/pipeline` with `curl` and
+parse the response with host `jq`. Check `ready`, `leased`, `retry_wait`,
+`worker_count`, and `active_leases`. Accept absent optional activity fields as
+zero, as existing tests supply count-only snapshots. Ignore paused-only work.
+Treat request failures and invalid snapshots as non-idle. Daily mode prints a
+`deferred` result and exits successfully without stopping. Pre-update mode exits
+with an error without stopping.
+
+Record the prior active service state. Stop the configured user service and wait
+for successful completion before invoking `tar`. A failed stop must prevent any
+archive operation. Create a uniquely dated temporary archive in the backup
+directory. Archive only `BRAIN_DEPLOY_DB_NAME`, relative to
+`BRAIN_DEPLOY_DATA_DIR`. Set owner-only permissions and atomically publish the
+completed archive as `daily-*.tar.gz` or `pre-update-*.tar.gz`.
+
+Start the service after successful publication and report startup failures.
+On failure, remove temporary output and attempt to recover a previously active
+service. Do not start a previously inactive service during failure recovery.
+Return a non-zero status for stop, archive, publication, or startup failures.
+
+**Verify:** Archive tests pass for each non-idle field, paused-only intake, pipeline errors, database contents, mode-specific results, `0600` permissions, lifecycle ordering, and recovery failures.
+**Status:** not started
+
+### Step 4: Rotate independent archive sets
+
+In `deploy/backup.sh`, rotate archives only after publishing a completed archive.
+Keep the seven newest matching files for the selected mode. Exclude temporary
+files, the other mode's archives, and unrelated operator archives from deletion.
+Keep filenames unique when two commands run within the same timestamp interval.
+
+**Verify:** Both retention tests preserve seven newest archives, every archive in the other mode, and the unrelated operator archive.
+**Status:** not started
+
+### Step 5: Implement selected-archive restore
+
+Add `restore <archive>` to `deploy/backup.sh`. Reject a missing argument, missing
+archive, or resolved archive path outside the configured backup directory before
+stopping the service. Validate the complete archive listing before modifying data.
+Require entries under the configured database directory. Reject absolute paths,
+parent traversal, foreign database entries, and entries that can extract outside
+that directory through links.
+
+Stop the configured user service successfully before moving data. Move only the
+active database directory to a unique `${BRAIN_DEPLOY_DB_NAME}.safety-*` location
+under the data directory. Extract the selected archive into the configured data
+directory and start the service. Leave experiment databases unchanged.
+
+Return a failure status when extraction or startup fails. Preserve the safety
+copy for operator recovery. Apply the archive command's prior-state recovery
+contract on failure without deleting that copy or treating a partial restore as
+successful.
+
+**Verify:** Restore tests pass for explicit archive selection, path and member rejection before stopping, restored contents, untouched experiments, and retained safety copies after extraction or startup failures.
+**Status:** not started
+
+### Step 6: Connect local updates and Make commands
+
+Replace the stub in `deploy/update.sh`. Load configuration from its script-relative
+checkout and build that checkout into `BRAIN_IMAGE` with Docker. On build failure,
+exit without invoking backup, installation, or service lifecycle commands.
+
+After a successful build, invoke `deploy/backup.sh pre-update`. Continue only on
+success. Invoke `deploy/install.sh` to render the current units, then restart
+`${BRAIN_DEPLOY_NAME}.service`. Propagate each command failure. Never invoke a
+registry pull.
+
+Change `Makefile`'s `deploy` recipe to call `bash deploy/update.sh`. Add
+`deploy-backup` with `MODE=daily` as its default and a recipe that passes `MODE`
+to `bash deploy/backup.sh`. Add `deploy-restore`, require a nonempty `ARCHIVE`,
+and pass its quoted value to `bash deploy/backup.sh restore`.
+
+Extend `deploy-undeploy` to disable and remove the backup timer and oneshot unit
+alongside the main service, then reload the user manager. Keep the existing
+configured status and journal commands.
+
+**Verify:** Update tests confirm build, archive, and restart order. Build and pre-update failures leave later operations untouched. Make dry-run tests expose both backup and explicit restore commands.
+**Status:** not started
+
+### Step 7: Document local operation and recovery
+
+Rewrite `deploy/README.md` for the local-image workflow. List all deployment
+scripts and templates. Document host prerequisites, including Docker, the user
+manager, `curl`, `jq`, and `tar`. Describe application environment permissions,
+loopback-only access, and the absence of application authentication.
+
+Explain first installation with an available local image through `install.sh`,
+routine updates through `make deploy`, and the pre-update archive requirement.
+Document backup modes, daily deferral, independent seven-file retention,
+03:00 persistent scheduling, explicit restore selection, and safety-copy recovery.
+Provide commands to inspect service status, journal logs, timer status, and user
+lingering. Keep the fresh database reset a separate operator procedure. State that
+it archives and moves only `brain.db`, never experiment databases.
+
+Update `README.md`'s production deployment section to point to the local systemd
+workflow instead of presenting the Compose production commands as this setup.
+Link `docs/manual-tests/local-production-server.md` for deployment verification.
+Keep its results unexecuted until the operator performs the live journeys.
+
+**Verify:** Run the existing `tests/test_local_production_server.py` suite during implementation. Documentation matches the command interfaces and manual verification contract. No reset occurs during routine deployment.
+**Status:** not started

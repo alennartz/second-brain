@@ -84,6 +84,7 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 | E008 | Finalize after tool-budget exhaustion | On `UsageLimitExceeded`, make one no-tool finalizer call using a bounded evidence snapshot | The exception carries no run history; `RecallDeps` retains tool results | Across three replays, zero usage-limit 502s; context ≥8/9; cite only buffered IDs; preserve cross-domain isolation; p95 <39.5s | Won; commit pending |
 | E009 | Native structured output | Change final output mode | A prior live probe returned truncated JSON at a 2,048-token cap | Do not retry without a new SGLang/PydanticAI mechanism or a verified token-budget change | Deferred |
 | E010 | Repetition penalty | Change one supported inference parameter | Could reduce repeated tool calls | Defer until SGLang support and effective request behavior are verified | Deferred |
+| E011 | Fallback answer completeness | Add a rubric for multi-part recall answers and require explicit missing-link disclosure | The fallback recovered q6 but omitted the Medici Bank origin | Defer until a stable answer-quality metric is defined | Deferred |
 
 ## Trial Log
 
@@ -151,4 +152,4 @@ The runner writes each trial result and both logs under `/tmp/recall-reliability
 - **E008-4: complete.** Hook-corrected source SHA-256 `2f237249002c6629b5c9f78b404dc91259b3150d80b4676800bd09375e9a50f9`; DB hash unchanged. Results: 9/9 HTTP 200, 9/9 with context, 19 nodes, 0 HTTP 5xx. Probe time: total 90.80s, median 9.56s, p95 19.59s. The finalizer ran after the tool limit at `01:17:47Z`, cited one buffered note, and completed at `01:17:50Z`.
 - **E008 win:** all four replays returned context for all nine probes with no HTTP 5xx. The finalizer rescued the tool-limited probe each time. Probe p95 ranged from 19.13s to 19.59s. The fallback answer omitted the banking origin but made no unsupported claim; retain this as a quality follow-up.
 - **E008 commit:** `4295324` (`fix(recall): E008 finalize from evidence (9/9 probes)`) on `exp/recall-reliability-2026-10-22`. Committed recall.py SHA-256: `2f237249002c6629b5c9f78b404dc91259b3150d80b4676800bd09375e9a50f9`. Rollback with `git revert 4295324`.
-- **Active reference after E008:** 9/9 HTTP 200, 9/9 with context, 19 nodes, zero errors, zero 5xx, median p95 19.26s. The reliability target is met. Defer native output and repetition penalty; track answer completeness separately.
+- **Active reference after E008:** all four replays returned 9/9 HTTP 200 and 9/9 with context, 19 nodes, zero exhausted probes, and zero 5xx. Per-run p95 ranged from 19.13s to 19.59s. The reliability target is met. Defer native output, repetition penalty, and fallback answer completeness pending a stable quality metric.

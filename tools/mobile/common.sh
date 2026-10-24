@@ -12,7 +12,14 @@ MOBILE_ENV_FILE="${MOBILE_ENV_FILE:-$MOBILE_ROOT_DIR/.env.mobile.local}"
 if [[ "$MOBILE_ENV_FILE" != /* ]]; then
     MOBILE_ENV_FILE="$MOBILE_ROOT_DIR/$MOBILE_ENV_FILE"
 fi
-MOBILE_ADB="${MOBILE_ADB:-/home/alenna/android/platform-tools/adb}"
+if [[ -z "${MOBILE_ADB:-}" ]]; then
+    if [[ -x /mnt/c/Tools/android-sdk/platform-tools/adb.exe ]]; then
+        # Mirrored WSL shares the Windows loopback ADB server and its key.
+        MOBILE_ADB=/mnt/c/Tools/android-sdk/platform-tools/adb.exe
+    else
+        MOBILE_ADB=/home/alenna/android/platform-tools/adb
+    fi
+fi
 MOBILE_IMAGE="${MOBILE_IMAGE:-second-brain-mobile-toolchain}"
 MOBILE_PUB_CACHE_VOLUME="${MOBILE_PUB_CACHE_VOLUME:-second-brain-mobile-pub-cache}"
 MOBILE_GRADLE_CACHE_VOLUME="${MOBILE_GRADLE_CACHE_VOLUME:-second-brain-mobile-gradle-cache}"

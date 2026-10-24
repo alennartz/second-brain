@@ -1,8 +1,11 @@
 # Containerized Flutter development
 
 This workflow builds and debugs the Android client without Flutter, Dart, Java,
-or Android SDK tools on the host. The host needs Linux, Docker, and the existing
-ADB executable at `/home/alenna/android/platform-tools/adb`.
+or Android SDK tools on the host. The host needs Linux, Docker, and ADB. In
+mirrored WSL, the scripts prefer the Windows ADB executable at
+`/mnt/c/Tools/android-sdk/platform-tools/adb.exe` so every command reuses the
+Windows ADB server and its persistent pairing key. They fall back to
+`/home/alenna/android/platform-tools/adb` on hosts without that Windows path.
 
 ## Toolchain and paths
 
@@ -95,12 +98,14 @@ make mobile-install
 
 `mobile-connect` starts or verifies the host ADB daemon on
 `127.0.0.1:5037`, then tries `MOBILE_DEVICE`. It verifies the device state,
-model, Android version, and serial through the host daemon. If the saved address
-fails, it uses only mDNS wireless **connect** services. One candidate is used.
-More than one candidate is an error, and the addresses are listed without an
-arbitrary selection. If the phone is unauthorized, the command shows the
-one-time `adb pair` instructions. Pairing keys stay on the host and survive
-Flutter container recreation.
+model, Android version, and serial through the host daemon. In mirrored WSL,
+the host daemon is Windows ADB, so the Windows key in
+`C:\\Users\\<user>\\.android\\adbkey` remains the one pairing identity. If the
+saved address fails, it uses only mDNS wireless **connect** services. One
+candidate is used. More than one candidate is an error, and the addresses are
+listed without an arbitrary selection. If the phone is unauthorized, the
+command shows the one-time `adb pair` instructions. Pairing keys stay on the
+host and survive Flutter container recreation.
 
 `mobile-install` selects the phone, builds the debug APK, and runs
 `adb -s <serial> install -r`. It prints `MOBILE_SERVER_URL` before build and
@@ -138,7 +143,9 @@ requirement.
 - Run `docker image inspect second-brain-mobile-toolchain` to inspect the image.
 - Run `docker volume ls` to inspect the two cache volumes and
   `mobile-brain-data`.
-- Run `/home/alenna/android/platform-tools/adb devices -l` to inspect host ADB.
+- Run `adb devices -l` to inspect host ADB. In mirrored WSL this uses the
+  Windows ADB server; check it with
+  `/mnt/c/Tools/android-sdk/platform-tools/adb.exe devices -l`.
 - Run `adb mdns services` to inspect connect and pairing services.
 - Keep the ADB daemon on loopback. Never expose port 5037 on the LAN.
 - A missing or malformed local value fails before Docker builds or device

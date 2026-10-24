@@ -58,12 +58,18 @@ exit 0
 mkdir -p "$FAKE_LOG_DIR"
 printf '%s\\n' "$*" >> "$FAKE_LOG_DIR/docker.log"
 printf 'docker %s\\n' "$*" >> "$FAKE_LOG_DIR/events.log"
-for argument in "$@"; do
+arguments=("$@")
+for ((index = 0; index < ${#arguments[@]}; index++)); do
+  argument="${arguments[index]}"
   if [[ "$argument" == "build" && "${DOCKER_BUILD_FAIL:-0}" == "1" ]]; then
     exit 1
   fi
   if [[ "$argument" == "inspect" && "${DOCKER_IMAGE_MISSING:-0}" == "1" ]]; then
     exit 1
+  fi
+  if [[ "$argument" == "--iidfile" ]]; then
+    next=$((index + 1))
+    printf 'sha256:test-image\\n' > "${arguments[next]}"
   fi
 done
 exit 0
@@ -75,7 +81,11 @@ exit 0
 if [[ "${CURL_FAIL:-0}" == "1" ]]; then
   exit 1
 fi
-printf '%s\\n' "${CURL_RESPONSE:-{\"ready\":0,\"leased\":0,\"retry_wait\":0,\"paused\":0}}"
+response="${CURL_RESPONSE:-}"
+if [[ -z "$response" ]]; then
+  response='{"ready":0,"leased":0,"retry_wait":0,"paused":0}'
+fi
+printf '%s\\n' "$response"
 """,
     )
     _write_executable(
@@ -346,6 +356,23 @@ def test_restore_keeps_safety_copy_when_extraction_fails(
     assert (
         safety_copies[0] / "state" / "records.json"
     ).read_text() == "active database"
+    assert (
+        deployment_workspace.data / "brain.db/state/records.json"
+    ).read_text() == "active database"
+
+
+def test_restore_allows_a_missing_active_database(deployment_workspace):
+    archive = deployment_workspace.backup / "selected.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as stream:
+        stream.add(deployment_workspace.data / "brain.db", arcname="brain.db")
+    shutil.rmtree(deployment_workspace.data / "brain.db")
+
+    result = _run(deployment_workspace, "backup.sh", "restore", str(archive))
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        deployment_workspace.data / "brain.db/state/records.json"
+    ).read_text() == "active database"
 
 
 def test_update_builds_local_image_and_archives_before_restarting(
@@ -355,7 +382,11 @@ def test_update_builds_local_image_and_archives_before_restarting(
 
     assert result.returncode == 0, result.stderr
     docker_log = _log_lines(deployment_workspace, "docker.log")
-    assert any("build" in line and "second-brain:local" in line for line in docker_log)
+    assert any("build" in line for line in docker_log)
+    assert not any(" -t second-brain:local " in f" {line} " for line in docker_log)
+    assert any(
+        "tag sha256:test-image second-brain:local" in line for line in docker_log
+    )
     assert not any(" pull " in f" {line} " for line in docker_log)
     assert _archives(deployment_workspace, "pre-update")
     service_log = _log_lines(deployment_workspace, "systemctl.log")
@@ -463,9 +494,7 @@ def test_make_exposes_backup_and_restore_command_boundaries() -> None:
 
 
 @pytest.mark.parametrize("mode", ["daily", "pre-update"])
-@pytest.mark.parametrize(
-    "field", ["ready", "leased", "retry_wait", "worker_count", "active_leases"]
-)
+@pytest.mark.parametrize("field", ["ready", "leased", "retry_wait", "active_leases"])
 def test_backup_handles_each_non_idle_pipeline_state(deployment_workspace, mode, field):
     import json
 
@@ -490,8 +519,27 @@ def test_backup_handles_each_non_idle_pipeline_state(deployment_workspace, mode,
 
 
 @pytest.mark.parametrize("mode", ["daily", "pre-update"])
+def test_worker_loop_count_does_not_defer_backup(deployment_workspace, mode):
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        mode,
+        env_overrides={
+            "CURL_RESPONSE": '{"ready":0,"leased":0,"retry_wait":0,"worker_count":1,"active_leases":0}'
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(_archives(deployment_workspace, mode)) == 1
+
+
+@pytest.mark.parametrize("mode", ["daily", "pre-update"])
 @pytest.mark.parametrize(
-    "overrides", [{"CURL_FAIL": "1"}, {"CURL_RESPONSE": "not json"}]
+    "overrides",
+    [
+        {"CURL_FAIL": "1"},
+        {"CURL_RESPONSE": "not json"},
+        {"CURL_RESPONSE": '{"ready":0} {"ready":0}'},
+    ],
 )
 def test_backup_fails_closed_on_pipeline_errors(deployment_workspace, mode, overrides):
     result = _run(deployment_workspace, "backup.sh", mode, env_overrides=overrides)
@@ -579,6 +627,22 @@ def test_backup_failure_preserves_prior_inactive_service_state(deployment_worksp
         " start " in f" {line} "
         for line in _log_lines(deployment_workspace, "systemctl.log")
     )
+
+
+def test_backup_archives_an_inactive_service_without_pipeline_access(
+    deployment_workspace,
+):
+    result = _run(
+        deployment_workspace,
+        "backup.sh",
+        "pre-update",
+        env_overrides={"SERVICE_ACTIVE": "inactive", "CURL_FAIL": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(_archives(deployment_workspace, "pre-update")) == 1
+    service_log = _log_lines(deployment_workspace, "systemctl.log")
+    assert not any(" stop " in f" {line} " for line in service_log)
+    assert not any(" start " in f" {line} " for line in service_log)
 
 
 def test_update_does_not_install_or_restart_after_pre_update_failure(

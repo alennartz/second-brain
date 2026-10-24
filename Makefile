@@ -114,11 +114,11 @@ deploy-restore: ## Restore an explicit archive (ARCHIVE=/path/to/archive.tar.gz)
 .PHONY: deploy-undeploy
 deploy-undeploy: ## Stop, disable, and remove the systemd service and backup timer
 	@test -f $(DEPLOY_ENV) || { echo "$(DEPLOY_ENV) missing" >&2; exit 1; }
-	. $(DEPLOY_ENV) && \\
-		systemctl --user disable --now "$${BRAIN_DEPLOY_NAME}-backup.timer" "$${BRAIN_DEPLOY_NAME}-backup.service" "$${BRAIN_DEPLOY_NAME}.service" && \\
-		rm -f "$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}.service" \\
-			"$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}-backup.service" \\
-			"$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}-backup.timer" && \\
+	. $(DEPLOY_ENV) && \
+		systemctl --user disable --now "$${BRAIN_DEPLOY_NAME}-backup.timer" "$${BRAIN_DEPLOY_NAME}-backup.service" "$${BRAIN_DEPLOY_NAME}.service" && \
+		rm -f "$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}.service" \
+			"$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}-backup.service" \
+			"$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}-backup.timer" && \
 		systemctl --user daemon-reload
 
 .PHONY: deploy-status

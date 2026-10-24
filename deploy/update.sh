@@ -28,11 +28,24 @@ for variable in "${required_values[@]}"; do
   fi
 done
 
+image_id_file="$(mktemp)"
+cleanup() {
+  rm -f -- "$image_id_file"
+}
+trap cleanup EXIT
+
 cd -- "$CHECKOUT_DIR"
-# A local build is deliberate. This command never pulls the configured tag.
-docker build -t "$BRAIN_IMAGE" "$CHECKOUT_DIR"
+# Build without changing the configured tag. The tag is updated only after the
+# pre-update archive succeeds, so archive failure leaves the running image tag.
+docker build --iidfile "$image_id_file" "$CHECKOUT_DIR"
+image_id="$(<"$image_id_file")"
+if [[ -z "$image_id" ]]; then
+  echo "error: Docker did not report the built image ID" >&2
+  exit 1
+fi
 
 bash "$DEPLOY_DIR/backup.sh" pre-update
+docker tag "$image_id" "$BRAIN_IMAGE"
 bash "$DEPLOY_DIR/install.sh"
 systemctl --user restart "${BRAIN_DEPLOY_NAME}.service"
 

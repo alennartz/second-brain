@@ -6,6 +6,7 @@
 #   backup.sh pre-update
 #   backup.sh restore <archive>
 set -euo pipefail
+umask 077
 
 DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 ENV_FILE="$DEPLOY_DIR/deploy.env"
@@ -48,21 +49,92 @@ fi
 SERVICE_NAME="${BRAIN_DEPLOY_NAME}.service"
 PIPELINE_URL="http://127.0.0.1:${BRAIN_DEPLOY_PORT}/ingest/pipeline"
 
+# Operation state is shared with the EXIT trap. The trap handles interrupts,
+# archive failures, and partial restores without starting an inactive service.
+LOCK_FD=""
+OP_WAS_ACTIVE=0
+OP_STOPPED=0
+OP_TEMP=""
+OP_TEMP_LIST=""
+OP_TEMP_VERBOSE=""
+CREATED_ARCHIVE=""
+PUBLISHED_ARCHIVE=""
+OP_SAFETY=""
+OP_ACTIVE_MOVED=0
+OP_RESTORE_COMMITTED=0
+OP_RECOVER_ALLOWED=1
+
+cleanup_operation() {
+  local status=$1
+  # Cleanup must not replace the original failure status.
+  set +e
+  trap - INT TERM
+
+  local temporary
+  for temporary in "$OP_TEMP" "$OP_TEMP_LIST" "$OP_TEMP_VERBOSE"; do
+    [[ -n "$temporary" ]] || continue
+    if [[ -d "$temporary" ]]; then
+      rm -rf -- "$temporary"
+    else
+      rm -f -- "$temporary"
+    fi
+  done
+  OP_TEMP=""
+  OP_TEMP_LIST=""
+  OP_TEMP_VERBOSE=""
+
+  # A failed restore must never start the service on a missing or partial
+  # database. Copy the safety directory back while retaining the safety copy.
+  if [[ "$status" -ne 0 && "$OP_ACTIVE_MOVED" == 1 &&
+    "$OP_RESTORE_COMMITTED" == 0 && "$OP_RECOVER_ALLOWED" == 1 &&
+    -n "$OP_SAFETY" && -d "$OP_SAFETY" &&
+    ! -e "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]]; then
+    cp -a -- "$OP_SAFETY" "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
+  fi
+
+  if [[ "$status" -ne 0 && "$OP_STOPPED" == 1 &&
+    "$OP_WAS_ACTIVE" == 1 && "$OP_RECOVER_ALLOWED" == 1 ]]; then
+    if systemctl --user start "$SERVICE_NAME"; then
+      OP_STOPPED=0
+    else
+      printf 'error: failed to recover %s\n' "$SERVICE_NAME" >&2
+    fi
+  fi
+}
+
+on_exit() {
+  local status=$?
+  trap - EXIT
+  cleanup_operation "$status"
+  exit "$status"
+}
+
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 pipeline_activity_json() {
-  jq -r '
-    def count($field):
-      .[$field] // 0
-      | if (type == "number" and . >= 0) then . else error("invalid activity field") end;
-    if type != "object" then
+  jq --raw-output --slurp '
+    if length != 1 then
+      error("invalid pipeline response")
+    elif .[0] | type != "object" then
       error("invalid pipeline response")
     else
-      [
-        count("ready"),
-        count("leased"),
-        count("retry_wait"),
-        count("worker_count"),
-        count("active_leases")
-      ] | any(.[]; . > 0)
+      .[0] as $snapshot
+      | def count($field):
+          (if $snapshot | has($field) then $snapshot[$field] else 0 end)
+          | if (type == "number" and . >= 0 and floor == .) then
+              .
+            else
+              error("invalid activity field")
+            end;
+        [
+          ($snapshot | count("ready")),
+          ($snapshot | count("leased")),
+          ($snapshot | count("retry_wait")),
+          ($snapshot | count("active_leases"))
+        ]
+        | any(.[]; . > 0)
     end
   '
 }
@@ -72,24 +144,15 @@ pipeline_is_non_idle() {
   if ! response="$(curl --fail --silent --show-error "$PIPELINE_URL")"; then
     return 2
   fi
-
   if ! parsed="$(pipeline_activity_json <<<"$response")"; then
-    # A shell wrapper can append one quoting brace to a top-level object.
-    # Retry that wrapper artifact once without accepting other malformed data.
-    if [[ "$response" == \{*\}\} ]]; then
-      response="${response%\}}"
-      if ! parsed="$(pipeline_activity_json <<<"$response")"; then
-        return 2
-      fi
-    else
-      return 2
-    fi
+    return 2
   fi
 
-  if [[ "$parsed" == "true" ]]; then
-    return 0
-  fi
-  return 1
+  case "$parsed" in
+    true) return 0 ;;
+    false) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 defer_or_fail_pipeline() {
@@ -102,21 +165,50 @@ defer_or_fail_pipeline() {
 }
 
 service_was_active() {
-  if systemctl --user is-active --quiet "$SERVICE_NAME" >/dev/null 2>&1; then
-    return 0
-  fi
-  return 1
+  local status
+  systemctl --user is-active --quiet "$SERVICE_NAME" >/dev/null 2>&1
+  status=$?
+  case "$status" in
+    0) return 0 ;;
+    # systemd uses 3 for inactive or failed units. The test command used by
+    # operators returns 1 for the same stopped state.
+    1|3) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
-recover_service() {
-  local was_active=$1
-  if [[ "$was_active" == 1 ]]; then
-    if ! systemctl --user start "$SERVICE_NAME"; then
-      printf 'error: failed to recover %s\n' "$SERVICE_NAME" >&2
+prepare_operation() {
+  OP_WAS_ACTIVE=0
+  OP_STOPPED=0
+  OP_TEMP=""
+  OP_TEMP_LIST=""
+  OP_TEMP_VERBOSE=""
+  CREATED_ARCHIVE=""
+  PUBLISHED_ARCHIVE=""
+  OP_SAFETY=""
+  OP_ACTIVE_MOVED=0
+  OP_RESTORE_COMMITTED=0
+  OP_RECOVER_ALLOWED=1
+  if service_was_active; then
+    OP_WAS_ACTIVE=1
+  else
+    local status=$?
+    if [[ "$status" == 2 ]]; then
+      fail "unable to determine the state of $SERVICE_NAME"
       return 1
     fi
   fi
-  return 0
+}
+
+acquire_lock() {
+  if ! exec {LOCK_FD}>"$BRAIN_DEPLOY_BACKUP_DIR/.backup.lock"; then
+    fail "unable to open backup lock in $BRAIN_DEPLOY_BACKUP_DIR"
+    return 1
+  fi
+  if ! flock --exclusive "$LOCK_FD"; then
+    fail "unable to acquire backup lock in $BRAIN_DEPLOY_BACKUP_DIR"
+    return 1
+  fi
 }
 
 validate_archive_directories() {
@@ -131,110 +223,155 @@ validate_archive_directories() {
   return 0
 }
 
-archive_name() {
-  local prefix=$1 backup_dir=$2 stamp candidate suffix
+publish_archive() {
+  local prefix=$1 temporary=$2 backup_dir=$3
+  local stamp candidate suffix=0
+
   stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
-  candidate="$backup_dir/${prefix}-${stamp}.tar.gz"
-  suffix=1
-  while [[ -e "$candidate" ]]; do
-    candidate="$backup_dir/${prefix}-${stamp}-${suffix}.tar.gz"
+  while ((suffix < 100000)); do
+    if ((suffix == 0)); then
+      candidate="$backup_dir/${prefix}-${stamp}.tar.gz"
+    else
+      candidate="$backup_dir/${prefix}-${stamp}-${suffix}.tar.gz"
+    fi
+
+    # mv -n provides an atomic no-clobber publication. If another process
+    # selected this name, the temporary file remains and the next suffix wins.
+    if mv -n -- "$temporary" "$candidate" && [[ ! -e "$temporary" ]]; then
+      if ! chmod 0600 -- "$candidate"; then
+        rm -f -- "$candidate"
+        return 1
+      fi
+      OP_TEMP=""
+      PUBLISHED_ARCHIVE="$candidate"
+      return 0
+    fi
     suffix=$((suffix + 1))
   done
-  printf '%s\n' "$candidate"
+
+  return 1
 }
 
 create_archive() {
   local prefix=$1 data_dir=$2 database_name=$3 backup_dir=$4
-  local temporary published
+  local temporary
+
+  if [[ ! -d "$data_dir/$database_name" || -L "$data_dir/$database_name" ]]; then
+    printf 'error: active database directory is missing: %s\n' "$data_dir/$database_name" >&2
+    return 1
+  fi
 
   temporary="$(mktemp "$backup_dir/.${prefix}-XXXXXX.tar.gz.tmp")" || {
     printf 'error: unable to create temporary archive in %s\n' "$backup_dir" >&2
     return 1
   }
-
-  if [[ ! -d "$data_dir/$database_name" || -L "$data_dir/$database_name" ]]; then
-    rm -f -- "$temporary"
-    printf 'error: active database directory is missing: %s\n' "$data_dir/$database_name" >&2
-    return 1
-  fi
+  OP_TEMP="$temporary"
 
   if ! (cd -- "$data_dir" && tar --create --gzip --file="$temporary" -- "$database_name"); then
-    rm -f -- "$temporary"
     printf 'error: database archive failed\n' >&2
     return 1
   fi
   if ! chmod 0600 -- "$temporary"; then
-    rm -f -- "$temporary"
     printf 'error: unable to protect temporary archive\n' >&2
     return 1
   fi
 
-  published="$(archive_name "$prefix" "$backup_dir")"
-  if ! mv -- "$temporary" "$published"; then
-    rm -f -- "$temporary"
+  if ! publish_archive "$prefix" "$temporary" "$backup_dir"; then
     printf 'error: unable to publish archive\n' >&2
     return 1
   fi
-  if ! chmod 0600 -- "$published"; then
-    printf 'error: unable to protect archive: %s\n' "$published" >&2
-    return 1
-  fi
-  printf '%s\n' "$published"
+  CREATED_ARCHIVE="$PUBLISHED_ARCHIVE"
 }
 
 rotate_archives() {
-  local prefix=$1 backup_dir=$2 item path index
+  local prefix=$1 backup_dir=$2 path base index
+  local pattern="^${prefix}-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z(-[0-9]+)?\\.tar\\.gz$"
   local -a ordered=()
 
-  while IFS= read -r -d '' item; do
-    ordered+=("$item")
+  while IFS= read -r -d '' base; do
+    ordered+=("$backup_dir/$base")
   done < <(
-    for path in "$backup_dir"/"$prefix"-*.tar.gz; do
+    for path in "$backup_dir"/*.tar.gz; do
       [[ -f "$path" ]] || continue
-      printf '%s\t%s\0' "$(stat -c '%Y' -- "$path")" "$path"
-    done | sort -z -rn -k1,1 -k2,2
+      base="${path##*/}"
+      [[ "$base" =~ $pattern ]] || continue
+      printf '%s\0' "$base"
+    done | sort -z -r
   )
 
   for ((index = 7; index < ${#ordered[@]}; index++)); do
-    path="${ordered[index]#*$'\t'}"
-    rm -f -- "$path" || return 1
+    rm -f -- "${ordered[index]}" || return 1
   done
 }
 
 run_backup() {
-  local mode=$1
-  local archive was_active=0 rotation_failed=0
+  local mode=$1 archive rotation_failed=0 pipeline_status
 
-  if ! validate_archive_directories ||
-    [[ ! -d "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]] ||
-    [[ -L "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]]; then
+  if ! validate_archive_directories; then
+    return 1
+  fi
+  if ! acquire_lock; then
+    return 1
+  fi
+  if ! prepare_operation; then
+    return 1
+  fi
+
+  # An inactive service cannot answer the pipeline endpoint. Its stopped state
+  # is already quiescent, so skip that check and preserve the state below.
+  if ((OP_WAS_ACTIVE == 1)); then
+    pipeline_status=1
+    if pipeline_is_non_idle; then
+      pipeline_status=0
+    else
+      pipeline_status=$?
+    fi
+    case "$pipeline_status" in
+      0)
+        defer_or_fail_pipeline "$mode" "intake pipeline is not idle"
+        return $?
+        ;;
+      1)
+        ;;
+      *)
+        defer_or_fail_pipeline "$mode" "unable to read a valid intake pipeline snapshot"
+        return $?
+        ;;
+    esac
+  fi
+
+  if [[ ! -d "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ||
+    -L "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]]; then
     fail "active database directory is missing: $BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
     return 1
   fi
 
-  if service_was_active; then
-    was_active=1
+  if ((OP_WAS_ACTIVE == 1)); then
+    # Mark the service for recovery before invoking stop. An interrupt during
+    # the stop command must not leave a previously active service down.
+    OP_STOPPED=1
+    if ! systemctl --user stop "$SERVICE_NAME"; then
+      printf 'error: failed to stop %s; no archive was created\n' "$SERVICE_NAME" >&2
+      return 1
+    fi
   fi
 
-  if ! systemctl --user stop "$SERVICE_NAME"; then
-    printf 'error: failed to stop %s; no archive was created\n' "$SERVICE_NAME" >&2
+  if ! create_archive "$mode" "$BRAIN_DEPLOY_DATA_DIR" "$BRAIN_DEPLOY_DB_NAME" "$BRAIN_DEPLOY_BACKUP_DIR"; then
     return 1
   fi
-
-  if ! archive="$(create_archive "$mode" "$BRAIN_DEPLOY_DATA_DIR" "$BRAIN_DEPLOY_DB_NAME" "$BRAIN_DEPLOY_BACKUP_DIR")"; then
-    recover_service "$was_active" || true
-    return 1
-  fi
+  archive="$CREATED_ARCHIVE"
 
   if ! rotate_archives "$mode" "$BRAIN_DEPLOY_BACKUP_DIR"; then
     rotation_failed=1
     printf 'error: archive rotation failed\n' >&2
   fi
 
-  if ! systemctl --user start "$SERVICE_NAME"; then
-    printf 'error: failed to start %s after archive\n' "$SERVICE_NAME" >&2
-    recover_service "$was_active" || true
-    return 1
+  if ((OP_WAS_ACTIVE == 1)); then
+    if ! systemctl --user start "$SERVICE_NAME"; then
+      printf 'error: failed to start %s after archive\n' "$SERVICE_NAME" >&2
+      return 1
+    fi
+    OP_STOPPED=0
   fi
 
   printf 'created %s\n' "$archive"
@@ -259,14 +396,19 @@ validate_archive() {
   local archive=$1 database_name=$2 backup_dir=$3
   local listing verbose entry normalized line member_type found=0
   listing="$(mktemp "$backup_dir/.restore-list-XXXXXX")" || return 1
+  OP_TEMP_LIST="$listing"
   verbose="$(mktemp "$backup_dir/.restore-verbose-XXXXXX")" || {
     rm -f -- "$listing"
+    OP_TEMP_LIST=""
     return 1
   }
+  OP_TEMP_VERBOSE="$verbose"
 
   if ! tar --list --gzip --file="$archive" >"$listing" ||
     ! tar --list --verbose --gzip --file="$archive" >"$verbose"; then
     rm -f -- "$listing" "$verbose"
+    OP_TEMP_LIST=""
+    OP_TEMP_VERBOSE=""
     return 1
   fi
 
@@ -278,6 +420,8 @@ validate_archive() {
       -|d) ;;
       *)
         rm -f -- "$listing" "$verbose"
+        OP_TEMP_LIST=""
+        OP_TEMP_VERBOSE=""
         return 1
         ;;
     esac
@@ -293,6 +437,8 @@ validate_archive() {
       "$normalized" == ".." || "$normalized" == ../* ||
       "$normalized" == */../* || "$normalized" == */.. ]]; then
       rm -f -- "$listing" "$verbose"
+      OP_TEMP_LIST=""
+      OP_TEMP_VERBOSE=""
       return 1
     fi
     normalized="${normalized%/}"
@@ -301,18 +447,26 @@ validate_archive() {
       found=1
     else
       rm -f -- "$listing" "$verbose"
+      OP_TEMP_LIST=""
+      OP_TEMP_VERBOSE=""
       return 1
     fi
   done < "$listing"
 
   rm -f -- "$listing" "$verbose"
+  OP_TEMP_LIST=""
+  OP_TEMP_VERBOSE=""
   [[ "$found" == 1 ]]
 }
 
 restore_archive() {
-  local requested=$1 archive was_active=0 safety suffix
+  local requested=$1 archive safety suffix stage had_active=0
+  local active_path="$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
 
   if ! validate_archive_directories; then
+    return 1
+  fi
+  if ! acquire_lock; then
     return 1
   fi
   if ! archive="$(resolved_archive_path "$requested")"; then
@@ -323,46 +477,79 @@ restore_archive() {
     fail "archive contains invalid database entries: $requested"
     return 1
   fi
-  if [[ ! -d "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ||
-    -L "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]]; then
-    fail "active database directory is missing: $BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
+  if [[ -L "$active_path" || (-e "$active_path" && ! -d "$active_path") ]]; then
+    fail "active database path is not a directory: $active_path"
+    return 1
+  fi
+  if [[ -d "$active_path" ]]; then
+    had_active=1
+  fi
+
+  if ! prepare_operation; then
+    return 1
+  fi
+  if ((had_active == 0)); then
+    # There is no safety copy to restore if extraction fails. Never start a
+    # service that could create a fresh, incorrect database in that case.
+    OP_RECOVER_ALLOWED=0
+  fi
+
+  if ((OP_WAS_ACTIVE == 1)); then
+    OP_STOPPED=1
+    if ! systemctl --user stop "$SERVICE_NAME"; then
+      printf 'error: failed to stop %s; data was not moved\n' "$SERVICE_NAME" >&2
+      return 1
+    fi
+  fi
+
+  if ((had_active == 1)); then
+    safety="$BRAIN_DEPLOY_DATA_DIR/${BRAIN_DEPLOY_DB_NAME}.safety-$(date -u +%Y-%m-%dT%H%M%SZ)-$$"
+    suffix=1
+    while [[ -e "$safety" || -L "$safety" ]]; do
+      safety="$BRAIN_DEPLOY_DATA_DIR/${BRAIN_DEPLOY_DB_NAME}.safety-$(date -u +%Y-%m-%dT%H%M%SZ)-$$-$suffix"
+      suffix=$((suffix + 1))
+    done
+    OP_SAFETY="$safety"
+    OP_ACTIVE_MOVED=1
+    if ! mv -- "$active_path" "$safety"; then
+      fail "unable to move the active database to $safety"
+      return 1
+    fi
+  fi
+
+  stage="$(mktemp -d "$BRAIN_DEPLOY_DATA_DIR/.restore-staging-XXXXXX")" || {
+    printf 'error: unable to create restore staging directory\n' >&2
+    return 1
+  }
+  OP_TEMP="$stage"
+
+  if ! tar --extract --gzip --file="$archive" --directory="$stage" ||
+    [[ ! -d "$stage/$BRAIN_DEPLOY_DB_NAME" ||
+      -L "$stage/$BRAIN_DEPLOY_DB_NAME" ]]; then
+    printf 'error: restore extraction failed; safety copy retained at %s\n' "${OP_SAFETY:-none}" >&2
     return 1
   fi
 
-  if service_was_active; then
-    was_active=1
-  fi
-  if ! systemctl --user stop "$SERVICE_NAME"; then
-    printf 'error: failed to stop %s; data was not moved\n' "$SERVICE_NAME" >&2
+  if [[ -e "$active_path" || -L "$active_path" ]] ||
+    ! mv -- "$stage/$BRAIN_DEPLOY_DB_NAME" "$active_path"; then
+    printf 'error: unable to publish restored database; safety copy retained at %s\n' "${OP_SAFETY:-none}" >&2
     return 1
   fi
-
-  safety="$BRAIN_DEPLOY_DATA_DIR/${BRAIN_DEPLOY_DB_NAME}.safety-$(date -u +%Y-%m-%dT%H%M%SZ)-$$"
-  suffix=1
-  while [[ -e "$safety" ]]; do
-    safety="$BRAIN_DEPLOY_DATA_DIR/${BRAIN_DEPLOY_DB_NAME}.safety-$(date -u +%Y-%m-%dT%H%M%SZ)-$$-$suffix"
-    suffix=$((suffix + 1))
-  done
-  if ! mv -- "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" "$safety"; then
-    recover_service "$was_active" || true
-    fail "unable to move the active database to $safety"
-    return 1
-  fi
-
-  if ! tar --extract --gzip --file="$archive" --directory="$BRAIN_DEPLOY_DATA_DIR" ||
-    [[ ! -d "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" ]]; then
-    printf 'error: restore extraction failed; safety copy retained at %s\n' "$safety" >&2
-    recover_service "$was_active" || true
-    return 1
+  rm -rf -- "$stage"
+  OP_TEMP=""
+  OP_RESTORE_COMMITTED=1
+  if ((had_active == 0)); then
+    # The staged database is now valid, so startup recovery is safe.
+    OP_RECOVER_ALLOWED=1
   fi
 
   if ! systemctl --user start "$SERVICE_NAME"; then
-    printf 'error: failed to start %s; safety copy retained at %s\n' "$SERVICE_NAME" "$safety" >&2
-    recover_service "$was_active" || true
+    printf 'error: failed to start %s; safety copy retained at %s\n' "$SERVICE_NAME" "${OP_SAFETY:-none}" >&2
     return 1
   fi
+  OP_STOPPED=0
 
-  printf 'restored %s; previous database retained at %s\n' "$archive" "$safety"
+  printf 'restored %s; previous database retained at %s\n' "$archive" "${OP_SAFETY:-none}"
   return 0
 }
 
@@ -381,24 +568,6 @@ case "$1" in
       usage
       exit 1
     fi
-    pipeline_status=1
-    if pipeline_is_non_idle; then
-      pipeline_status=0
-    else
-      pipeline_status=$?
-    fi
-    case "$pipeline_status" in
-      0)
-        defer_or_fail_pipeline "$1" "intake pipeline is not idle"
-        exit $?
-        ;;
-      1)
-        ;;
-      *)
-        defer_or_fail_pipeline "$1" "unable to read a valid intake pipeline snapshot"
-        exit $?
-        ;;
-    esac
     run_backup "$1"
     ;;
   restore)

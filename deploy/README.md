@@ -24,7 +24,7 @@ Install and configure:
 
 - Docker with permission to run containers.
 - A systemd user manager with user lingering enabled.
-- `curl`, `jq`, and `tar` on the host.
+- `curl`, `jq`, `tar`, and `flock` on the host.
 - A checkout with the current Dockerfile.
 
 The installer does not use `sudo`, pull an image, or contact a registry. Build the
@@ -62,10 +62,10 @@ bash deploy/install.sh
 ```
 
 Use `make deploy` for routine updates after the service has an active database.
-It runs `deploy/update.sh`, which builds the configured tag, creates a successful
-`pre-update` archive, renders the current units, and restarts the service. A
-build or archive failure leaves the running service and installed units
-untouched.
+It runs `deploy/update.sh`, which builds a candidate image without changing the
+configured tag, creates a successful `pre-update` archive, tags the candidate,
+renders the current units, and restarts the service. A build or archive failure
+leaves the running service and configured image tag untouched.
 
 The main unit uses:
 
@@ -86,16 +86,18 @@ make deploy-backup MODE=pre-update
 ```
 
 Daily mode requests `/ingest/pipeline` through loopback. Positive `ready`,
-`leased`, `retry_wait`, `worker_count`, or `active_leases` values defer the
-archive without stopping the service. Paused-only work does not defer it. A
-request or parsing error also defers it. The persistent timer retries on its
-next run.
+`leased`, `retry_wait`, or `active_leases` values defer the archive without
+stopping the service. The worker-loop count is not intake work. Paused-only
+work does not defer it. A request or parsing error also defers it. The
+persistent timer retries on its next run. If the service is already inactive,
+the command skips the endpoint check and preserves that inactive state.
 
 Pre-update mode treats non-idle work and pipeline errors as failures. The update
 will not install or restart the service without a successful pre-update archive.
-Both modes stop the service before reading the database, publish one owner-only
-(`0600`) `tar.gz` archive, and start the service after publication. A failed
-operation attempts to recover a service that was active before the operation.
+Both modes stop an active service before reading the database, publish one
+owner-only (`0600`) `tar.gz` archive, and restart it after publication. A failed
+operation removes temporary output and recovers only a service that was active
+before the operation. Backup and restore operations share an exclusive lock.
 
 Daily and pre-update archives rotate independently. Each set keeps its seven
 newest files. Temporary files, the other mode, and unrelated operator archives
@@ -119,32 +121,72 @@ parent traversal, links, and foreign database entries, then:
 
 1. stops the service;
 2. moves the active `brain.db` to a timestamped `brain.db.safety-*` directory;
-3. extracts the selected archive into the configured data directory; and
-4. starts the service.
+3. extracts the selected archive into a staging directory;
+4. atomically publishes the staged database; and
+5. starts the service.
 
 Extraction and startup failures return a non-zero status and retain the safety
-copy. Experiment databases remain in place.
+copy. A failed extraction restores the safety copy before service recovery. A
+missing active database is valid for restore. Experiment databases remain in
+place.
 
 ## One-time fresh database reset
 
 A fresh start is an operator action. It is not part of `make deploy` and does
-not run during routine updates. Keep the service stopped while moving data:
+not run during routine updates. The commands below fail closed: they stop before
+moving data, remove incomplete output, and recover a service that was active
+before the reset:
 
 ```bash
-# Load the configured values in the current shell.
+set -euo pipefail
 . deploy/deploy.env
 
-systemctl --user stop "${BRAIN_DEPLOY_NAME}.service"
+service="${BRAIN_DEPLOY_NAME}.service"
+active="$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME"
 mkdir -p "$BRAIN_DEPLOY_BACKUP_DIR"
-archive="$BRAIN_DEPLOY_BACKUP_DIR/reset-$(date -u +%Y-%m-%dT%H%M%SZ).tar.gz"
+if [[ ! -d "$active" || -L "$active" ]]; then
+  echo "active database is missing: $active" >&2
+  exit 1
+fi
+
+was_active=0
+if systemctl --user is-active --quiet "$service"; then
+  was_active=1
+fi
+archive="$BRAIN_DEPLOY_BACKUP_DIR/reset-$(date -u +%Y-%m-%dT%H%M%SZ)-$$.tar.gz"
+safety="$BRAIN_DEPLOY_DATA_DIR/${BRAIN_DEPLOY_DB_NAME}.safety-$(date -u +%Y-%m-%dT%H%M%SZ)-$$"
+temporary=""
+
+cleanup() {
+  local status=$?
+  set +e
+  [[ -z "$temporary" ]] || rm -f -- "$temporary"
+  if ((status != 0 && was_active == 1)); then
+    systemctl --user start "$service" || true
+  fi
+  trap - EXIT
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if ((was_active == 1)); then
+  systemctl --user stop "$service"
+fi
+temporary="$(mktemp "$BRAIN_DEPLOY_BACKUP_DIR/.reset-XXXXXX.tar.gz.tmp")"
 (
   cd "$BRAIN_DEPLOY_DATA_DIR"
-  tar --create --gzip --file="$archive" -- "$BRAIN_DEPLOY_DB_NAME"
+  tar --create --gzip --file="$temporary" -- "$BRAIN_DEPLOY_DB_NAME"
 )
-chmod 0600 "$archive"
-mv "$BRAIN_DEPLOY_DATA_DIR/$BRAIN_DEPLOY_DB_NAME" \
-  "$BRAIN_DEPLOY_DATA_DIR/${BRAIN_DEPLOY_DB_NAME}.safety-$(date -u +%Y-%m-%dT%H%M%SZ)"
-systemctl --user start "${BRAIN_DEPLOY_NAME}.service"
+chmod 0600 "$temporary"
+mv -- "$temporary" "$archive"
+temporary=""
+mv -- "$active" "$safety"
+if ((was_active == 1)); then
+  systemctl --user start "$service"
+fi
+trap - EXIT
 ```
 
 This procedure archives and moves only `brain.db`. It never moves experiment

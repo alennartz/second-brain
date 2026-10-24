@@ -78,8 +78,10 @@ fi
 
 # Both integer timeouts must exceed the configured (possibly fractional) grace.
 grace_ceiling="$(awk -v value="$grace_seconds" 'BEGIN { whole = int(value); if (value > whole) whole++; print whole }')"
-docker_stop_timeout=$((grace_ceiling + 1))
-systemd_stop_timeout=$((docker_stop_timeout + 1))
+# Pipeline shutdown can wait through the grace period, cancel stuck workers,
+# and wait through a second grace period before Storage closes.
+docker_stop_timeout=$((grace_ceiling * 2 + 5))
+systemd_stop_timeout=$((docker_stop_timeout + 5))
 
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME:-}}"
 if [[ -z "$CONFIG_HOME" ]]; then

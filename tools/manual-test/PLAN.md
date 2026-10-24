@@ -31,3 +31,17 @@ unprocessed recall context. This is adjacent to the intake surface, but the Jev
 routing path is owned by the separate `jev-converse-routing` topic. Driver:
 `curl` when a configured non-Jev path is available; Jev assertions are recorded
 as scope limitations.
+
+## Android Flutter client smoke journey
+
+**Status:** deferred. This checkout has no Flutter, Dart, or Android toolchain,
+so manual testing did not run.
+
+In a Flutter-enabled environment, use an Android emulator or device to verify:
+
+1. First-launch server setup.
+2. Capture success and the stored chunk acknowledgement.
+3. Failed Capture retention and explicit retry.
+4. Ask recall and expanded evidence.
+5. Back from the result route with the question retained.
+6. Capture and Ask submission while the keyboard is open.

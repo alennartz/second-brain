@@ -2,7 +2,7 @@
 
 ## Overview
 
-Personal knowledge engine: a FastAPI REST API backed by an embedded SurrealDB graph database with five PydanticAI agent loops (ingest, recall, converse, dream-dedup, dream-connect), plus a Go terminal client (Cobra CLI + Bubble Tea TUI). Knowledge flows in via ingest, is retrieved via recall, and is autonomously refined by background "dreaming" agents that deduplicate and discover missing connections.
+Personal knowledge engine: a FastAPI REST API backed by an embedded SurrealDB graph database with five PydanticAI agent loops (ingest, recall, converse, dream-dedup, dream-connect), plus Go terminal and Flutter mobile clients. Knowledge flows in via ingest, is retrieved via recall, and is autonomously refined by background "dreaming" agents that deduplicate and discover missing connections.
 
 ```mermaid
 graph LR
@@ -193,9 +193,9 @@ staging, recall, and graph lookup
 
 ### Client
 
-Go terminal application: Cobra CLI for one-shot commands (ingest, recall, graph) and Bubble Tea TUI for interactive multi-turn conversation. Ingest waits for synchronous staging and reports the stored chunk count. Recall and conversation context preserve unprocessed evidence separately from graph nodes and edges; the graph panel renders only graph records. HTTP client wraps server endpoints, including SSE streaming.
+Client applications: a Go terminal client with a Cobra CLI and Bubble Tea TUI, plus an Android-first Flutter mobile app. The Go client supports one-shot ingest, recall, and graph commands, and interactive multi-turn conversation. The mobile client supports Capture and one-shot Ask through the existing REST API, with local server settings and failed Capture drafts.
 
-**Responsibilities:** CLI entry points and flag parsing, synchronous ingest acknowledgement, HTTP client for server endpoints, separate unprocessed recall/context wire types, SSE stream parsing for converse, interactive TUI with split-pane layout, chat message rendering with viewport scrolling, graph-only node/edge display with selection and detail view, @-mention autocomplete against graph nodes, slash commands (/exit, /clear, /graph)
+**Responsibilities:** CLI entry points and flag parsing, synchronous ingest acknowledgement, HTTP client for server endpoints, separate unprocessed recall/context wire types, SSE stream parsing for converse, interactive TUI with split-pane layout, chat message rendering with viewport scrolling, graph-only node/edge display with selection and detail view, @-mention autocomplete against graph nodes, slash commands (/exit, /clear, /graph), mobile setup and settings, typed REST gateway and response models, idempotent Capture retries with persisted drafts, one-shot recall results with grouped evidence
 
 **Dependencies:** API (HTTP endpoints — runtime dependency, not code import)
 
@@ -209,6 +209,7 @@ Go terminal application: Cobra CLI for one-shot commands (ingest, recall, graph)
 - `client/go.sum`
 - `client/.golangci.yml`
 - `client/.gitignore`
+- `client/mobile/**`
 
 ### Manual Test Tools
 

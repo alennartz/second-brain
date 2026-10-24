@@ -24,7 +24,7 @@ Model wiring delegates to PydanticAI — no custom LLM adapter code. A model str
 
 ### API-first, client-agnostic
 
-The server exposes a REST API with no frontend assumptions. Clients (CLI, TUI, web, MCP) are separate concerns that consume the same endpoints. This was deliberate — the engine should be built and validated before committing to any particular interface.
+The server exposes a REST API with no frontend assumptions. The CLI, TUI, and Android-first Flutter mobile app consume its endpoints. MCP provides a separate tool interface. This lets the engine serve multiple interfaces without coupling server behavior to one client.
 
 ### Deterministic operations stay out of the LLM
 
@@ -87,19 +87,23 @@ This gives full flexibility: direct OpenAI for embeddings + Foundry AAD for reas
 
 ## Client
 
-A Go terminal application with two modes:
+Second Brain has a Go terminal application and an Android-first Flutter mobile app. Both consume the REST API and remain separate from server implementation code.
 
-### CLI mode
+### Go CLI mode
 
 One-shot commands (`brain ingest`, `brain recall`, `brain graph`) for scripting and quick interactions. Each maps directly to a server endpoint.
 
-### TUI mode
+### Go TUI mode
 
 An interactive split-pane interface: conversation panel (left) and graph panel (right). The user converses via the `/converse` endpoint while simultaneously exploring the knowledge graph visually.
 
 The graph panel displays a curated subset — only nodes and edges the agent deemed relevant to its response, not the full subgraph it explored. This prevents cognitive overload. The user can independently expand nodes in the graph panel (via direct `GET /graph/{id}` calls) without triggering the LLM or disrupting conversation context.
 
 Built with Cobra (CLI), Bubble Tea (TUI), and Lip Gloss (styling). Compiles to a single static binary.
+
+### Flutter mobile app
+
+The mobile app offers Capture for intake staging and Ask for one-shot recall. It stores the server URL and one failed Capture draft. It does not store question or answer history. Capture retries use the server's idempotency key. The app uses system keyboard dictation and requests no audio permission. Android is the first packaging target; iOS packaging remains future work.
 
 ## Developer Experience
 
@@ -111,7 +115,7 @@ Hook order: ruff format → ruff check (with auto-fix) → basedpyright (type ch
 
 ### Makefile as single entry point
 
-All development commands (test, lint, build, docker, e2e) are Makefile targets. This makes workflows discoverable and provides a single reference point rather than requiring knowledge of multiple tool-specific invocations.
+Development commands (test, lint, build, docker, e2e) use Makefile targets. The Flutter client has opt-in `build-mobile`, `test-mobile`, and `analyze-mobile` targets. They are not part of `check-all`, which remains Python and Go only. This keeps mobile checks available without requiring Flutter in every development environment.
 
 ### Test mode
 
@@ -119,7 +123,7 @@ All development commands (test, lint, build, docker, e2e) are Makefile targets. 
 
 ### Docker
 
-Multi-stage Dockerfile (builder + slim runtime) for the server only — the Go client stays as a locally-built binary. Docker Compose provides two profiles: a production-like server on `:8000` (with `.env` and persistent volume) and a test server on `:8001` (with `BRAIN_TEST_MODE=true` and in-memory DB).
+Multi-stage Dockerfile (builder + slim runtime) for the server only — client apps are built separately. Docker Compose provides two profiles: a production-like server on `:8000` (with `.env` and persistent volume) and a test server on `:8001` (with `BRAIN_TEST_MODE=true` and in-memory DB).
 
 ### E2E tests
 

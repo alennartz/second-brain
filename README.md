@@ -4,7 +4,7 @@ Second Brain stores, connects, and retrieves your notes and ideas. It combines S
 
 ## Quickstart
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) (Python), [Go 1.22+](https://go.dev/dl/) (for the CLI client)
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) (Python). The Go CLI needs [Go 1.22+](https://go.dev/dl/). The Android client needs Flutter and Android build tools.
 
 ```bash
 # Install dependencies and pre-commit hooks
@@ -60,6 +60,12 @@ Ingest stages text before it returns. It splits and embeds the text, stores sear
 Recall searches graph records and chunks awaiting processing. It returns unprocessed chunks separately from graph nodes and edges. Chunks leave recall after successful processing.
 
 Use `GET /ingest/pipeline` to inspect queue counts, worker activity, retries, stuck intakes, and recent errors. Use `POST /ingest/pipeline/{intake_id}/pause`, `/resume`, or `/discard` to control one intake. `POST /ingest` accepts an optional `Idempotency-Key` header.
+
+## Android mobile client
+
+The Android-first Flutter app provides two actions: Capture stages a thought, and Ask performs one-shot recall. It stores the server URL and one failed Capture draft. It does not keep question or answer history. iOS packaging is not included.
+
+Build the Android APK with `make build-mobile`. It requires Flutter, Dart, and Android build tools. Run `make test-mobile` and `make analyze-mobile` for mobile checks. These opt-in targets are not part of `make check-all` and require Flutter and Dart. This checkout lacks the mobile toolchain, so the checks and Android smoke journey have not run. See the [manual test plan](tools/manual-test/PLAN.md) for the deferred device journey.
 
 ## Configuration
 
@@ -229,8 +235,11 @@ The `.env` file is mounted into the container. Data persists in a Docker volume.
 make install            # Install deps + pre-commit hooks
 make dev                # Start server with hot reload
 make build-client       # Build the Go TUI binary
+make build-mobile       # Build the Android Flutter APK (requires Flutter + Android tools)
+make test-mobile        # Run Flutter mobile tests
+make analyze-mobile     # Analyze the Flutter mobile client
 make check              # Lint + typecheck + test (Python)
-make check-all          # All checks (Python + Go)
+make check-all          # All checks (Python + Go; excludes optional Flutter checks)
 make docker-build       # Build Docker image
 make docker-up          # Start production server
 make docker-down        # Stop Docker services

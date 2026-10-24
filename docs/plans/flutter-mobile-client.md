@@ -158,3 +158,41 @@ Alternatives considered:
 - **SDK-only implementation:** avoids dependencies, but custom Markdown parsing and durable draft storage would create more code and weaker behavior at the exact seams this client needs.
 
 **Chosen: opt-in repository targets.** Add explicit `build-mobile`, `test-mobile`, and `analyze-mobile` Makefile targets. Do not add Flutter to the existing `check-all` target because the repository currently has no Flutter SDK or CI convention. Flutter-enabled environments still get one discoverable entry point for each check.
+
+## Tests
+
+**Pre-test-write commit:** `9effc25e6b033bdcc46d2e1d0a5dbbfd1f31a49f`
+
+### Interface Files
+
+- `client/mobile/pubspec.yaml` — Flutter package metadata and the focused REST, persistence, Markdown, and key-generation dependencies.
+- `client/mobile/lib/second_brain_mobile.dart` — public exports for the mobile client seams.
+- `client/mobile/lib/src/gateway/brain_gateway.dart` — `BrainGateway` REST boundary.
+- `client/mobile/lib/src/gateway/errors.dart` — typed network, HTTP status, and malformed-response exceptions.
+- `client/mobile/lib/src/gateway/http_brain_gateway.dart` — injectable HTTP gateway adapter surface with bounded timeout configuration.
+- `client/mobile/lib/src/gateway/models.dart` — typed intake, recall, graph, edge, and grouped evidence models.
+- `client/mobile/lib/src/persistence/settings_store.dart` — `SettingsStore`, `PendingCapture`, and the Shared Preferences adapter surface.
+
+### Test Files
+
+- `client/mobile/test/gateway/http_brain_gateway_test.dart` — health, intake, recall, evidence projection, transport failures, and typed response errors.
+- `client/mobile/test/persistence/settings_store_test.dart` — server URL and pending Capture draft persistence contracts.
+
+### Behaviors Covered
+
+#### HTTP brain gateway
+
+- Health checks use `GET /health` and accept only a successful JSON response with `status: ok`.
+- Intake staging sends the mobile source payload and supplied `Idempotency-Key`, then returns `chunks_stored`.
+- Recall sends a question with empty hints and maps graph nodes, directed links, and unprocessed chunks into grouped evidence.
+- Directed links attach to the returned `to` node, fall back to the returned `from` node, or remain on a linked-record card when neither endpoint is present.
+- A null recall context produces an answer with no evidence items.
+- Non-success HTTP responses, network failures, and malformed JSON cross the gateway as typed client exceptions.
+
+#### Settings store
+
+- The configured server URL survives a save and load cycle, while an unset URL loads as null.
+- A pending Capture retains its text and idempotency key across a save and load cycle.
+- A missing pending Capture loads as null, and clearing one removes it.
+
+**Local execution:** The Flutter and Dart SDKs are not installed in this checkout, so `flutter test` could not run locally. The new tests are intentionally red against the interface stubs and require a Flutter-enabled environment for the launch check.

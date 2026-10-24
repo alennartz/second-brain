@@ -5,6 +5,10 @@ Docker runs the image built from this checkout. The service listens only on
 `127.0.0.1:8100`. Loopback access is the trust boundary. The application has no
 authentication layer.
 
+See [`docs/local-production.md`](../docs/local-production.md) for the current
+instance configuration, database state, upstream endpoints, and verification
+status.
+
 ## Files
 
 | File | Purpose |
@@ -218,4 +222,5 @@ backup timer, then reloads the user manager.
 Follow [the local production manual test journey](../docs/manual-tests/local-production-server.md).
 It checks health, loopback listeners, image identity, the `/data` mount, restart
 persistence, journal lifecycle, lingering, timer scheduling, and archive
-recovery. The manual results remain unexecuted until an operator runs them.
+recovery. The latest live results and known limits are recorded in
+[`docs/local-production.md`](../docs/local-production.md).

@@ -71,6 +71,29 @@ class BatchCall:
     cancelled: bool = False
 
 
+class ShutdownAwareRunner:
+    """Return an interrupted outcome as soon as pipeline shutdown begins."""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def run(
+        self,
+        _text: str,
+        _hints: list[str],
+        *,
+        stop_event: asyncio.Event | None = None,
+    ) -> IngestBatchOutcome:
+        assert stop_event is not None
+        self.started.set()
+        await stop_event.wait()
+        return IngestBatchOutcome(
+            completed=False,
+            errors=["shutdown requested"],
+            interrupted=True,
+        )
+
+
 class GatedRunner:
     """Hold each run until the test permits its outcome to reach the pipeline."""
 
@@ -81,7 +104,13 @@ class GatedRunner:
         self.finish: Callable[[BatchCall], Awaitable[IngestBatchOutcome]] | None = None
         self.auto_release = False
 
-    async def run(self, text: str, hints: list[str]) -> IngestBatchOutcome:
+    async def run(
+        self,
+        text: str,
+        hints: list[str],
+        *,
+        stop_event: asyncio.Event | None = None,
+    ) -> IngestBatchOutcome:
         call = BatchCall(
             text=text,
             hints=hints,
@@ -884,6 +913,26 @@ async def test_snapshot_reports_live_leases_workers_and_identified_stuck_work(
     assert stopped.worker_count == 0
     assert stopped.active_leases == 0
     assert stopped.retry_wait == staged.chunks_stored
+
+
+async def test_stop_releases_interrupted_lease_without_waiting_for_llm(
+    intake_storage, clock
+):
+    runner = ShutdownAwareRunner()
+    pipeline = _make_pipeline(intake_storage, runner, clock)
+    staged = await pipeline.enqueue(IntakeRequest(text="Chunkmarker shutdown now"))
+    await pipeline.start()
+    try:
+        await _wait_event(runner.started)
+        stopping = asyncio.create_task(pipeline.stop())
+        await asyncio.wait_for(stopping, timeout=WAIT_SECONDS)
+    finally:
+        await asyncio.wait_for(pipeline.stop(), timeout=WAIT_SECONDS)
+
+    snapshot = await pipeline.snapshot()
+    assert snapshot.leased == 0
+    assert snapshot.retry_wait == staged.chunks_stored
+    assert snapshot.active_leases == 0
 
 
 async def test_stop_waits_for_inflight_completion_without_claiming_more_work(

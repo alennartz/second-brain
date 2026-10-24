@@ -223,7 +223,7 @@ None. Existing decision records cover ingest and storage behavior and remain val
 
 - `docs/manual-tests/local-production-server.md` covers the one-time reset, live health, loopback listeners, image identity, mounted data, restart persistence, journal lifecycle, lingering, and backup timer verification.
 - The reset is an operator action, not a routine deployment command.
-- Manual journeys remain unexecuted until deployment verification.
+- The latest manual run is recorded in `docs/manual-tests/local-production-server.md`; restore and completed graph ingestion remain unverified.
 
 **Review status:** approved
 
@@ -383,5 +383,5 @@ workflow instead of presenting the Compose production commands as this setup.
 Link `docs/manual-tests/local-production-server.md` for deployment verification.
 Keep its results unexecuted until the operator performs the live journeys.
 
-**Verify:** Run the existing `tests/test_local_production_server.py` suite during implementation. Documentation matches the command interfaces and manual verification contract. No reset occurs during routine deployment.
+**Verify:** Run the existing `tests/test_local_production_server.py` suite during implementation. Documentation matches the command interfaces and manual verification contract. No reset occurs during routine deployment. The live setup record is in `docs/local-production.md`.
 **Status:** done

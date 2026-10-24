@@ -1,5 +1,8 @@
 """Tests for the planning agent and its application-controlled writer."""
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 from pydantic import ValidationError
 from pydantic_ai.models.test import TestModel
@@ -217,3 +220,100 @@ async def test_batch_runner_applies_one_plan(storage):
     )
     outgoing_edges = await storage.get_outgoing_edges(python_note["id"])
     assert any(edge["id"].split(":", 1)[0] == "describes" for edge in outgoing_edges)
+
+
+class BlockingAgent:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+        self._never = asyncio.Event()
+
+    async def run(self, *_args, **_kwargs):
+        self.started.set()
+        try:
+            await self._never.wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+
+
+class ImmediateAgent:
+    async def run(self, *_args, **_kwargs):
+        return SimpleNamespace(output=IngestPlan.model_validate(_valid_plan()))
+
+
+async def test_batch_runner_stops_after_db_search_before_starting_the_llm(
+    storage, monkeypatch
+):
+    search_finished = asyncio.Event()
+
+    async def hybrid_search(*_args, **_kwargs):
+        search_finished.set()
+        return []
+
+    monkeypatch.setattr(
+        "second_brain.agents.ingest.recall_tools.hybrid_search", hybrid_search
+    )
+    agent = BlockingAgent()
+    runner = AgentIngestBatchRunner(agent, storage, "model")
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(
+        runner.run("Do not call the model.", [], stop_event=stop_event)
+    )
+
+    await search_finished.wait()
+    stop_event.set()
+    outcome = await asyncio.wait_for(task, timeout=1)
+
+    assert outcome.interrupted is True
+    assert not agent.started.is_set()
+
+
+async def test_batch_runner_cancels_an_active_llm_when_shutdown_starts(storage):
+    agent = BlockingAgent()
+    runner = AgentIngestBatchRunner(agent, storage, "model")
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(
+        runner.run("A pending model call.", [], stop_event=stop_event)
+    )
+
+    await agent.started.wait()
+    stop_event.set()
+    outcome = await asyncio.wait_for(task, timeout=1)
+
+    assert outcome.completed is False
+    assert outcome.interrupted is True
+    assert outcome.errors == ["shutdown requested"]
+    assert agent.cancelled.is_set()
+
+
+async def test_batch_runner_finishes_db_writes_after_shutdown_starts(
+    storage, monkeypatch
+):
+    writes_started = asyncio.Event()
+    release_writes = asyncio.Event()
+
+    async def store_knowledge(*_args, **_kwargs):
+        writes_started.set()
+        await release_writes.wait()
+        return {"errors": [], "storage_errors": []}
+
+    monkeypatch.setattr(
+        "second_brain.agents.ingest.ingest_tools.store_knowledge", store_knowledge
+    )
+    runner = AgentIngestBatchRunner(ImmediateAgent(), storage, "model")
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(
+        runner.run("Finish the database write.", [], stop_event=stop_event)
+    )
+
+    await writes_started.wait()
+    stop_event.set()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release_writes.set()
+
+    outcome = await asyncio.wait_for(task, timeout=1)
+
+    assert outcome.completed is True
+    assert outcome.interrupted is False

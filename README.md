@@ -209,8 +209,9 @@ Loopback access is the trust boundary. The application has no authentication
 layer. Routine deployment does not reset the database. Follow
 [`deploy/README.md`](deploy/README.md) and the
 [local production manual test journey](docs/manual-tests/local-production-server.md)
-for setup, reset, update, and recovery procedures. The manual results remain
-unexecuted until an operator performs them.
+for setup, reset, update, and recovery procedures. See
+[`docs/local-production.md`](docs/local-production.md) for the current instance
+configuration, database state, upstream endpoints, and verification status.
 
 ## Docker development deployment
 

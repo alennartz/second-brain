@@ -1,5 +1,7 @@
+import asyncio
 import json
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -471,6 +473,10 @@ def _store_reference(reference: RecordRef, plan: IngestPlan) -> str:
     raise ValueError(f"Unknown new note label {reference.label!r}")
 
 
+class _ShutdownRequested(Exception):
+    """Signal that shutdown interrupted the next LLM boundary."""
+
+
 class AgentIngestBatchRunner:
     """Search once in code, ask for a plan, then apply writes once in code."""
 
@@ -481,10 +487,19 @@ class AgentIngestBatchRunner:
         self.storage = storage
         self.model = model
 
-    async def _find_candidates(self, query: str) -> list[dict]:
+    @staticmethod
+    def _raise_if_stopping(stop_event: asyncio.Event | None) -> None:
+        if stop_event is not None and stop_event.is_set():
+            raise _ShutdownRequested
+
+    async def _find_candidates(
+        self, query: str, stop_event: asyncio.Event | None = None
+    ) -> list[dict]:
+        self._raise_if_stopping(stop_event)
         candidates: dict[str, dict] = {}
         for table in ("entity", "note"):
             matches = await recall_tools.hybrid_search(self.storage, table, query, k=5)
+            self._raise_if_stopping(stop_event)
             for match in matches:
                 record_id = str(match.get("id", ""))
                 if not record_id or record_id in candidates:
@@ -492,6 +507,7 @@ class AgentIngestBatchRunner:
                 enriched = await recall_tools.enrich_with_connections(
                     self.storage, match
                 )
+                self._raise_if_stopping(stop_event)
                 candidates[record_id] = {
                     key: enriched[key]
                     for key in (
@@ -511,33 +527,82 @@ class AgentIngestBatchRunner:
                 ]
         return list(candidates.values())
 
-    async def run(self, text: str, hints: list[str]) -> IngestBatchOutcome:
-        hint_text = ", ".join(hints)
-        search_query = f"{hint_text}\n{text}" if hint_text else text
-        candidates = await self._find_candidates(search_query)
-        logger.info(
-            "ingest: prepared plan context (%d graph candidates, %d source chars)",
-            len(candidates),
-            len(text),
-        )
-        prompt = (
-            "## Intake batch\n"
-            f"{text}\n\n"
-            "## Possibly related nodes\n"
-            f"{hint_text or 'None'}\n\n"
-            "## Existing graph candidates\n"
-            f"{json.dumps(candidates, ensure_ascii=False, indent=2)}\n\n"
-            "Use these candidates for deduplication. The application already ran one "
-            "broad hybrid search. Do not request another search. If the candidate list "
-            "is empty, treat the input as new knowledge. Return one IngestPlan."
-        )
-        rejection_count = [0]
-        try:
-            result = await self.agent.run(
+    async def _run_agent(
+        self,
+        prompt: str,
+        candidates: list[dict],
+        rejection_count: list[int],
+        stop_event: asyncio.Event | None,
+    ) -> Any:
+        self._raise_if_stopping(stop_event)
+
+        async def run_agent() -> Any:
+            return await self.agent.run(
                 prompt,
                 deps=IngestDeps(storage=self.storage, candidates=tuple(candidates)),
                 model=self.model,
                 event_stream_handler=_make_output_validation_handler(rejection_count),
+            )
+
+        if stop_event is None:
+            return await run_agent()
+
+        agent_task = asyncio.create_task(run_agent())
+        stop_task = asyncio.create_task(stop_event.wait())
+        try:
+            done, _pending = await asyncio.wait(
+                {agent_task, stop_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if agent_task in done:
+                return await agent_task
+            agent_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await agent_task
+            raise _ShutdownRequested
+        finally:
+            if not stop_task.done():
+                stop_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await stop_task
+
+    async def run(
+        self,
+        text: str,
+        hints: list[str],
+        *,
+        stop_event: asyncio.Event | None = None,
+    ) -> IngestBatchOutcome:
+        hint_text = ", ".join(hints)
+        search_query = f"{hint_text}\n{text}" if hint_text else text
+        rejection_count = [0]
+        try:
+            candidates = await self._find_candidates(search_query, stop_event)
+            logger.info(
+                "ingest: prepared plan context (%d graph candidates, %d source chars)",
+                len(candidates),
+                len(text),
+            )
+            prompt = (
+                "## Intake batch\n"
+                f"{text}\n\n"
+                "## Possibly related nodes\n"
+                f"{hint_text or 'None'}\n\n"
+                "## Existing graph candidates\n"
+                f"{json.dumps(candidates, ensure_ascii=False, indent=2)}\n\n"
+                "Use these candidates for deduplication. The application already ran one "
+                "broad hybrid search. Do not request another search. If the candidate list "
+                "is empty, treat the input as new knowledge. Return one IngestPlan."
+            )
+            result = await self._run_agent(
+                prompt, candidates, rejection_count, stop_event
+            )
+        except _ShutdownRequested:
+            logger.info("ingest: shutdown requested before graph writes")
+            return IngestBatchOutcome(
+                completed=False,
+                errors=["shutdown requested"],
+                interrupted=True,
             )
         except UnexpectedModelBehavior as exc:
             issues = _validation_issues_from_exception(exc)

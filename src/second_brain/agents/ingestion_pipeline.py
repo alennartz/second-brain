@@ -26,17 +26,28 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class IngestBatchOutcome:
-    """Outcome reported by one independent ingest-agent batch run."""
+    """Outcome reported by one independent ingest-agent batch run.
+
+    ``interrupted`` means shutdown stopped the run before graph writes began.
+    The caller must release the leased intake for immediate retry.
+    """
 
     completed: bool
     summary: str | None = None
     errors: list[str] = field(default_factory=list)
+    interrupted: bool = False
 
 
 class IngestBatchRunner(Protocol):
     """Adapter for the tool-driven ingest agent."""
 
-    async def run(self, text: str, hints: list[str]) -> IngestBatchOutcome: ...
+    async def run(
+        self,
+        text: str,
+        hints: list[str],
+        *,
+        stop_event: asyncio.Event | None = None,
+    ) -> IngestBatchOutcome: ...
 
 
 def _paragraph_units(text: str) -> list[str]:
@@ -239,7 +250,7 @@ class IngestionPipeline:
         ]
 
     async def stop(self) -> None:
-        """Stop workers, bounding shutdown when a provider call is stuck."""
+        """Stop workers, interrupting LLM work while preserving DB operations."""
         if not self._worker_tasks:
             return
         self._stop_event.set()
@@ -418,10 +429,13 @@ class IngestionPipeline:
         try:
             outcome: IngestBatchOutcome | None = None
             failure: BaseException | None = None
+            interrupted = False
             try:
                 text = "".join(chunk["content"] for chunk in batch.chunks)
                 hints = list(batch.chunks[0]["hints"]) if batch.chunks else []
-                runner_task = asyncio.create_task(self.runner.run(text, hints))
+                runner_task = asyncio.create_task(
+                    self.runner.run(text, hints, stop_event=self._stop_event)
+                )
                 heartbeat_task = asyncio.create_task(
                     self._renew_lease_loop(
                         batch, runner_task, heartbeat_stop, lease_lost
@@ -430,7 +444,8 @@ class IngestionPipeline:
                 outcome = await runner_task
             except asyncio.CancelledError:
                 if not lease_lost.is_set():
-                    raise
+                    interrupted = True
+                    failure = RuntimeError("ingest batch interrupted during shutdown")
             except Exception as exc:
                 failure = exc
 
@@ -468,29 +483,36 @@ class IngestionPipeline:
                         batch.lease_token,
                     )
             else:
-                if failure is not None:
-                    message = str(failure)
-                elif outcome is not None and outcome.errors:
-                    message = "\n".join(str(error) for error in outcome.errors)
+                interrupted = interrupted or (
+                    outcome is not None and outcome.interrupted
+                )
+                if interrupted:
+                    message = "ingest batch interrupted during shutdown"
+                    deadline = self.clock()
                 else:
-                    message = "ingest batch did not complete"
-                failed_attempts = (
-                    max(
-                        (
-                            int(chunk.get("attempt_count", 0) or 0)
-                            for chunk in batch.chunks
-                        ),
-                        default=0,
+                    if failure is not None:
+                        message = str(failure)
+                    elif outcome is not None and outcome.errors:
+                        message = "\n".join(str(error) for error in outcome.errors)
+                    else:
+                        message = "ingest batch did not complete"
+                    failed_attempts = (
+                        max(
+                            (
+                                int(chunk.get("attempt_count", 0) or 0)
+                                for chunk in batch.chunks
+                            ),
+                            default=0,
+                        )
+                        + 1
                     )
-                    + 1
-                )
-                deadline = self.clock() + timedelta(
-                    seconds=retry_delay(
-                        failed_attempts,
-                        self.retry_base_delay_seconds,
-                        self.retry_max_delay_seconds,
+                    deadline = self.clock() + timedelta(
+                        seconds=retry_delay(
+                            failed_attempts,
+                            self.retry_base_delay_seconds,
+                            self.retry_max_delay_seconds,
+                        )
                     )
-                )
                 try:
                     await self.storage.release_intake_batch(
                         batch.lease_token, message, deadline

@@ -13,7 +13,7 @@ Create a simple Docker-based Flutter development environment for the Android mob
 - **Run an isolated mobile server endpoint.** A Docker Compose mobile profile runs on the same development machine with real models, a dedicated LAN port, a separate database volume, and a separate ignored environment file. It never points mobile work at the normal database.
 - **Target the physical phone for live debugging.** The real phone receives manual debug builds and runs `flutter run` over wireless ADB. Automated checks remain device-independent widget tests for now.
 - **Add an emulator smoke suite later.** Autoflow-style manual smoke coverage will run on an Android emulator in a later phase, not on the real phone.
-- **Support terminal and DevTools debugging.** Terminal hot reload and logs are the required path. Flutter DevTools is optional through explicit port forwarding.
+- **Support terminal and server-local DevTools debugging.** Terminal hot reload and logs are the required path. Flutter DevTools is optional, binds to loopback on the development machine, and is used only by the PIMOTE agent. It is never exposed to the phone, LAN, or Cloudflare tunnel.
 
 ## Direction
 

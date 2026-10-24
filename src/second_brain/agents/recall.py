@@ -6,7 +6,11 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_ai import Agent, RunContext, TextOutput, UsageLimits
-from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
+from pydantic_ai.exceptions import (
+    ModelRetry,
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+)
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
@@ -104,7 +108,7 @@ class RecallCitationError(RuntimeError):
     """Raised when a required recall citation cannot be resolved to evidence."""
 
 
-class RecallOutputError(RuntimeError):
+class RecallOutputError(ModelRetry):
     """Raised when the model's final JSON cannot be parsed or validated."""
 
 

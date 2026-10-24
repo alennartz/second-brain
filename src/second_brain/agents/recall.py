@@ -69,6 +69,12 @@ class RecallDeps:
     _searched_queries: set[tuple[str, int]] = field(default_factory=set, repr=False)
     _fetched_node_ids: set[str] = field(default_factory=set, repr=False)
     _available_node_ids: set[str] = field(default_factory=set, repr=False)
+    _collected_nodes: dict[str, dict[str, Any]] = field(
+        default_factory=dict, repr=False
+    )
+    _collected_unprocessed: dict[str, dict[str, Any]] = field(
+        default_factory=dict, repr=False
+    )
 
     def search_denial(self, query: str, k: int) -> str | None:
         key = (" ".join(query.casefold().split()), k)
@@ -84,10 +90,29 @@ class RecallDeps:
             record_id = node.get("id")
             if isinstance(record_id, str):
                 self._available_node_ids.add(record_id)
+                self._collected_nodes[record_id] = {
+                    key: node[key]
+                    for key in ("id", "table", "name", "type", "content")
+                    if key in node
+                }
             for connection in node.get("connections", []):
                 adjacent_id = connection.get("adjacent_id")
                 if isinstance(adjacent_id, str):
                     self._available_node_ids.add(adjacent_id)
+
+    def remember_unprocessed_chunks(self, chunks: list[dict]) -> None:
+        for chunk in chunks:
+            chunk_id = chunk.get("id")
+            if isinstance(chunk_id, str):
+                self._collected_unprocessed[chunk_id] = {
+                    key: chunk[key] for key in ("id", "content") if key in chunk
+                }
+
+    def evidence_snapshot(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "nodes": list(self._collected_nodes.values()),
+            "unprocessed": list(self._collected_unprocessed.values()),
+        }
 
     def node_fetch_denial(self, record_id: str) -> str | None:
         if record_id in self._fetched_node_ids:
@@ -322,6 +347,7 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
         try:
             result = await recall_tools.search_memory(ctx.deps.storage, query, k)
             ctx.deps.remember_graph_nodes(result.nodes)
+            ctx.deps.remember_unprocessed_chunks(result.unprocessed)
             logger.info(
                 "recall: search_knowledge → %d nodes, %d unprocessed chunks",
                 len(result.nodes),
@@ -369,6 +395,84 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
     return agent
 
 
+def create_recall_finalizer_agent() -> Agent[None, RecallOutput]:
+    """Create a no-tool agent that answers from evidence collected by recall."""
+    return Agent(
+        deps_type=type(None),
+        output_type=TextOutput(_parse_recall_json),
+        model_settings={"parallel_tool_calls": False},
+        system_prompt=(
+            "You are a recall finalizer. Use only the question and evidence JSON. "
+            "Do not call tools or use outside knowledge. State facts only when they "
+            "appear in a cited node's name or content, or a cited intake chunk's content. "
+            "Do not infer from graph connections. Cite only exact node or intake-chunk IDs "
+            "in the evidence. Leave edge citations empty. If the evidence is insufficient, "
+            'return {"answer":null,"has_evidence":false,"cited_node_ids":[],'
+            '"cited_edge_ids":[],"cited_unprocessed_ids":[]}. '
+            "Return one complete JSON object."
+        ),
+    )
+
+
+def _finalizer_user_prompt(
+    question: str, evidence: dict[str, list[dict[str, Any]]]
+) -> str:
+    evidence_json = json.dumps(evidence, ensure_ascii=False, default=str)
+    return f"Question:\n{question}\n\nEvidence JSON:\n{evidence_json}"
+
+
+async def _finalize_after_usage_limit(
+    question: str,
+    *,
+    deps: RecallDeps,
+    model: Any,
+) -> RecallOutput:
+    evidence = deps.evidence_snapshot()
+    nodes = evidence["nodes"]
+    unprocessed = evidence["unprocessed"]
+    if not nodes and not unprocessed:
+        raise RecallRunLimitExceeded(
+            "Recall reached a usage limit before collecting evidence"
+        )
+
+    logger.warning(
+        "recall: finalizer starting after usage limit nodes=%d chunks=%d",
+        len(nodes),
+        len(unprocessed),
+    )
+    finalizer = create_recall_finalizer_agent()
+    try:
+        result = await finalizer.run(
+            _finalizer_user_prompt(question, evidence),
+            model=model,
+            usage_limits=UsageLimits(request_limit=2),
+        )
+    except (RecallOutputError, UsageLimitExceeded, UnexpectedModelBehavior) as exc:
+        raise RecallRunLimitExceeded(
+            "Recall finalizer failed after the exploration limit"
+        ) from exc
+
+    output = result.output
+    allowed_node_ids = {node["id"] for node in nodes if isinstance(node.get("id"), str)}
+    allowed_chunk_ids = {
+        chunk["id"] for chunk in unprocessed if isinstance(chunk.get("id"), str)
+    }
+    if (
+        output.cited_edge_ids
+        or not set(output.cited_node_ids).issubset(allowed_node_ids)
+        or not set(output.cited_unprocessed_ids).issubset(allowed_chunk_ids)
+    ):
+        raise RecallRunLimitExceeded(
+            "Recall finalizer cited IDs outside the collected evidence"
+        )
+    logger.info(
+        "recall: finalizer completed nodes=%d chunks=%d",
+        len(output.cited_node_ids),
+        len(output.cited_unprocessed_ids),
+    )
+    return output
+
+
 async def run_recall(
     question: str,
     *,
@@ -395,7 +499,15 @@ async def run_recall(
             f"Recall returned invalid final output: {exc}"
         ) from exc
     except UsageLimitExceeded as exc:
-        raise RecallRunLimitExceeded(f"Recall reached a usage limit: {exc}") from exc
+        logger.warning(
+            "recall: exploration reached a usage limit; finalizing collected evidence"
+        )
+        try:
+            return await _finalize_after_usage_limit(question, deps=deps, model=model)
+        except RecallRunLimitExceeded as finalizer_exc:
+            raise RecallRunLimitExceeded(
+                f"Recall reached a usage limit and finalization failed: {finalizer_exc}"
+            ) from exc
     except UnexpectedModelBehavior as exc:
         raise RecallRunLimitExceeded(
             f"Recall ended without a usable reply: {exc}"

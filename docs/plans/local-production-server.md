@@ -222,6 +222,8 @@ None. Existing decision records cover ingest and storage behavior and remain val
 
 ## Steps
 
+**Pre-implementation commit:** `ec8f99fca103218395b35741112f79015b565bd0`
+
 ### Step 1: Validate deployment configuration
 
 In `deploy/install.sh`, require all seven deployment values listed above before
@@ -239,7 +241,7 @@ application setting `BRAIN_DB_PATH=/data/brain.db` so storage uses the mounted
 active database. Do not change the ignored machine configuration.
 
 **Verify:** Installer tests reject every missing required value and unavailable image. The environment permission test passes.
-**Status:** not started
+**Status:** done
 
 ### Step 2: Render the local service and backup timer
 
@@ -266,7 +268,7 @@ Reload the user manager. Enable the main service and enable the backup timer wit
 Its existing lifespan already stops the pipeline and scheduler, then closes Storage.
 
 **Verify:** Installer tests confirm all three units, loopback binding, local image policy, data mount, restart policy, timer enablement, and timeouts above a 90-second grace.
-**Status:** not started
+**Status:** done
 
 ### Step 3: Implement quiesced archives
 
@@ -297,7 +299,7 @@ service. Do not start a previously inactive service during failure recovery.
 Return a non-zero status for stop, archive, publication, or startup failures.
 
 **Verify:** Archive tests pass for each non-idle field, paused-only intake, pipeline errors, database contents, mode-specific results, `0600` permissions, lifecycle ordering, and recovery failures.
-**Status:** not started
+**Status:** done
 
 ### Step 4: Rotate independent archive sets
 
@@ -307,7 +309,7 @@ files, the other mode's archives, and unrelated operator archives from deletion.
 Keep filenames unique when two commands run within the same timestamp interval.
 
 **Verify:** Both retention tests preserve seven newest archives, every archive in the other mode, and the unrelated operator archive.
-**Status:** not started
+**Status:** done
 
 ### Step 5: Implement selected-archive restore
 
@@ -329,7 +331,7 @@ contract on failure without deleting that copy or treating a partial restore as
 successful.
 
 **Verify:** Restore tests pass for explicit archive selection, path and member rejection before stopping, restored contents, untouched experiments, and retained safety copies after extraction or startup failures.
-**Status:** not started
+**Status:** done
 
 ### Step 6: Connect local updates and Make commands
 
@@ -352,7 +354,7 @@ alongside the main service, then reload the user manager. Keep the existing
 configured status and journal commands.
 
 **Verify:** Update tests confirm build, archive, and restart order. Build and pre-update failures leave later operations untouched. Make dry-run tests expose both backup and explicit restore commands.
-**Status:** not started
+**Status:** done
 
 ### Step 7: Document local operation and recovery
 
@@ -375,4 +377,4 @@ Link `docs/manual-tests/local-production-server.md` for deployment verification.
 Keep its results unexecuted until the operator performs the live journeys.
 
 **Verify:** Run the existing `tests/test_local_production_server.py` suite during implementation. Documentation matches the command interfaces and manual verification contract. No reset occurs during routine deployment.
-**Status:** not started
+**Status:** done

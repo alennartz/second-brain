@@ -1,8 +1,7 @@
-# Second Brain systemd deployment (template — do not edit; rendered by install.sh)
-#
-# Runs the pinned release image under Docker as a systemd USER service
-# (systemctl --user). Rendered placeholders:
-# {{NAME}}, {{IMAGE}}, {{PORT}}, {{ENV_FILE}}, {{DATA_DIR}}
+# Second Brain local systemd deployment template.
+# Rendered by deploy/install.sh. The container is reachable only on loopback.
+# Placeholders: {{NAME}}, {{IMAGE}}, {{PORT}}, {{ENV_FILE}}, {{DATA_DIR}},
+# {{DOCKER_STOP_TIMEOUT}}, and {{SYSTEMD_STOP_TIMEOUT}}.
 
 [Unit]
 Description=Second Brain server ({{IMAGE}})
@@ -14,17 +13,18 @@ Type=simple
 Restart=on-failure
 RestartSec=5
 
-# Let systemd own the container lifecycle under a fixed name.
+# Let systemd own the container lifecycle under a fixed local name.
 ExecStartPre=-/usr/bin/docker rm -f {{NAME}}
-ExecStartPre=-/usr/bin/docker pull {{IMAGE}}
 ExecStart=/usr/bin/docker run --name {{NAME}} \
   --pull never \
-  --env-file {{ENV_FILE}} \
-  -p {{PORT}}:8000 \
-  -v {{DATA_DIR}}:/data \
+  --stop-timeout {{DOCKER_STOP_TIMEOUT}} \
+  --env-file "{{ENV_FILE}}" \
+  -p 127.0.0.1:{{PORT}}:8000 \
+  -v "{{DATA_DIR}}:/data" \
   {{IMAGE}}
-ExecStop=/usr/bin/docker stop {{NAME}}
+ExecStop=/usr/bin/docker stop --time {{DOCKER_STOP_TIMEOUT}} {{NAME}}
 ExecStopPost=-/usr/bin/docker rm {{NAME}}
+TimeoutStopSec={{SYSTEMD_STOP_TIMEOUT}}s
 
 # Harden the unit itself; the container isolates the rest.
 NoNewPrivileges=true

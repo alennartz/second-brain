@@ -95,15 +95,31 @@ bench-log: ## Follow benchmark log: make bench-log NAME=run-id
 # --- Systemd user deployment (machine-specific config lives in deploy/deploy.env, gitignored) ---
 
 DEPLOY_ENV := deploy/deploy.env
+MODE ?= daily
 
 .PHONY: deploy
-deploy: ## Install/update the systemd user service from deploy/deploy.env
-	bash deploy/install.sh
+deploy: ## Build and install the local image and systemd user service
+	bash deploy/update.sh
+
+.PHONY: deploy-backup
+deploy-backup: ## Create a daily or pre-update archive (MODE=daily by default)
+	@test -n "$(MODE)" || { echo "MODE must be nonempty" >&2; exit 1; }
+	bash deploy/backup.sh $(MODE)
+
+.PHONY: deploy-restore
+deploy-restore: ## Restore an explicit archive (ARCHIVE=/path/to/archive.tar.gz)
+	@test -n "$(ARCHIVE)" || { echo "set ARCHIVE=/path/to/archive.tar.gz" >&2; exit 1; }
+	bash deploy/backup.sh restore $(shell bash -c 'printf "%q" "$$1"' _ "$(ARCHIVE)")
 
 .PHONY: deploy-undeploy
-deploy-undeploy: ## Stop, disable, and remove the systemd user service
+deploy-undeploy: ## Stop, disable, and remove the systemd service and backup timer
 	@test -f $(DEPLOY_ENV) || { echo "$(DEPLOY_ENV) missing" >&2; exit 1; }
-	. $(DEPLOY_ENV) && systemctl --user disable --now "$${BRAIN_DEPLOY_NAME}.service" && rm -f "$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}.service" && systemctl --user daemon-reload
+	. $(DEPLOY_ENV) && \\
+		systemctl --user disable --now "$${BRAIN_DEPLOY_NAME}-backup.timer" "$${BRAIN_DEPLOY_NAME}-backup.service" "$${BRAIN_DEPLOY_NAME}.service" && \\
+		rm -f "$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}.service" \\
+			"$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}-backup.service" \\
+			"$${XDG_CONFIG_HOME:-$$HOME/.config}/systemd/user/$${BRAIN_DEPLOY_NAME}-backup.timer" && \\
+		systemctl --user daemon-reload
 
 .PHONY: deploy-status
 deploy-status: ## Show systemd status for the deployed service

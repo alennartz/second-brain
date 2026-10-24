@@ -186,9 +186,33 @@ BRAIN_EMBEDDING_AUTH=key
 | `BRAIN_EMBEDDING_KEY` | — | Explicit API key for embedding Foundry endpoint |
 | Provider API keys | — | Whatever env vars the underlying provider SDK expects — see [PydanticAI's provider docs](https://pydantic.dev/docs/ai/models/overview/) (e.g. `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, …). |
 
-## Docker deployment
+## Local production deployment
 
-### Production
+The local production service uses a systemd user unit and a Docker image built
+from this checkout. It listens only on `127.0.0.1:8100`, mounts the configured
+host data directory, and archives the active database before updates.
+
+```bash
+cp deploy/deploy.env.example deploy/deploy.env
+# Set the machine paths and BRAIN_DB_PATH=/data/brain.db in the app environment.
+docker build -t second-brain:local .
+bash deploy/install.sh          # first installation
+make deploy-status
+```
+
+Use `make deploy` for routine updates after the service has an active database.
+Use `make deploy-backup`, `make deploy-backup MODE=pre-update`, and
+`make deploy-restore ARCHIVE=/path/to/archive.tar.gz` for local recovery. The
+installer sets the application environment file to mode `0600`, enables a
+persistent daily timer at 03:00 local time, and never pulls from a registry.
+Loopback access is the trust boundary. The application has no authentication
+layer. Routine deployment does not reset the database. Follow
+[`deploy/README.md`](deploy/README.md) and the
+[local production manual test journey](docs/manual-tests/local-production-server.md)
+for setup, reset, update, and recovery procedures. The manual results remain
+unexecuted until an operator performs them.
+
+## Docker development deployment
 
 ```bash
 make docker-build

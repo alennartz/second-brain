@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/common.sh"
 
 usage() {
     cat >&2 <<'EOF'
-Usage: run-container [--device] [--host-network] [--interactive] -- command [args...]
+Usage: run-container [--device] [--host-network] [--interactive] [--no-cache-prep] -- command [args...]
 
 Run a command in the pinned Flutter toolchain image. --device uses the host ADB
 server and --host-network shares the host network without enabling ADB access.
@@ -16,6 +16,7 @@ EOF
 
 use_host_network=false
 interactive=false
+prepare_caches=true
 while (($#)); do
     case "$1" in
         --device)
@@ -28,6 +29,10 @@ while (($#)); do
             ;;
         --interactive)
             interactive=true
+            shift
+            ;;
+        --no-cache-prep)
+            prepare_caches=false
             shift
             ;;
         --)
@@ -49,12 +54,16 @@ mobile_require_docker
 if $use_host_network; then
     mobile_require_linux
 fi
+if ! docker image inspect "$MOBILE_IMAGE" >/dev/null 2>&1; then
+    mobile_error "toolchain image is missing: $MOBILE_IMAGE; run make mobile-image first"
+    exit 1
+fi
 
 uid=$(id -u)
 gid=$(id -g)
 
-# Docker creates named volumes as root. Prepare them once per invocation so a
-# caller-owned container can write caches without running Flutter as root.
+# Docker creates named volumes as root. Change ownership only when the cache
+# root has a different owner, and avoid a recursive walk on every invocation.
 prepare_cache_volume() {
     local volume=$1
     local path=$2
@@ -64,14 +73,26 @@ prepare_cache_volume() {
         --mount "type=volume,source=$volume,target=$path" \
         --entrypoint /bin/sh \
         "$MOBILE_IMAGE" \
-        -c "mkdir -p '$path' && chown -R $uid:$gid '$path'"
+        -c '
+            path=$1
+            uid=$2
+            gid=$3
+            mkdir -p "$path"
+            owner=$(stat -c "%u:%g" "$path")
+            if [ "$owner" != "$uid:$gid" ]; then
+                chown -R "$uid:$gid" "$path"
+            fi
+        ' mobile-cache-prep "$path" "$uid" "$gid"
 }
 
-prepare_cache_volume "$MOBILE_PUB_CACHE_VOLUME" /cache/pub
-prepare_cache_volume "$MOBILE_GRADLE_CACHE_VOLUME" /cache/gradle
+if $prepare_caches; then
+    prepare_cache_volume "$MOBILE_PUB_CACHE_VOLUME" /cache/pub
+    prepare_cache_volume "$MOBILE_GRADLE_CACHE_VOLUME" /cache/gradle
+fi
 
 args=(
     --rm
+    --init
     --user "$uid:$gid"
     --mount "type=bind,source=$MOBILE_ROOT_DIR,target=/workspace"
     --mount "type=volume,source=$MOBILE_PUB_CACHE_VOLUME,target=/cache/pub"

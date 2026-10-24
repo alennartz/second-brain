@@ -9,6 +9,7 @@ mobile_load_config
 mobile_require_device
 mobile_require_linux
 mobile_require_adb
+mobile_setup_adb
 
 serial=$(mobile_select_device "$MOBILE_DEVICE")
 printf 'ADB_SERIAL=%s\n' "$serial"

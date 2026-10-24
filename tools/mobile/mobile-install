@@ -12,6 +12,7 @@ mobile_print_server_url
 mobile_require_linux
 mobile_require_adb
 mobile_require_docker
+mobile_setup_adb
 
 serial=$(mobile_select_device "$MOBILE_DEVICE")
 mobile_log "building before installing on $serial"

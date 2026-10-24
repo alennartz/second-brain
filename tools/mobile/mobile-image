@@ -6,8 +6,40 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 mobile_require_docker
+
+# Pass every committed pin into the Docker build. Validate the Android project
+# pins before spending time on an image build, then let the Dockerfile verify
+# the installed SDK and tool versions.
+source "$SCRIPT_DIR/versions.env"
+wrapper_properties="$MOBILE_ROOT_DIR/client/mobile/android/gradle/wrapper/gradle-wrapper.properties"
+settings_gradle="$MOBILE_ROOT_DIR/client/mobile/android/settings.gradle"
+grep -Fq "gradle-${GRADLE_VERSION}-" "$wrapper_properties" \
+    || mobile_error "Gradle wrapper does not match GRADLE_VERSION=${GRADLE_VERSION}"
+grep -Fq "com.android.application\" version \"${ANDROID_GRADLE_PLUGIN_VERSION}\"" "$settings_gradle" \
+    || mobile_error "Android Gradle Plugin does not match ANDROID_GRADLE_PLUGIN_VERSION=${ANDROID_GRADLE_PLUGIN_VERSION}"
+grep -Fq "org.jetbrains.kotlin.android\" version \"${KOTLIN_VERSION}\"" "$settings_gradle" \
+    || mobile_error "Kotlin plugin does not match KOTLIN_VERSION=${KOTLIN_VERSION}"
+
+build_args=(
+    --build-arg "MOBILE_FLUTTER_IMAGE=$FLUTTER_IMAGE"
+    --build-arg "MOBILE_FLUTTER_IMAGE_DIGEST=$FLUTTER_IMAGE_DIGEST"
+    --build-arg "MOBILE_FLUTTER_VERSION=$FLUTTER_VERSION"
+    --build-arg "MOBILE_ANDROID_SDK_TOOLS_VERSION=$ANDROID_SDK_TOOLS_VERSION"
+    --build-arg "MOBILE_ANDROID_CMDLINE_TOOLS_REVISION=$ANDROID_CMDLINE_TOOLS_REVISION"
+    --build-arg "MOBILE_ANDROID_PLATFORM_TOOLS_VERSION=$ANDROID_PLATFORM_TOOLS_VERSION"
+    --build-arg "MOBILE_ANDROID_PLATFORM_VERSION=$ANDROID_PLATFORM_VERSION"
+    --build-arg "MOBILE_ANDROID_BUILD_TOOLS_VERSION=$ANDROID_BUILD_TOOLS_VERSION"
+    --build-arg "MOBILE_ANDROID_AGP_BUILD_TOOLS_VERSION=$ANDROID_AGP_BUILD_TOOLS_VERSION"
+    --build-arg "MOBILE_ANDROID_NDK_VERSION=$ANDROID_NDK_VERSION"
+    --build-arg "MOBILE_JAVA_MAJOR_VERSION=$JAVA_MAJOR_VERSION"
+    --build-arg "MOBILE_GRADLE_VERSION=$GRADLE_VERSION"
+    --build-arg "MOBILE_ANDROID_GRADLE_PLUGIN_VERSION=$ANDROID_GRADLE_PLUGIN_VERSION"
+    --build-arg "MOBILE_KOTLIN_VERSION=$KOTLIN_VERSION"
+)
+
 mobile_log "building $MOBILE_IMAGE from the pinned Flutter toolchain"
 (cd "$MOBILE_ROOT_DIR" && docker build \
+    "${build_args[@]}" \
     --file "$SCRIPT_DIR/Dockerfile" \
     --tag "$MOBILE_IMAGE" \
     "$SCRIPT_DIR")

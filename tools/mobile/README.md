@@ -8,10 +8,10 @@ ADB executable at `/home/alenna/android/platform-tools/adb`.
 
 `Dockerfile` starts from `ghcr.io/cirruslabs/flutter:3.22.3` pinned to the
 committed OCI digest in `versions.env`. The image verifies Flutter 3.22.3 and
-Android command-line tools `10406996`, then installs Android platform 34,
-build-tools 34.0.0 and the Android Gradle Plugin 8.1.0 build-tools 33.0.1,
-NDK 23.1.7779620, and JDK 17. It matches the app's Android
-Gradle plugin 8.1.0, Kotlin 1.8.22, and Gradle wrapper 8.2.
+Android command-line tools `10406996`, then verifies platform-tools 35.0.1 and
+installs Android platform 34, build-tools 34.0.0 and the Android Gradle Plugin
+8.1.0 build-tools 33.0.1, NDK 23.1.7779620, and JDK 17. It matches the app's
+Android Gradle plugin 8.1.0, Kotlin 1.8.22, and Gradle wrapper 8.2.
 
 The repository mounts at `/workspace`. The app remains at
 `/workspace/client/mobile`. Named Docker volumes preserve Pub and Gradle caches:
@@ -37,16 +37,18 @@ Set these values:
 
 ```text
 MOBILE_DEVICE=192.168.1.42:37123
+MOBILE_SERVER_BIND_ADDRESS=192.168.1.10
 MOBILE_SERVER_URL=http://192.168.1.10:8200
 MOBILE_DEVTOOLS_PORT=9100
 ```
 
 `MOBILE_DEVICE` is the phone's wireless ADB **connect** address. It is not the
 host ADB server port and not the brain server URL. Android wireless debugging
-can change this connect port after a restart. `MOBILE_SERVER_URL` uses the
-LAN address of the development machine. Provider model settings and credentials
-also belong in `.env.mobile.local`; scripts never print them or pass them to
-the Flutter container.
+can change this connect port after a restart. `MOBILE_SERVER_BIND_ADDRESS` is
+the trusted LAN address where `server-mobile` listens. `MOBILE_SERVER_URL` uses
+the same development-machine address and the isolated port `8200`. Provider
+model settings and credentials also belong in `.env.mobile.local`; scripts never
+print them or pass them to the Flutter container.
 
 Pairing addresses and pairing codes are one-time inputs. Enter them directly
 with `adb pair`; do not save them in `.env.mobile.local` or the repository.
@@ -75,8 +77,9 @@ make mobile-server-up
 make mobile-server-down
 ```
 
-The service is named `server-mobile`, listens on port 8200, uses real models,
-and stores data in the separate `mobile-brain-data` volume at `/data/brain.db`.
+The service is named `server-mobile`, binds only to
+`MOBILE_SERVER_BIND_ADDRESS:8200`, uses real models, and stores data in the
+separate `mobile-brain-data` volume at `/data/brain.db`.
 The server has no authentication layer. Use it only on a trusted private LAN.
 Real model calls can incur provider costs. `mobile-server-down` stops only this
 service and preserves its data. It does not stop the normal `server` service or
@@ -138,7 +141,9 @@ requirement.
 - Run `adb mdns services` to inspect connect and pairing services.
 - Keep the ADB daemon on loopback. Never expose port 5037 on the LAN.
 - A missing or malformed local value fails before Docker builds or device
-  changes. Device commands fail before selecting an arbitrary phone.
+  changes. `MOBILE_SERVER_URL` must use the isolated port `8200`, and the
+  Compose profile uses the same environment file as the scripts.
+- Device commands fail before selecting an arbitrary phone.
 
 Container checks are automated and device-independent. Phone installation and
 live debugging are manual. The Android emulator smoke journey is deferred to a

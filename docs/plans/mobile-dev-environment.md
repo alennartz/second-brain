@@ -32,6 +32,7 @@ Commit `.env.mobile.example` with safe placeholders and ignore `.env.mobile.loca
 
 ```text
 MOBILE_DEVICE=192.168.1.42:37123
+MOBILE_SERVER_BIND_ADDRESS=192.168.1.10
 MOBILE_SERVER_URL=http://192.168.1.10:8200
 MOBILE_DEVTOOLS_PORT=9100
 ```
@@ -129,6 +130,9 @@ The Flutter debug process reaches the phone through host ADB. DevTools reaches t
 > **Skipped.** No tests were written upfront. Follow red-green TDD as you implement —
 > write a focused failing test, make it pass, move on. Aim for component-boundary
 > behavioral tests (inputs, outputs, observable effects), not exhaustive coverage.
+>
+> Existing Flutter tests can receive compatibility-only timing or assertion updates
+> required by the pinned toolchain. These updates must not change product behavior.
 
 ## Steps
 
@@ -150,7 +154,7 @@ Require Docker for container commands and Linux for host-network device commands
 
 Create `tools/mobile/Dockerfile` and `tools/mobile/versions.env`. Select and commit an exact Flutter base image release and immutable digest. Record the matching Android command-line tools, platform, build-tools, and JDK 17 versions. Resolve SDK packages from that Flutter release, not a floating tag.
 
-Match `client/mobile/pubspec.yaml` constraints, Android Gradle plugin `8.1.0`, Kotlin `1.8.22`, and the Gradle `8.2` wrapper. The app delegates compile SDK, target SDK, and NDK values to Flutter. Install or verify their required packages in the image. Accept Android licenses during image construction. Do not change the application or upgrade its Gradle plugins to accommodate an unsuitable image.
+Match `client/mobile/pubspec.yaml` constraints, Android Gradle plugin `8.1.0`, Kotlin `1.8.22`, and the Gradle `8.2` wrapper. The app delegates compile SDK, target SDK, and NDK values to Flutter. Install or verify their required packages in the image. Accept Android licenses during image construction. Do not change application behavior or upgrade its Gradle plugins to accommodate an unsuitable image. Permit only minimal Flutter, Android resource, and generated-project compatibility updates required by this pinned toolchain, and record them with an explicit no-product-behavior-change constraint.
 
 Provide Flutter, Dart, Java, Android SDK tools, and the existing Gradle wrapper with usable paths. Make runtime Flutter metadata and SDK cache access work for the caller's numeric UID and GID. Do not require root container execution or writable host ADB key mounts.
 
@@ -174,7 +178,7 @@ Create `tools/mobile/mobile-check` to run `flutter pub get`, `flutter analyze`, 
 
 ### Step 4: Add the isolated mobile server profile
 
-Add `server-mobile` to `docker-compose.yml` with `profiles: [mobile]`, `build: .`, and `env_file: .env.mobile.local`. Publish `8200:8000`. Override `BRAIN_DB_PATH=/data/brain.db` and `BRAIN_TEST_MODE=false`. Mount `mobile-brain-data:/data` and declare that named volume. Copy the existing `/health` check and timing values.
+Add `server-mobile` to `docker-compose.yml` with `profiles: [mobile]`, `build: .`, and the configured local environment file. Bind `8200:8000` only to the explicit trusted `MOBILE_SERVER_BIND_ADDRESS`. Override `BRAIN_DB_PATH=/data/brain.db` and `BRAIN_TEST_MODE=false`. Mount `mobile-brain-data:/data` and declare that named volume. Copy the existing `/health` check and timing values.
 
 Create `tools/mobile/mobile-server-up` and `tools/mobile/mobile-server-down`. Start only `server-mobile` with `docker compose --profile mobile up -d --build server-mobile`. Stop only that service with the service-scoped Compose stop command. Do not use project-wide `down` or volume deletion. Validate local configuration before startup. Report the configured phone URL and server health status without printing credentials.
 
@@ -193,12 +197,12 @@ Try `MOBILE_DEVICE`, then verify authorization through the host daemon's device 
 Expose the selected ADB serial to install and debug callers without parsing human-readable status text. Keep display output separate from the selected-serial result. Verify the selected device with serial-scoped ADB commands. Report its model, Android version, and serial. Do not rewrite `.env.mobile.local` when mDNS finds a changed connect port.
 
 **Verify:** A saved authorized address connects directly. One mDNS connect candidate provides fallback. Multiple candidates fail with a useful list. Unauthorized targets receive pairing instructions. Recreating a Flutter container does not change host pairing identity.
-**Verification:** Fake ADB smoke checks cover direct authorization, mDNS candidate selection, ambiguous candidates, and unauthorized pairing diagnostics. Real phone pairing and live serial verification remain unrun because no phone is available in this environment.
+**Verification:** Fake-ADB smoke checks were not run because no harness exists in this repository. Real phone pairing and live serial verification remain unrun because no phone is available in this environment.
 **Status:** done
 
 ### Step 6: Add installation and interactive debugging
 
-Create `tools/mobile/mobile-install` and `tools/mobile/mobile-debug`. Reuse the host selection implementation from Step 5 and the container runner from Step 3. Validate configuration before building or installing. Print `MOBILE_SERVER_URL` for entry in the app's existing first-launch setup. Do not add a Dart environment hook or change application code.
+Create `tools/mobile/mobile-install` and `tools/mobile/mobile-debug`. Reuse the host selection implementation from Step 5 and the container runner from Step 3. Validate configuration before building or installing. Print `MOBILE_SERVER_URL` for entry in the app's existing first-launch setup. Do not add a Dart environment hook or change application behavior. Minimal compatibility-only Flutter, Android, resource, and test-harness timing or assertion updates are permitted for the pinned toolchain. Record that these changes do not alter product behavior.
 
 Have `mobile-install` build the debug APK through `mobile-build`, then install it with host `adb -s <selected-serial> install -r`. Stop on build or selection failures. Have `mobile-debug` resolve packages and run interactive `flutter run -d <selected-serial>` through the host ADB daemon. Preserve terminal input, logs, interrupts, and Flutter's exit code.
 

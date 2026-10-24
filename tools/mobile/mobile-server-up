@@ -7,31 +7,45 @@ source "$SCRIPT_DIR/common.sh"
 
 mobile_load_config
 mobile_require_server_url
+mobile_require_server_bind_address
 mobile_require_compose
 
-mobile_log "starting isolated server-mobile on port 8200"
+mobile_log "starting isolated server-mobile on ${MOBILE_SERVER_BIND_ADDRESS}:8200"
 mobile_compose up -d --build server-mobile
+
+container_id=$(mobile_compose ps -q server-mobile | head -n 1)
+[[ -n "$container_id" ]] || mobile_error "server-mobile did not create a container"
+health_status=""
+for _ in $(seq 1 30); do
+    health_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container_id" 2>/dev/null || true)
+    case "$health_status" in
+        healthy)
+            break
+            ;;
+        unhealthy|exited|dead|missing)
+            mobile_error "server-mobile health state is $health_status"
+            exit 1
+            ;;
+    esac
+    sleep 1
+done
+if [[ "$health_status" != healthy ]]; then
+    mobile_error "server-mobile did not become healthy (state: ${health_status:-unknown})"
+    mobile_compose ps server-mobile >&2 || true
+    exit 1
+fi
+mobile_log "server-mobile Compose health is healthy"
 
 health_url="${MOBILE_SERVER_URL%/}/health"
 mobile_log "mobile server URL: $MOBILE_SERVER_URL"
-mobile_log "waiting for $health_url"
 if command -v curl >/dev/null 2>&1; then
-    ready=false
-    for _ in $(seq 1 30); do
-        if curl --fail --silent --show-error --max-time 3 "$health_url" >/dev/null; then
-            ready=true
-            break
-        fi
-        sleep 1
-    done
-    if ! $ready; then
-        mobile_error "server-mobile did not report healthy at $health_url"
+    if ! curl --fail --silent --show-error --max-time 3 "$health_url" >/dev/null; then
+        mobile_error "server-mobile is healthy but unreachable at $health_url"
         exit 1
     fi
-    mobile_log "server-mobile is healthy"
+    mobile_log "server-mobile is reachable at $health_url"
 else
-    mobile_log "curl is unavailable; inspect server-mobile health with Docker Compose"
-    mobile_compose ps server-mobile
+    mobile_log "curl is unavailable; Compose health verified server-mobile inside its container"
 fi
 
 printf 'MOBILE_SERVER_URL=%s\n' "$MOBILE_SERVER_URL"

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Personal knowledge engine: a FastAPI REST API backed by an embedded SurrealDB graph database with five PydanticAI agent loops (ingest, recall, converse, dream-dedup, dream-connect), plus Go terminal and Flutter mobile clients. Knowledge flows in via ingest, is retrieved via recall, and is autonomously refined by background "dreaming" agents that deduplicate and discover missing connections.
+Personal knowledge engine: a FastAPI REST API backed by an embedded SurrealDB graph database with five PydanticAI agent loops (ingest, recall, converse, dream-dedup, dream-connect), plus Go terminal and Flutter mobile clients. A pinned Docker toolchain supports Android mobile development. Knowledge flows in via ingest, is retrieved via recall, and is autonomously refined by background "dreaming" agents that deduplicate and discover missing connections.
 
 ```mermaid
 graph LR
@@ -13,6 +13,8 @@ graph LR
   Core --> SurrealDB[(SurrealDB)]
   Manual Test Tools --> API
   Manual Test Tools --> Client
+  Mobile toolchain --> Client
+  Mobile toolchain --> API
 ```
 
 ### Key Flows
@@ -174,14 +176,16 @@ request/response models, route handlers, and MCP tool wiring.
 `chunks_stored` and optional idempotency key, `/ingest/pipeline*` controls, async
 202 `/dream` with dream-job polling, `/recall`, `/converse`, `/converse/stream`,
 and `/graph/{id}`), separate graph and unprocessed recall context, SSE streaming,
-startup/shutdown injection, validation, response shaping, and MCP tools for
-staging, recall, and graph lookup
+startup/shutdown injection, validation, response shaping, MCP tools for staging,
+recall, and graph lookup, and Compose server profiles including the isolated
+real-model mobile service
 
 **Dependencies:** Core (config, Storage + Embedder, models, providers, validation), Agents (all five agents + scheduler)
 
 **Files:**
 - `src/second_brain/app.py`
 - `src/second_brain/mcp.py`
+- `docker-compose.yml`
 - `tests/test_app.py`
 - `tests/test_mcp.py`
 - `tests/test_intake_http.py`
@@ -218,10 +222,10 @@ environment. The pinned image owns Flutter, Dart, Java, Gradle, and Android SDK
 tools. Host scripts own local configuration, ADB pairing and mDNS selection,
 APK installation, the isolated mobile server profile, and loopback DevTools.
 
-**Responsibilities:** pinned Flutter image and version contract, caller-owned
-Pub and Gradle caches, host-visible APK output, Linux host ADB bridging,
-wireless-device selection, isolated real-model Compose server controls, and
-manual first-launch and DevTools instructions
+**Responsibilities:** pinned Flutter image and version contract, Make aliases,
+caller-owned Pub and Gradle caches, host-visible APK output, Linux host ADB
+bridging, wireless-device selection, isolated real-model Compose server
+controls, and manual first-launch and DevTools instructions
 
 **Dependencies:** Client (`client/mobile/` Flutter project), API (the
 `server-mobile` Compose profile), Docker, and host ADB. It does not own ADB
@@ -233,6 +237,9 @@ pairing keys or server data.
 - `tools/mobile/common.sh`
 - `tools/mobile/run-container`
 - `tools/mobile/mobile-*`
+- `tools/mobile/README.md`
+- `Makefile` (mobile command aliases)
+- `docker-compose.yml` (the isolated `server-mobile` profile)
 - `.env.mobile.example`
 - `.env.mobile.local` (ignored)
 

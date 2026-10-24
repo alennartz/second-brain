@@ -4,7 +4,7 @@ Second Brain stores, connects, and retrieves your notes and ideas. It combines S
 
 ## Quickstart
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/) (Python). The Go CLI needs [Go 1.22+](https://go.dev/dl/). The containerized Android workflow needs Docker, Linux, and host ADB. Host Flutter and Java are optional for the existing host-toolchain aliases.
+**Prerequisites:** [uv](https://docs.astral.sh/uv/) (Python). The Go CLI needs [Go 1.22+](https://go.dev/dl/). The containerized Android workflow needs Docker, Linux, and host ADB. The host-toolchain Android aliases need Flutter, Dart, Java, and Android build tools.
 
 ```bash
 # Install dependencies and pre-commit hooks

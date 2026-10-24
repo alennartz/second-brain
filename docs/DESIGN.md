@@ -115,7 +115,7 @@ Hook order: ruff format → ruff check (with auto-fix) → basedpyright (type ch
 
 ### Makefile as single entry point
 
-Development commands (test, lint, build, docker, e2e) use Makefile targets. The Flutter client has opt-in `build-mobile`, `test-mobile`, and `analyze-mobile` targets. They are not part of `check-all`, which remains Python and Go only. This keeps mobile checks available without requiring Flutter in every development environment.
+Development commands (test, lint, build, docker, e2e) use Makefile targets. The Flutter client has opt-in host-toolchain `build-mobile`, `test-mobile`, and `analyze-mobile` targets, plus a Docker-based workflow documented in [`tools/mobile/README.md`](../tools/mobile/README.md). Neither workflow is part of `check-all`, which remains Python and Go only. The container workflow avoids a host Flutter or Java install.
 
 ### Test mode
 
@@ -123,7 +123,7 @@ Development commands (test, lint, build, docker, e2e) use Makefile targets. The 
 
 ### Docker
 
-Multi-stage Dockerfile (builder + slim runtime) for the server only — client apps are built separately. Docker Compose provides two profiles: a production-like server on `:8000` (with `.env` and persistent volume) and a test server on `:8001` (with `BRAIN_TEST_MODE=true` and in-memory DB).
+The multi-stage Dockerfile builds the server only; client apps are built separately. Docker Compose provides the production-like server on `:8000` (with `.env` and a persistent volume), the test server on `:8001` (with `BRAIN_TEST_MODE=true` and an in-memory DB), and the optional `mobile` profile. The mobile profile uses real models, a separate database volume, and a trusted private-LAN bind address.
 
 ### E2E tests
 

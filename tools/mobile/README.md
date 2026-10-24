@@ -149,5 +149,7 @@ requirement.
 - Device commands fail before selecting an arbitrary phone.
 
 Container checks are automated and device-independent. Phone installation and
-live debugging are manual. The Android emulator smoke journey is deferred to a
-later environment and does not target this debugging phone.
+live debugging are manual. No connected phone or Android emulator is available
+here, so real-phone installation, live debugging, and VM-service connection remain
+unrun. The Android emulator smoke journey is deferred to a later environment and
+does not target this debugging phone.

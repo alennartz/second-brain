@@ -34,12 +34,12 @@ as scope limitations.
 
 ## Android Flutter client smoke journey
 
-**Status:** deferred. This checkout has no Flutter, Dart, or Android toolchain,
-so manual testing did not run.
+**Status:** deferred. The containerized toolchain supports checks and builds, but
+no connected phone or Android emulator is available here. Real-phone installation,
+live debugging, and VM-service connection remain unrun.
 
-In a later Flutter and Android emulator environment, use an Android emulator to verify
-this journey. It targets the emulator, not the real phone used for wireless live
-debugging:
+Run this journey later in an Android emulator environment. It targets the
+emulator, not the real phone used for wireless live debugging:
 
 1. First-launch server setup.
 2. Capture success and the stored chunk acknowledgement.

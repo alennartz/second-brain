@@ -123,3 +123,9 @@ The Flutter debug process reaches the phone through host ADB. DevTools reaches t
 **Chosen: real models with an isolated database.** Live phone debugging needs realistic recall and intake behavior. Test mode remains appropriate for the later emulator smoke profile, but it would not exercise the real model path used during manual debugging. Reusing the normal database was rejected because mobile work could mutate working knowledge.
 
 **Chosen: loopback-only DevTools.** The PIMOTE agent runs on the development machine and is the only intended DevTools operator. LAN and tunnel exposure would add an unnecessary debugger attack surface.
+
+## Tests
+
+> **Skipped.** No tests were written upfront. Follow red-green TDD as you implement —
+> write a focused failing test, make it pass, move on. Aim for component-boundary
+> behavioral tests (inputs, outputs, observable effects), not exhaustive coverage.

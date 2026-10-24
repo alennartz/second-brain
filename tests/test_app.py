@@ -1,3 +1,4 @@
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -20,6 +21,14 @@ async def test_health(client):
     resp = await client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+def test_logging_uses_journal_stream_without_file_handler():
+    import second_brain.app as app_module
+
+    assert isinstance(app_module._console, logging.StreamHandler)
+    assert not isinstance(app_module._console, logging.FileHandler)
+    assert not hasattr(app_module, "_file")
 
 
 async def test_recall_endpoint_surfaces_usage_limit(client, monkeypatch):

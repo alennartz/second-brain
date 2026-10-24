@@ -73,9 +73,11 @@ The main unit uses:
 - `127.0.0.1:${BRAIN_DEPLOY_PORT}:8000` as its only published binding;
 - `--pull never` and the configured local image;
 - `${BRAIN_DEPLOY_DATA_DIR}:/data` as its persistent mount;
+- the current host UID:GID, so the host archive command can read database files;
 - Docker and systemd stop timeouts longer than the application intake shutdown
   grace; and
-- `Restart=on-failure`.
+- `Restart=on-failure`. Application logs go to stdout and stderr, so the user
+journal owns the service log without requiring a writable file in the image.
 
 ## Backups
 

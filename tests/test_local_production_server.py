@@ -484,6 +484,7 @@ def test_install_renders_loopback_service_and_daily_backup_timer(
     timer_text = backup_timer.read_text()
     assert "127.0.0.1:8100:8000" in unit_text
     assert "--pull never" in unit_text
+    assert f"--user {os.getuid()}:{os.getgid()}" in unit_text
     assert "TimeoutStopSec=" in unit_text
     assert backup_service.exists()
     assert "OnCalendar=*-*-* 03:00:00" in timer_text

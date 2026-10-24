@@ -43,21 +43,14 @@ from second_brain.models import (
 from second_brain.scheduler import DreamScheduler
 from second_brain.validation import validate_record_id
 
-# Console + file logging
+# Send logs to stdout so the systemd user service owns the journal lifecycle.
 _log_fmt = logging.Formatter(
     "%(asctime)s %(levelname)s [%(name)s] %(message)s",
     datefmt="%H:%M:%S",
 )
 _console = logging.StreamHandler()
 _console.setFormatter(_log_fmt)
-_file = logging.FileHandler("server.log", mode="w")
-_file.setFormatter(
-    logging.Formatter(
-        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-)
-logging.basicConfig(level=logging.INFO, handlers=[_console, _file])
+logging.basicConfig(level=logging.INFO, handlers=[_console])
 logger = logging.getLogger(__name__)
 
 _storage: Storage | None = None

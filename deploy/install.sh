@@ -83,7 +83,10 @@ grace_ceiling="$(awk -v value="$grace_seconds" 'BEGIN { whole = int(value); if (
 docker_stop_timeout=$((grace_ceiling * 2 + 5))
 systemd_stop_timeout=$((docker_stop_timeout + 5))
 
-CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME:-}}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-}"
+if [[ -z "$CONFIG_HOME" && -n "${HOME:-}" ]]; then
+  CONFIG_HOME="$HOME/.config"
+fi
 if [[ -z "$CONFIG_HOME" ]]; then
   echo "error: HOME or XDG_CONFIG_HOME must be set" >&2
   exit 1
@@ -91,6 +94,13 @@ fi
 UNIT_DIR="$CONFIG_HOME/systemd/user"
 mkdir -p -- "$BRAIN_DEPLOY_DATA_DIR" "$BRAIN_DEPLOY_BACKUP_DIR" "$UNIT_DIR"
 chmod 0600 -- "$BRAIN_DEPLOY_ENV_FILE"
+
+user_uid="$(id -u)"
+user_gid="$(id -g)"
+if [[ ! "$user_uid" =~ ^[0-9]+$ || ! "$user_gid" =~ ^[0-9]+$ ]]; then
+  echo "error: unable to determine numeric host user identity" >&2
+  exit 1
+fi
 
 escape_sed_replacement() {
   printf '%s' "$1" | sed 's/[&|\\]/\\&/g'
@@ -102,6 +112,8 @@ port_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_PORT")"
 env_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_ENV_FILE")"
 data_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_DATA_DIR")"
 backup_script_replacement="$(escape_sed_replacement "$DEPLOY_DIR/backup.sh")"
+uid_replacement="$(escape_sed_replacement "$user_uid")"
+gid_replacement="$(escape_sed_replacement "$user_gid")"
 
 render_template() {
   local template=$1 output=$2
@@ -111,6 +123,8 @@ render_template() {
     -e "s|{{PORT}}|$port_replacement|g" \
     -e "s|{{ENV_FILE}}|$env_replacement|g" \
     -e "s|{{DATA_DIR}}|$data_replacement|g" \
+    -e "s|{{USER_UID}}|$uid_replacement|g" \
+    -e "s|{{USER_GID}}|$gid_replacement|g" \
     -e "s|{{DOCKER_STOP_TIMEOUT}}|$docker_stop_timeout|g" \
     -e "s|{{SYSTEMD_STOP_TIMEOUT}}|$systemd_stop_timeout|g" \
     -e "s|{{BACKUP_SCRIPT}}|$backup_script_replacement|g" \

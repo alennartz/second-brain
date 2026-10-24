@@ -1,7 +1,7 @@
 # Second Brain local systemd deployment template.
 # Rendered by deploy/install.sh. The container is reachable only on loopback.
 # Placeholders: {{NAME}}, {{IMAGE}}, {{PORT}}, {{ENV_FILE}}, {{DATA_DIR}},
-# {{DOCKER_STOP_TIMEOUT}}, and {{SYSTEMD_STOP_TIMEOUT}}.
+# {{USER_UID}}, {{USER_GID}}, {{DOCKER_STOP_TIMEOUT}}, and {{SYSTEMD_STOP_TIMEOUT}}.
 
 [Unit]
 Description=Second Brain server ({{IMAGE}})
@@ -17,6 +17,7 @@ RestartSec=5
 ExecStartPre=-/usr/bin/docker rm -f {{NAME}}
 ExecStart=/usr/bin/docker run --name {{NAME}} \
   --pull never \
+  --user {{USER_UID}}:{{USER_GID}} \
   --stop-timeout {{DOCKER_STOP_TIMEOUT}} \
   --env-file "{{ENV_FILE}}" \
   -p 127.0.0.1:{{PORT}}:8000 \

@@ -25,6 +25,7 @@ from second_brain.agents.recall import (
     RecallRunLimitExceeded,
     create_recall_agent,
     fetch_cited_context,
+    filter_resolved_citations,
     require_resolved_citations,
     run_recall,
 )
@@ -314,36 +315,71 @@ async def run_recall_agent(
         prompt = f"Possibly related nodes: {hint_str}\n\n{question}"
 
     logger.info("Recall agent starting (question length=%d)", len(question))
-    try:
-        output = await run_recall(
-            prompt,
-            deps=RecallDeps(storage=_storage),
-            model=_model,
-            agent=_recall_agent,
-        )
-    except RecallRunLimitExceeded as exc:
-        logger.warning("Recall did not produce a valid answer: %s", exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    logger.info(
-        "Recall agent completed (cited %d nodes, %d edges, %d unprocessed chunks)",
-        len(output.cited_node_ids),
-        len(output.cited_edge_ids),
-        len(output.cited_unprocessed_ids),
-    )
-
-    # Fetch actual records for cited IDs. Malformed IDs and intake chunks deleted
-    # while the answer was being generated are skipped.
     assert _storage is not None
-    context = await fetch_cited_context(_storage, output)
-    try:
-        require_resolved_citations(output, context)
-    except RecallCitationError as exc:
-        logger.error("Recall citations could not be resolved: %s", exc)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return RecallResponse(
-        answer=output.answer if output.answer is not None else NO_EVIDENCE_ANSWER,
-        context=context if output.has_evidence else None,
-    )
+    deps = RecallDeps(storage=_storage)
+
+    for attempt in range(2):
+        try:
+            output = await run_recall(
+                prompt,
+                deps=deps,
+                model=_model,
+                agent=_recall_agent,
+            )
+        except RecallRunLimitExceeded as exc:
+            logger.warning("Recall did not produce a valid answer: %s", exc)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        # Fetch actual records for cited IDs. Malformed IDs and intake chunks
+        # deleted while the answer was being generated are skipped.
+        context = await fetch_cited_context(_storage, output)
+        filtered_output, invalid_citations = filter_resolved_citations(output, context)
+        if invalid_citations:
+            logger.warning(
+                "Recall returned unresolved citations: %s",
+                ", ".join(invalid_citations),
+            )
+            has_valid_evidence = bool(
+                context.nodes or context.edges or context.unprocessed
+            )
+            if not has_valid_evidence and attempt == 0:
+                prompt = (
+                    f"{prompt}\n\nCorrection: these citation IDs were not returned "
+                    "by your tools and are invalid: "
+                    f"{', '.join(invalid_citations)}. Run recall again and cite only "
+                    "exact IDs returned by the tools. If no valid evidence supports "
+                    "the question, say that no data exists in the brain and return "
+                    "has_evidence=false with empty citation arrays."
+                )
+                continue
+            if not has_valid_evidence:
+                logger.warning(
+                    "Recall produced no valid evidence after citation repair; "
+                    "returning the no-evidence answer"
+                )
+                return RecallResponse(answer=NO_EVIDENCE_ANSWER)
+            output = filtered_output
+        else:
+            output = filtered_output
+
+        try:
+            require_resolved_citations(output, context)
+        except RecallCitationError as exc:
+            logger.error("Recall citations could not be resolved: %s", exc)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        logger.info(
+            "Recall agent completed (cited %d nodes, %d edges, %d unprocessed chunks)",
+            len(output.cited_node_ids),
+            len(output.cited_edge_ids),
+            len(output.cited_unprocessed_ids),
+        )
+        return RecallResponse(
+            answer=output.answer if output.answer is not None else NO_EVIDENCE_ANSWER,
+            context=context if output.has_evidence else None,
+        )
+
+    raise AssertionError("recall citation repair loop did not return")
 
 
 async def run_converse_agent(

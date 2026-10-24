@@ -178,6 +178,49 @@ def context_has_evidence(context: Context) -> bool:
     return bool(context.nodes or context.edges or context.unprocessed)
 
 
+def filter_resolved_citations(
+    output: RecallOutput, context: Context
+) -> tuple[RecallOutput, list[str]]:
+    """Drop citations that did not resolve, preserving valid evidence."""
+    resolved_nodes = {
+        str(record.get("id"))
+        for record in context.nodes
+        if isinstance(record.get("id"), str)
+    }
+    resolved_edges = {
+        str(record.get("id"))
+        for record in context.edges
+        if isinstance(record.get("id"), str)
+    }
+    resolved_unprocessed = {
+        str(record.get("id"))
+        for record in context.unprocessed
+        if isinstance(record.get("id"), str)
+    }
+
+    invalid: list[str] = []
+
+    def keep(ids: list[str], resolved: set[str], kind: str) -> list[str]:
+        kept: list[str] = []
+        for record_id in ids:
+            if record_id in resolved:
+                kept.append(record_id)
+            else:
+                invalid.append(f"{kind} {record_id}")
+        return kept
+
+    filtered = output.model_copy(
+        update={
+            "cited_node_ids": keep(output.cited_node_ids, resolved_nodes, "node"),
+            "cited_edge_ids": keep(output.cited_edge_ids, resolved_edges, "edge"),
+            "cited_unprocessed_ids": keep(
+                output.cited_unprocessed_ids, resolved_unprocessed, "unprocessed"
+            ),
+        }
+    )
+    return filtered, invalid
+
+
 def require_resolved_citations(output: RecallOutput, context: Context) -> None:
     if output.has_evidence and not context_has_evidence(context):
         raise RecallCitationError(
@@ -315,9 +358,11 @@ def create_recall_agent() -> Agent[RecallDeps, RecallOutput]:
             "has_evidence=true and include all supporting IDs in the matching citation "
             "arrays. Cite graph nodes in cited_node_ids, graph edges in cited_edge_ids, "
             "and raw intake chunks in cited_unprocessed_ids.\n\n"
-            "If the knowledge base has no relevant evidence, set has_evidence=false, "
-            "answer=null, and return empty citation arrays. Do not answer from "
-            "outside knowledge."
+            "If the knowledge base has no relevant evidence, it is correct to say "
+            "that you found no data about the question in the brain. Set "
+            "has_evidence=false, answer=null, and return empty citation arrays. "
+            "Do not answer from outside knowledge. Never cite an ID that a tool did "
+            "not return, even when it looks plausible."
         ),
     )
 
@@ -506,7 +551,8 @@ async def run_recall(
             return await _finalize_after_usage_limit(question, deps=deps, model=model)
         except RecallRunLimitExceeded as finalizer_exc:
             raise RecallRunLimitExceeded(
-                f"Recall reached a usage limit and finalization failed: {finalizer_exc}"
+                f"Recall reached a usage limit ({exc}) and finalization failed: "
+                f"{finalizer_exc}"
             ) from exc
     except UnexpectedModelBehavior as exc:
         raise RecallRunLimitExceeded(

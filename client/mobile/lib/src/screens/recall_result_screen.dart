@@ -115,7 +115,7 @@ final class _LoadingState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(value: 0.32),
+            CircularProgressIndicator(),
             SizedBox(height: 16),
             Text('Searching your memory…'),
           ],

@@ -88,29 +88,99 @@ async def test_recall_response_with_context(client):
     assert len(body["context"]["edges"]) == 1
 
 
-async def test_recall_rejects_unresolvable_citations(client, storage, monkeypatch):
-    """Recall must not return an answer when its required citations cannot resolve."""
+async def test_recall_repairs_only_hallucinated_citations(client, storage, monkeypatch):
+    """Retry a response whose only citations name records the tools never returned."""
     from second_brain.agents.recall import RecallOutput
     from second_brain.app import _recall_agent
     from tests.test_converse_agent import RECALL_ANSWER
 
+    prompts: list[str] = []
+
     async def fake_run(prompt, **kwargs):
+        prompts.append(prompt)
+        output = RecallOutput(
+            answer=RECALL_ANSWER,
+            has_evidence=True,
+            cited_node_ids=["entity:missing"],
+            cited_edge_ids=["references:missing"],
+            cited_unprocessed_ids=[],
+        )
+        if len(prompts) == 2:
+            output = RecallOutput(
+                answer=None,
+                has_evidence=False,
+                cited_node_ids=[],
+                cited_edge_ids=[],
+                cited_unprocessed_ids=[],
+            )
+
+        class Result:
+            pass
+
+        result = Result()
+        result.output = output
+        return result
+
+    monkeypatch.setattr("second_brain.app._storage", storage)
+    monkeypatch.setattr(_recall_agent, "run", fake_run)
+    resp = await client.post("/recall", json={"question": "who wrote notes?"})
+    assert resp.status_code == 200
+    assert (
+        resp.json()["answer"]
+        == "I couldn't find relevant information in your knowledge base."
+    )
+    assert len(prompts) == 2
+    assert "entity:missing" in prompts[1]
+
+
+async def test_recall_filters_hallucinated_nodes_when_valid_evidence_exists(
+    client, storage, monkeypatch
+):
+    """Keep valid evidence when one model citation does not resolve."""
+    from unittest.mock import AsyncMock
+
+    from second_brain.agents.recall import RecallOutput
+    from second_brain.app import _recall_agent
+
+    chunk = {
+        "id": "intake_chunk:pending",
+        "table": "intake_chunk",
+        "intake_id": "intake-1",
+        "chunk_index": 0,
+        "total_chunks": 1,
+        "content": "Lincoln is my dog.",
+        "source": "mobile",
+        "hints": [],
+    }
+    storage.get_intake_chunks = AsyncMock(return_value=[chunk])
+    calls = 0
+
+    async def fake_run(prompt, **kwargs):
+        nonlocal calls
+        calls += 1
+
         class Result:
             output = RecallOutput(
-                answer=RECALL_ANSWER,
+                answer="Lincoln is your dog.",
                 has_evidence=True,
                 cited_node_ids=["entity:missing"],
-                cited_edge_ids=["references:missing"],
-                cited_unprocessed_ids=[],
+                cited_edge_ids=[],
+                cited_unprocessed_ids=["intake_chunk:pending"],
             )
 
         return Result()
 
     monkeypatch.setattr("second_brain.app._storage", storage)
     monkeypatch.setattr(_recall_agent, "run", fake_run)
-    resp = await client.post("/recall", json={"question": "who wrote notes?"})
-    assert resp.status_code == 502
-    assert "none resolved to stored evidence" in resp.json()["detail"]
+    resp = await client.post("/recall", json={"question": "Who is Lincoln?"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "Lincoln is your dog."
+    assert body["context"]["nodes"] == []
+    assert [item["id"] for item in body["context"]["unprocessed"]] == [
+        "intake_chunk:pending"
+    ]
+    assert calls == 1
 
 
 async def test_graph_endpoint(client):

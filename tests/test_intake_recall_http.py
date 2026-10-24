@@ -167,7 +167,9 @@ async def test_http_recall_skips_chunks_deleted_between_search_and_citation_fetc
     storage.get_edge.assert_not_awaited()
 
 
-async def test_http_recall_rejects_answer_when_all_citations_disappear(recall_app):
+async def test_http_recall_returns_no_evidence_when_all_citations_disappear(
+    recall_app,
+):
     client, storage, recall_agent = recall_app
     storage.get_nodes.return_value = []
     storage.get_intake_chunks.return_value = []
@@ -183,9 +185,12 @@ async def test_http_recall_rejects_answer_when_all_citations_disappear(recall_ap
         "/recall", json={"question": "What did the passage say?"}
     )
 
-    assert response.status_code == 502
-    assert "none resolved to stored evidence" in response.json()["detail"]
-    storage.get_intake_chunks.assert_awaited_once_with(["intake_chunk:deleted"])
+    assert response.status_code == 200
+    assert response.json()["answer"] == (
+        "I couldn't find relevant information in your knowledge base."
+    )
+    assert recall_agent.run.await_count == 2
+    assert storage.get_intake_chunks.await_count == 2
     assert all(call.args == ([],) for call in storage.get_nodes.await_args_list)
     storage.get_edge.assert_not_awaited()
 

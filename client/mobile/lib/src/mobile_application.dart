@@ -96,7 +96,7 @@ final class _ApplicationBootstrapState extends State<_ApplicationBootstrap> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator(value: 0.32)),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
     if (_startupError != null) {

@@ -75,7 +75,7 @@ void main() {
   Future<void> submit(WidgetTester tester, String label) async {
     await tester.pump();
     await tester.tap(action(label));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 1));
   }
   Future<void> ask(WidgetTester tester) async {
     brain.recallResponse = Completer<RecallResult>();
@@ -162,10 +162,15 @@ void main() {
     await launch(tester);
     await ask(tester);
     expect(brain.questions, ['Where is the garden?']);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(find.byType(TextField), findsNothing);
+    final progress = tester.widget<CircularProgressIndicator>(
+      find.byType(CircularProgressIndicator, skipOffstage: false),
+    );
+    expect(progress.value, isNull);
+    expect(
+      find.text('Searching your memory…', skipOffstage: false),
+      findsOneWidget,
+    );
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.byTooltip('Settings'), findsNothing);
     brain.recallResponse!.complete(answer);
     await tester.pumpAndSettle();
     expect(find.textContaining('Garden connection'), findsWidgets);

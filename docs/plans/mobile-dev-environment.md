@@ -129,3 +129,93 @@ The Flutter debug process reaches the phone through host ADB. DevTools reaches t
 > **Skipped.** No tests were written upfront. Follow red-green TDD as you implement —
 > write a focused failing test, make it pass, move on. Aim for component-boundary
 > behavioral tests (inputs, outputs, observable effects), not exhaustive coverage.
+
+## Steps
+
+### Step 1: Define local configuration and command support
+
+Create `.env.mobile.example` with `MOBILE_DEVICE`, `MOBILE_SERVER_URL`, and `MOBILE_DEVTOOLS_PORT=9100`. Include real-model configuration placeholders from `.env.example`. Explain connect addresses versus one-time pairing addresses. Do not include actual credentials or pairing codes. Add `.env.mobile.local` to the root `.gitignore`.
+
+Create `tools/mobile/common.sh` for repository-relative paths, local configuration loading, command-specific validation, and dependency checks. Use the existing host ADB executable at `/home/alenna/android/platform-tools/adb`. Keep configuration parsing and validation separate from Docker and ADB effects. Pass selected addresses explicitly between helpers instead of storing session state.
+
+Require Docker for container commands and Linux for host-network device commands. Require ADB only for device commands. Image and check commands must work without local phone or server configuration. Build, install, and debug commands must validate and print `MOBILE_SERVER_URL` before expensive or device-changing operations. Device commands must validate `MOBILE_DEVICE`. DevTools must validate its port. Print only relevant nonsecret values. Never dump the environment or pass provider credentials into the Flutter container.
+
+**Verify:** Missing or malformed required configuration exits nonzero before Docker builds or ADB installation. Image and check commands do not require a phone. The local environment file is ignored.
+**Status:** not started
+
+### Step 2: Materialize the pinned toolchain
+
+Create `tools/mobile/Dockerfile` and `tools/mobile/versions.env`. Select and commit an exact Flutter base image release and immutable digest. Record the matching Android command-line tools, platform, build-tools, and JDK 17 versions. Resolve SDK packages from that Flutter release, not a floating tag.
+
+Match `client/mobile/pubspec.yaml` constraints, Android Gradle plugin `8.1.0`, Kotlin `1.8.22`, and the Gradle `8.2` wrapper. The app delegates compile SDK, target SDK, and NDK values to Flutter. Install or verify their required packages in the image. Accept Android licenses during image construction. Do not change the application or upgrade its Gradle plugins to accommodate an unsuitable image.
+
+Provide Flutter, Dart, Java, Android SDK tools, and the existing Gradle wrapper with usable paths. Make runtime Flutter metadata and SDK cache access work for the caller's numeric UID and GID. Do not require root container execution or writable host ADB key mounts.
+
+Create `tools/mobile/mobile-image` to build the project image from these pins. Use the toolchain directory as its build context. Keep the root server `Dockerfile` unchanged.
+
+**Verify:** The built image reports the committed Flutter, Dart, Java, Android packages, and Gradle versions. A caller-UID invocation can initialize Flutter without permission errors. No host Java or Flutter installation is used.
+**Status:** not started
+
+### Step 3: Add the shared container runner and offline commands
+
+Create `tools/mobile/run-container` to centralize Docker invocation. Mount the repository at `/workspace`, set the working directory to `/workspace/client/mobile`, and run with the caller's UID and GID. Mount named Pub and Gradle caches with writable ownership. Keep APK output under the existing host-visible `client/mobile/build/` directory. Configure a writable container home without mounting host ADB identities.
+
+Support ordinary noninteractive commands and interactive terminal attachment. Add Linux host networking and `ADB_SERVER_SOCKET=tcp:127.0.0.1:5037` for device commands. Preserve arguments and the underlying command's exit status. Remove command containers on exit. Do not create a daemon or reconnect service.
+
+Create `tools/mobile/mobile-check` to run `flutter pub get`, `flutter analyze`, and `flutter test` in order. Stop on the first failure. Create `tools/mobile/mobile-build` to resolve packages and run `flutter build apk --debug`. Print the resulting path, `client/mobile/build/app/outputs/flutter-apk/app-debug.apk`. Do not add release or profile build modes.
+
+**Verify:** `mobile-check` runs the existing Flutter tests without a server or phone. `mobile-build` produces an editable debug APK on the host. Repeated runs reuse caches, and Flutter failures reach the caller unchanged.
+**Status:** not started
+
+### Step 4: Add the isolated mobile server profile
+
+Add `server-mobile` to `docker-compose.yml` with `profiles: [mobile]`, `build: .`, and `env_file: .env.mobile.local`. Publish `8200:8000`. Override `BRAIN_DB_PATH=/data/brain.db` and `BRAIN_TEST_MODE=false`. Mount `mobile-brain-data:/data` and declare that named volume. Copy the existing `/health` check and timing values.
+
+Create `tools/mobile/mobile-server-up` and `tools/mobile/mobile-server-down`. Start only `server-mobile` with `docker compose --profile mobile up -d --build server-mobile`. Stop only that service with the service-scoped Compose stop command. Do not use project-wide `down` or volume deletion. Validate local configuration before startup. Report the configured phone URL and server health status without printing credentials.
+
+Leave `server`, `server-test`, their ports, their volumes, and the production deployment scripts unchanged.
+
+**Verify:** The mobile service uses port 8200, real models, and `/data/brain.db` in its separate volume. Stopping it preserves its data and leaves normal server containers running. Its `/health` endpoint responds through the development machine's LAN address.
+**Status:** not started
+
+### Step 5: Implement host ADB selection and mDNS fallback
+
+Create `tools/mobile/mobile-connect` with the connection implementation behind its command interface. Start or verify the host ADB daemon on loopback port 5037. Never enable a LAN-bound daemon or start a container-owned daemon.
+
+Try `MOBILE_DEVICE`, then verify authorization through the host daemon's device state. Treat connect output alone as insufficient evidence. If that target fails, query `adb mdns services` and consider wireless connect services, not pairing services. Deduplicate connect candidates. Connect only when exactly one candidate exists. When multiple candidates exist, fail and print their addresses without selecting one. When no authorized target exists, report the failure. Show one-time host `adb pair` instructions only when authorization is required. Never persist pairing inputs.
+
+Expose the selected ADB serial to install and debug callers without parsing human-readable status text. Keep display output separate from the selected-serial result. Verify the selected device with serial-scoped ADB commands. Report its model, Android version, and serial. Do not rewrite `.env.mobile.local` when mDNS finds a changed connect port.
+
+**Verify:** A saved authorized address connects directly. One mDNS connect candidate provides fallback. Multiple candidates fail with a useful list. Unauthorized targets receive pairing instructions. Recreating a Flutter container does not change host pairing identity.
+**Status:** not started
+
+### Step 6: Add installation and interactive debugging
+
+Create `tools/mobile/mobile-install` and `tools/mobile/mobile-debug`. Reuse the host selection implementation from Step 5 and the container runner from Step 3. Validate configuration before building or installing. Print `MOBILE_SERVER_URL` for entry in the app's existing first-launch setup. Do not add a Dart environment hook or change application code.
+
+Have `mobile-install` build the debug APK through `mobile-build`, then install it with host `adb -s <selected-serial> install -r`. Stop on build or selection failures. Have `mobile-debug` resolve packages and run interactive `flutter run -d <selected-serial>` through the host ADB daemon. Preserve terminal input, logs, interrupts, and Flutter's exit code.
+
+Create `tools/mobile/mobile-devtools` to run the pinned toolchain's DevTools command with host networking, `127.0.0.1` binding, and `MOBILE_DEVTOOLS_PORT`. Print the loopback URL. The operator connects DevTools to the VM service URL emitted by `mobile-debug`. Do not expose DevTools through Compose, a LAN listener, or the Cloudflare tunnel.
+
+**Verify:** Installation targets only the selected phone and replaces its debug APK. Debugging supports hot reload, hot restart, and logs. DevTools connects to that session's VM service and listens only on loopback. Interrupting either interactive command removes its container.
+**Status:** not started
+
+### Step 7: Expose the Make command interface
+
+Add `.PHONY` targets and help descriptions to `Makefile` for `mobile-image`, `mobile-check`, `mobile-build`, `mobile-server-up`, `mobile-server-down`, `mobile-connect`, `mobile-install`, `mobile-debug`, and `mobile-devtools`. Each recipe invokes its matching script with Bash. Keep configuration, selection, and Docker logic out of Make recipes.
+
+Preserve the existing `build-mobile`, `test-mobile`, and `analyze-mobile` host-toolchain targets. Keep `check-all` opt-in behavior and all Go commands unchanged.
+
+**Verify:** `make help` lists all nine commands. Each alias reaches its matching script and preserves failures. Existing host Flutter and Go targets retain their current behavior.
+**Status:** not started
+
+### Step 8: Document setup and validation boundaries
+
+Create `tools/mobile/README.md` with Linux host prerequisites, committed toolchain versions, cache and output paths, local configuration setup, and the ordered image, check, server, connect, install, debug, and DevTools workflow. Document one-time wireless pairing, changing connect ports, ambiguous mDNS candidates, caller ownership, and loopback ADB diagnostics.
+
+Tell the operator to enter the printed `MOBILE_SERVER_URL` in the app on first launch. Explain the unauthenticated private-LAN server, real-model costs, isolated database, data-preserving server stop, and loopback-only DevTools. Document PIMOTE session durability without inventing a background job service.
+
+Update the Android section, prerequisites, and command list in `README.md` to link the container workflow and distinguish existing host-toolchain aliases. Update `tools/manual-test/PLAN.md` to retain the deferred emulator smoke journey. Specify the later emulator as its target, not the real debugging phone. Do not claim the journey ran. Add the Mobile toolchain module and `tools/mobile/**` ownership to `codemap.md`, with its Client and API dependencies.
+
+**Verify:** A host with Docker and ADB can follow the instructions without installing Flutter or Java. Documentation separates container checks, manual phone debugging, and the deferred emulator journey. No credentials, pairing codes, or unperformed validation claims enter committed files.
+**Status:** not started

@@ -160,3 +160,46 @@ A successful setup is observable when:
 ### DR Supersessions
 
 None. Existing decision records cover ingest and storage behavior and remain valid.
+
+## Tests
+
+**Pre-test-write commit:** `6d669fd125346417d5154e9d93ba96bdcbc94aa1`
+
+### Interface Files
+
+- `deploy/backup.sh` — command boundary for daily, pre-update, and selected-archive restore modes.
+- `deploy/update.sh` — command boundary for building and installing the configured local image.
+- `deploy/second-brain-backup.service.in` — systemd oneshot service template for daily archives.
+- `deploy/second-brain-backup.timer.in` — persistent 03:00 local-time backup timer template.
+- `deploy/deploy.env.example` — backup directory and active database configuration values.
+
+### Test Files
+
+- `tests/test_local_production_server.py` — component tests for archive, restore, update, installer, and Make command boundaries.
+
+### Behaviors Covered
+
+#### Archive command
+
+- Daily backup defers while the intake pipeline reports ready, leased, retrying, or actively processed work.
+- Daily backup stops and restarts the service around an archive of only the configured active database.
+- Daily archive failure attempts service recovery and returns a failure status.
+- Pre-update backup refuses non-idle intake work and archives an idle active database.
+- Archives use owner-only permissions.
+
+#### Restore command
+
+- Restore accepts only an explicit archive under the configured backup directory.
+- Restore moves the active database to a timestamped safety copy, extracts the selected archive, and leaves experiment databases unchanged.
+- Restore failures retain the safety copy and report a failure.
+
+#### Local image update
+
+- A successful update builds the configured local image, creates a pre-update archive, and restarts the service without pulling.
+- A failed image build leaves the running service and pre-update archive untouched.
+
+#### Deployment and operations
+
+- Installation renders loopback-only service settings and a persistent daily backup timer.
+- Installation enforces owner-only application environment permissions and rejects unavailable local images.
+- Make targets expose backup modes and selected-archive restore through the deployment command family.

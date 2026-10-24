@@ -1,0 +1,13 @@
+# Daily database archive service template.
+# Rendered by deploy/install.sh.
+
+[Unit]
+Description=Second Brain database archive ({{NAME}})
+After={{NAME}}.service
+
+[Service]
+Type=oneshot
+ExecStart={{BACKUP_SCRIPT}} daily
+
+[Install]
+WantedBy=default.target

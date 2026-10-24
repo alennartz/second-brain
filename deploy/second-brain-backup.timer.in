@@ -1,0 +1,13 @@
+# Daily database archive timer template.
+# Rendered by deploy/install.sh.
+
+[Unit]
+Description=Daily Second Brain database archive ({{NAME}})
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit={{NAME}}-backup.service
+
+[Install]
+WantedBy=timers.target

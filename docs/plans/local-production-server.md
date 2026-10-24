@@ -90,13 +90,15 @@ backup pre-update
 restore <archive>
 ```
 
-For `daily`, the command checks `/ingest/pipeline`. If ready, leased, retrying, or
-actively processed intake work exists, it logs a deferred result and exits without
-stopping the service. The next timer run retries it. It does not use that check as
-the correctness guarantee for dreaming or other requests.
+For `daily`, the command checks `/ingest/pipeline`. Positive `ready`, `leased`,
+`retry_wait`, `worker_count`, or `active_leases` values mean non-idle intake.
+Paused-only work does not block an archive. Non-idle intake or a pipeline request
+or parsing error produces a logged deferred result without stopping the service.
+The next timer run retries it. This check is not the correctness guarantee for
+dreaming or other requests. The host uses `jq` to parse the pipeline response.
 
-For `pre-update`, the same non-idle result is an error. The update must not restart
-the service without a successful pre-update archive.
+For `pre-update`, non-idle intake or a pipeline error is an error. The update must
+not restart the service without a successful pre-update archive.
 
 When the mode proceeds, the command stops the service, waits for a clean exit, and
 writes one temporary `tar.gz` archive of
@@ -203,3 +205,17 @@ None. Existing decision records cover ingest and storage behavior and remain val
 - Installation renders loopback-only service settings and a persistent daily backup timer.
 - Installation enforces owner-only application environment permissions and rejects unavailable local images.
 - Make targets expose backup modes and selected-archive restore through the deployment command family.
+- Daily and pre-update modes cover each non-idle field, paused-only intake, and pipeline request or parsing errors.
+- Retention keeps seven newest archives per mode without changing the other mode or unrelated archives.
+- Failed service stops prevent archives. Failed starts report failure. Archive failure preserves a previously inactive service.
+- Update aborts before installation or restart when pre-update backup fails.
+- Restore rejects invalid database entries before stopping and retains safety copies after startup failure.
+- Installation rejects each missing required value, mounts the configured data directory, and sets both stop timeouts above ingestion grace.
+
+### Manual Test Contract
+
+- `docs/manual-tests/local-production-server.md` covers the one-time reset, live health, loopback listeners, image identity, mounted data, restart persistence, journal lifecycle, lingering, and backup timer verification.
+- The reset is an operator action, not a routine deployment command.
+- Manual journeys remain unexecuted until deployment verification.
+
+**Review status:** approved

@@ -235,3 +235,104 @@ System dictation, absence of audio permissions, Android packaging, and physical 
 **Local execution:** The Flutter and Dart SDKs are not installed in this checkout, so `flutter test` could not run locally. The new tests are intentionally red against the interface stubs and require a Flutter-enabled environment for the launch check. Review also confirmed that neither `flutter` nor `dart` is available.
 
 **Review status:** approved
+
+## Steps
+
+### Step 1: Generate the Android application scaffold
+
+In a Flutter-enabled environment, run `flutter create --platforms=android --project-name=second_brain_mobile client/mobile` from the repository root. Retain the existing package metadata, public interfaces, and immutable tests. Remove generated sample application code and sample tests, not the existing contract tests.
+
+Resolve the dependencies already declared in `client/mobile/pubspec.yaml` with `flutter pub get`. Use package-manager commands for any manifest changes. Add `client/mobile/analysis_options.yaml` using the declared `flutter_lints` package. Keep generated build output out of Git through `client/mobile/.gitignore`.
+
+In `client/mobile/android/app/src/main/AndroidManifest.xml`, enable Internet access and allow the approved HTTP server URLs. Do not add audio permissions or recording integrations. Keep the application source portable and add no iOS packaging in this phase.
+
+**Verify:** Flutter resolves the existing dependencies. Android scaffolding exists without replacing the contract tests. The main Android manifest permits server requests and contains no audio permission.
+**Status:** not started
+
+### Step 2: Implement durable settings and draft storage
+
+Replace the five method stubs in `client/mobile/lib/src/persistence/settings_store.dart`. Keep `SettingsStore`, `PendingCapture`, and the injected `SharedPreferencesSettingsStore(preferences)` interface unchanged.
+
+Store the base URL under one private key. Store the complete pending Capture as one serialized value under a separate private key. Replacement writes retain only the latest value. Decode both draft fields when loading. Return null when the corresponding value is absent. Clear only the draft key, never the server URL. Await preference writes before completing each mutation method.
+
+**Verify:** `flutter test test/persistence/settings_store_test.dart` passes from `client/mobile`, including replacement, recreated-adapter, and clear-retains-URL cases.
+**Status:** not started
+
+### Step 3: Implement typed HTTP transport
+
+Replace the endpoint stubs in `client/mobile/lib/src/gateway/http_brain_gateway.dart`. Retain the injected client and existing five-second health and thirty-second request timeout defaults.
+
+Keep URL joining, request encoding, successful-status checks, and JSON object validation private to the adapter. Join normalized base URLs with `health`, `ingest`, and `recall` without duplicate separators. Encode POST bodies as JSON with the JSON content type.
+
+Implement `checkHealth()` with GET and require `status: ok`. Implement `stageIntake()` with text, empty hints, source `mobile`, and the supplied `Idempotency-Key`. Require an integer `chunks_stored` and return the existing `IngestReceipt` model. Implement the recall request with question and empty hints, ready for the projection in Step 4.
+
+Use the existing exceptions in `client/mobile/lib/src/gateway/errors.dart`. Map transport failures and endpoint timeouts to `NetworkException`. Map non-success responses to `HttpStatusException`, preserving status and body. Map invalid JSON and invalid response shapes to `MalformedResponseException`. Do not convert an existing typed HTTP failure into a network or decoding failure.
+
+**Verify:** Health and intake cases in `test/gateway/http_brain_gateway_test.dart` pass, including deterministic timeouts and invalid receipt shapes. Recall transport and status cases pass.
+**Status:** not started
+
+### Step 4: Decode recall and group evidence
+
+Complete `recall()` in `client/mobile/lib/src/gateway/http_brain_gateway.dart`. Put private pure decoding and evidence-projection helpers there or in `client/mobile/lib/src/gateway/recall_mapper.dart`. Preserve the public constructors and fields in `client/mobile/lib/src/gateway/models.dart` and the exports in `client/mobile/lib/second_brain_mobile.dart`.
+
+Require a string answer and a context object or null. Map graph nodes and edges to their existing typed fields. Map document chunk `intake_id`, `chunk_index`, `total_chunks`, `content`, `source`, `hints`, and `unprocessed` to the corresponding `IntakeChunk` fields, retaining its record ID. Reject malformed field shapes through `MalformedResponseException`.
+
+Produce one `GraphNodeEvidence` for each returned node. Attach each directed edge once, preferring its returned `to` node and then its returned `from` node. For an orphan edge, create a lightweight `GraphNode` for its `to` endpoint, deriving the table from the record ID. Group orphan links for the same endpoint on that card. Retain direction, table, ID, and context in each `LinkedEdge`. Append separate `UnprocessedEvidence` items for document chunks. Null or empty context yields empty evidence.
+
+**Verify:** `flutter test test/gateway/http_brain_gateway_test.dart` passes from `client/mobile`. Both-endpoint links attach once, orphan links remain visible, and all defined evidence fields survive decoding.
+**Status:** not started
+
+### Step 5: Build startup, setup, and settings flows
+
+Implement `client/mobile/lib/src/mobile_application.dart` behind the existing `MobileApplication` constructor. Use local Flutter state for startup and flow composition. Load the stored URL and pending Capture before showing the configured application. Show setup when no URL exists. Otherwise create the gateway with `gatewayForBaseUrl` and open Capture by default.
+
+Add `client/mobile/lib/src/screens/server_settings_screen.dart` for setup and Settings. Validate an absolute HTTP or HTTPS URL with a host. Normalize surrounding whitespace and trailing separators before creating the gateway and saving the URL. Reject invalid input without saving. Check health and save valid configuration even when health fails. Report the health outcome visibly. After setup, open Capture and retain any health-failure notice. Settings saves update the shell's gateway for later requests.
+
+Use `MaterialApp` with Material 3 and the white-and-bronze palette from `docs/mocks/flutter-mobile-client/index.html`. The shell owns Capture and Ask bottom navigation. Its settings action uses tooltip `Settings`. Push Settings without bottom navigation. Use the accessible `Save` button label.
+
+**Verify:** Setup and Settings cases in `test/mobile_application_test.dart` pass. Stored configuration opens Capture. Invalid URLs remain unsaved, failed health does not block configuration, and Settings hides navigation.
+**Status:** not started
+
+### Step 6: Implement Capture and explicit retries
+
+Add `client/mobile/lib/src/screens/capture_screen.dart` and compose it from `mobile_application.dart`. Inject the active gateway, settings store, key factory, and startup draft. Keep request state local to this flow.
+
+Restore a pending draft without staging it. For a new or edited draft, create a new key and persist the text/key pair before staging. Editing a restored or failed draft must persist the replacement before submission and must not reuse its old key. Preserve persistence ordering so an older edit cannot overwrite a newer draft or restore a cleared successful draft.
+
+Use `Capture` for normal submission. During staging, prevent duplicate submissions. After failure, retain text and key, report the failure, and expose `Retry`. Retry sends the same text/key pair. After a successful receipt, clear persisted pending Capture, clear the composer, and acknowledge the stored chunk count. Report staging, not completed graph organization.
+
+Use an ordinary multiline text field for keyboard-provided dictation. Introduce no microphone action or transcription integration.
+
+**Verify:** Capture cases in `test/mobile_application_test.dart` pass, including persistence before staging, success clearing, restored drafts, edit key rotation, and stable-key retry.
+**Status:** not started
+
+### Step 7: Implement Ask and the isolated result route
+
+Add `client/mobile/lib/src/screens/ask_screen.dart` and `client/mobile/lib/src/screens/recall_result_screen.dart`. Retain the Ask text controller in the composer flow while the result route is open.
+
+On `Ask`, push the result route immediately and start `gateway.recall(question)` there. Its app bar contains only Back and the result title. Do not include input, bottom navigation, or Settings. Display loading until the request completes. Handle typed gateway failures with an actionable message and a `Retry` button. Retry uses the same question. Back returns to the retained composer. Ignore asynchronous UI completion after the route is disposed.
+
+Render successful answers with the declared `flutter_markdown` package. Add `client/mobile/lib/src/widgets/evidence_cards.dart` to render grouped typed evidence without JSON access. Graph cards show node content and directed connection rows with edge context. Orphan endpoint cards use their record identity. Document chunks render as separate unprocessed-evidence cards.
+
+Show `Evidence` only when evidence exists. Expand evidence initially and support collapse. For empty evidence, retain the answer and any empty-state copy without an Evidence control.
+
+**Verify:** Ask loading, Back, failure retry, Markdown, grouped evidence, collapse, and empty-evidence cases in `test/mobile_application_test.dart` pass.
+**Status:** not started
+
+### Step 8: Complete keyboard-aware composer layout
+
+Complete layout in `capture_screen.dart`, `ask_screen.dart`, and the shell in `mobile_application.dart`. Match the approved interaction mock without introducing additional persistent controls.
+
+Use `Scaffold(resizeToAvoidBottomInset: true)`, safe areas, flexible constraints, and a scrollable composer body. Start text fields compact, let them grow, and allow internal scrolling when space is limited. Keep submit actions within the resized viewport above keyboard insets. Do not reserve a fixed tall field or place an action behind the keyboard.
+
+**Verify:** The keyboard-inset test in `test/mobile_application_test.dart` passes for both composers at a 400-by-700 viewport with a 300-pixel bottom inset. Both submit buttons remain at or above vertical position 400, with no layout exception.
+**Status:** not started
+
+### Step 9: Wire production startup and repository commands
+
+Replace generated `client/mobile/lib/main.dart` with production composition. Initialize Flutter bindings and Shared Preferences, construct `SharedPreferencesSettingsStore`, and inject an owned `http.Client` through the gateway factory. Supply UUID keys through the declared `uuid` package. Run `MobileApplication` through its public seam. Close the owned HTTP client when its production owner is disposed. Screens must not construct transport or storage adapters.
+
+Add opt-in `.PHONY` targets to the repository `Makefile`: `build-mobile` runs `cd client/mobile && flutter build apk`, `test-mobile` runs `cd client/mobile && flutter test`, and `analyze-mobile` runs `cd client/mobile && flutter analyze`. Include help descriptions using the existing `##` convention. Leave `check-all` unchanged.
+
+**Verify:** In a Flutter-enabled environment, `make test-mobile`, `make analyze-mobile`, and `make build-mobile` succeed. `make help` lists all three targets. Static inspection confirms no server or Go client changes. Device journeys remain deferred to the manual-test phase.
+**Status:** not started

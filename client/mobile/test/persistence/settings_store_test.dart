@@ -12,6 +12,21 @@ void main() {
     store = SharedPreferencesSettingsStore(preferences);
   });
 
+  test('recreated adapter reads the replaced URL and pending draft', () async {
+    await store.saveBaseUrl('https://first.example.test');
+    await store.saveBaseUrl('https://second.example.test');
+    await store.savePendingCapture(const PendingCapture(text: 'Old', idempotencyKey: 'old'));
+    await store.savePendingCapture(const PendingCapture(text: 'New', idempotencyKey: 'new'));
+    final recreated = SharedPreferencesSettingsStore(preferences);
+    expect(await recreated.loadBaseUrl(), 'https://second.example.test');
+    final loaded = await recreated.loadPendingCapture();
+    expect(loaded!.text, 'New');
+    expect(loaded.idempotencyKey, 'new');
+    await recreated.clearPendingCapture();
+    expect(await store.loadPendingCapture(), isNull);
+    expect(await store.loadBaseUrl(), 'https://second.example.test');
+  });
+
   test('stores and loads the configured server URL', () async {
     await store.saveBaseUrl('https://brain.example.test');
 

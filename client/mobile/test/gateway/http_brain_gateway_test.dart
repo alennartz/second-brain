@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:second_brain_mobile/second_brain_mobile.dart';
 
-http.Response jsonResponse(Object body, {int statusCode = 200}) {
+http.Response jsonResponse(Object? body, {int statusCode = 200}) {
   return http.Response(
     jsonEncode(body),
     statusCode,
@@ -23,6 +24,87 @@ HttpBrainGateway gatewayFor(
 }
 
 void main() {
+  final operations = <String, Future<void> Function(BrainGateway)>{
+    'health': (gateway) => gateway.checkHealth(),
+    'intake': (gateway) async { await gateway.stageIntake('Thought', idempotencyKey: 'key'); },
+    'recall': (gateway) async { await gateway.recall('Question'); },
+  };
+  for (final operation in operations.entries) {
+    test('${operation.key} rejects non-success status', () async {
+      final gateway = gatewayFor((_) async => http.Response('Unavailable', 503));
+      await expectLater(operation.value(gateway), throwsA(isA<HttpStatusException>().having((error) => error.statusCode, 'status', 503)));
+    });
+    test('${operation.key} maps transport failure', () async {
+      final gateway = gatewayFor((_) async { throw http.ClientException('Unavailable'); });
+      await expectLater(operation.value(gateway), throwsA(isA<NetworkException>()));
+    });
+    test('${operation.key} rejects malformed JSON', () async {
+      final gateway = gatewayFor((_) async => http.Response('{', 200));
+      await expectLater(operation.value(gateway), throwsA(isA<MalformedResponseException>()));
+    });
+    testWidgets('${operation.key} applies its bounded timeout', (tester) async {
+      final response = Completer<http.Response>();
+      final gateway = HttpBrainGateway(
+        baseUrl: 'https://brain.example.test',
+        client: MockClient((_) => response.future),
+        healthTimeout: const Duration(seconds: 1),
+        requestTimeout: const Duration(seconds: 2),
+      );
+      final assertion = expectLater(operation.value(gateway), throwsA(isA<NetworkException>()));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      if (operation.key != 'health') await tester.pump(const Duration(seconds: 1));
+      await assertion;
+      response.complete(jsonResponse({'status': 'ok'}));
+      await tester.pump();
+    });
+  }
+
+  for (final body in [null, [], {}, {'chunks_stored': 'two'}, {'chunks_stored': 1.5}]) {
+    test('intake rejects invalid receipt $body', () async {
+      final gateway = gatewayFor((_) async => jsonResponse(body));
+      await expectLater(gateway.stageIntake('Thought', idempotencyKey: 'key'), throwsA(isA<MalformedResponseException>()));
+    });
+  }
+  for (final body in [null, [], {}, {'answer': 42, 'context': null}, {'answer': 'Answer', 'context': 'invalid'}]) {
+    test('recall rejects invalid response $body', () async {
+      final gateway = gatewayFor((_) async => jsonResponse(body));
+      await expectLater(gateway.recall('Question'), throwsA(isA<MalformedResponseException>()));
+    });
+  }
+
+  test('recall maps empty context to no evidence', () async {
+    final gateway = gatewayFor((_) async => jsonResponse({'answer': 'Answer', 'context': {'nodes': [], 'edges': [], 'unprocessed': []}}));
+    expect((await gateway.recall('Question')).evidence, isEmpty);
+  });
+
+  test('both returned endpoints attach the directed edge once to its to node', () async {
+    final gateway = gatewayFor((_) async => jsonResponse({
+      'answer': 'Answer',
+      'context': {
+        'nodes': [
+          {'id': 'note:1', 'table': 'note', 'content': 'Content', 'name': 'Name', 'type': 'Type', 'description': 'Description', 'summary': 'Summary'},
+          {'id': 'entity:2', 'table': 'entity'},
+        ],
+        'edges': [{'id': 'references:1', 'table': 'references', 'from': 'note:1', 'to': 'entity:2', 'context': 'Link'}],
+        'unprocessed': [],
+      },
+    }));
+    final items = (await gateway.recall('Question')).evidence.whereType<GraphNodeEvidence>().toList();
+    expect(items, hasLength(2));
+    final from = items.singleWhere((item) => item.node.id == 'note:1');
+    expect(from.links, isEmpty);
+    expect(from.node.content, 'Content');
+    expect(from.node.name, 'Name');
+    expect(from.node.type, 'Type');
+    expect(from.node.description, 'Description');
+    expect(from.node.summary, 'Summary');
+    final to = items.singleWhere((item) => item.node.id == 'entity:2');
+    expect(to.links, hasLength(1));
+    expect(to.links.single.from, 'note:1');
+    expect(to.links.single.to, 'entity:2');
+    expect(to.links.single.context, 'Link');
+  });
   test('health checks GET /health and accepts a successful ok response', () async {
     final requests = <http.Request>[];
     final gateway = gatewayFor((request) async {
@@ -173,8 +255,9 @@ void main() {
     );
 
     final orphan = result.evidence.whereType<GraphNodeEvidence>().firstWhere(
-      (item) => item.node.id == 'entity:orphan',
+      (item) => item.links.any((link) => link.id == 'relates_to:3'),
     );
+    expect(orphan.node.id, isIn(['note:missing', 'entity:orphan']));
     expect(orphan.links, hasLength(1));
     expect(orphan.links.single.id, 'relates_to:3');
 
@@ -182,6 +265,13 @@ void main() {
     expect(raw.chunk.id, 'intake_chunk:1');
     expect(raw.chunk.intakeId, 'intake:1');
     expect(raw.chunk.chunkPosition, 0);
+    expect(raw.chunk.totalChunks, 1);
+    expect(raw.chunk.content, 'A recent raw thought.');
+    expect(raw.chunk.source, 'mobile');
+    expect(graph.node.table, 'entity');
+    expect(graph.node.name, 'Garden plot');
+    expect(graph.links.firstWhere((link) => link.id == 'references:1').from, 'note:layout');
+    expect(graph.links.firstWhere((link) => link.id == 'references:1').table, 'references');
     expect(raw.chunk.hints, ['garden']);
     expect(raw.chunk.isUnprocessed, isTrue);
   });

@@ -88,7 +88,7 @@ final class UnprocessedEvidence extends EvidenceItem {
 The evidence projection is a pure mapping inside the gateway or a private domain mapper. It never emits an edge as a standalone item:
 
 - create one graph evidence item for each returned node;
-- attach a returned edge to its `to` endpoint when that node exists;
+- attach a returned edge once to its `to` endpoint when that node exists, including when both endpoints are returned;
 - if only the `from` endpoint exists, attach the edge there;
 - if neither endpoint has a returned node, retain the edge on a lightweight linked-record card identified by its endpoint rather than dropping it or rendering a standalone edge card;
 - retain each unprocessed chunk as its own evidence item;
@@ -130,6 +130,20 @@ The setup and settings flows validate an absolute `http` or `https` URL, attempt
 
 #### Interaction and state seams
 
+The public application seam is an injectable widget:
+
+```dart
+MobileApplication({
+  required SettingsStore settingsStore,
+  required BrainGateway Function(String baseUrl) gatewayForBaseUrl,
+  required String Function() createIdempotencyKey,
+})
+```
+
+The widget owns startup loading and flow composition. The gateway factory receives the configured URL. The key factory supplies new keys for new or edited drafts. Widget tests inject deterministic factories and storage, then exercise visible controls and persisted outcomes.
+
+Accessible control labels are `Save`, `Capture`, `Ask`, `Retry`, and `Evidence`. The settings action has the tooltip `Settings`. Material button style remains an implementation choice. Setup and Settings report health failure while retaining the saved URL. Recall timeout failures use `NetworkException`, as do health and staging timeouts.
+
 The application uses Flutter SDK state local to each flow. No state framework is introduced.
 
 - **Application shell:** gates first launch on stored URL presence, opens Capture by default, owns bottom navigation, and hides navigation on Settings and the result route.
@@ -167,6 +181,7 @@ Alternatives considered:
 
 - `client/mobile/pubspec.yaml` — Flutter package metadata and the focused REST, persistence, Markdown, and key-generation dependencies.
 - `client/mobile/lib/second_brain_mobile.dart` — public exports for the mobile client seams.
+- `client/mobile/lib/src/mobile_application.dart` — public injected application widget boundary.
 - `client/mobile/lib/src/gateway/brain_gateway.dart` — `BrainGateway` REST boundary.
 - `client/mobile/lib/src/gateway/errors.dart` — typed network, HTTP status, and malformed-response exceptions.
 - `client/mobile/lib/src/gateway/http_brain_gateway.dart` — injectable HTTP gateway adapter surface with bounded timeout configuration.
@@ -177,6 +192,7 @@ Alternatives considered:
 
 - `client/mobile/test/gateway/http_brain_gateway_test.dart` — health, intake, recall, evidence projection, transport failures, and typed response errors.
 - `client/mobile/test/persistence/settings_store_test.dart` — server URL and pending Capture draft persistence contracts.
+- `client/mobile/test/mobile_application_test.dart` — setup, Capture, Settings, Ask result, evidence, Markdown, and keyboard-aware submission contracts.
 
 ### Behaviors Covered
 
@@ -195,4 +211,27 @@ Alternatives considered:
 - A pending Capture retains its text and idempotency key across a save and load cycle.
 - A missing pending Capture loads as null, and clearing one removes it.
 
-**Local execution:** The Flutter and Dart SDKs are not installed in this checkout, so `flutter test` could not run locally. The new tests are intentionally red against the interface stubs and require a Flutter-enabled environment for the launch check.
+#### Application widget
+
+- First launch validates the URL and saves valid configuration despite failed health.
+- Stored configuration opens Capture by default. Settings hides navigation and saves edited configuration despite failed health.
+- Capture persists text and a new key before staging, reports chunk count, and clears successful drafts.
+- Failed Capture retains the draft. Retry uses the same key. Startup restores without auto-submission. Editing rotates and persists the key.
+- Ask opens a loading result route without composer, navigation, or settings. Back retains the question.
+- Successful results render limited Markdown and grouped evidence, expanded by default and collapsible.
+- Recall failure offers explicit retry with the same question. Empty evidence hides the Evidence control.
+- Both composers retain a visible submit action above keyboard insets without layout overflow.
+
+#### Additional gateway and storage paths
+
+- Each endpoint maps transport, HTTP status, malformed JSON, and deterministic bounded timeout failures to typed exceptions.
+- Malformed receipt and recall response shapes fail at the gateway boundary.
+- Empty context returns empty evidence. Both-endpoint edges attach once to the `to` card. Orphan edges remain on a lightweight endpoint card.
+- Graph and unprocessed evidence retain all defined fields.
+- Replacement writes retain only the latest URL and draft, readable through a recreated storage adapter. Clearing the draft retains the URL.
+
+System dictation, absence of audio permissions, Android packaging, and physical keyboard behavior remain static or manual checks. Widget inset tests cover the application layout contract without claiming device validation.
+
+**Local execution:** The Flutter and Dart SDKs are not installed in this checkout, so `flutter test` could not run locally. The new tests are intentionally red against the interface stubs and require a Flutter-enabled environment for the launch check. Review also confirmed that neither `flutter` nor `dart` is available.
+
+**Review status:** approved

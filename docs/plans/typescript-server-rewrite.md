@@ -149,7 +149,7 @@ interface UpdateNodeTool {
 
 `storeNode` creates exactly one note or entity and never updates or merges. `storeEdge` accepts only existing canonical node IDs and never creates nodes or resolves names. It returns a structured created or skipped result for self-edges and duplicate relationships. `updateNode` reads the selected field, requires exactly one occurrence of `oldText`, performs no write when the match count is zero or greater than one, validates the resulting field, and re-embeds searchable text. It never accepts an unconditional field overwrite.
 
-A short-lived mutation coordinator gives each Pi assistant message one SurrealDB transaction. Mutation tools execute inside that transaction and can return IDs allocated by it. The coordinator commits after the assistant message completes and rolls back that message’s intents if the turn fails. A later failed turn does not undo earlier committed turns, and no transaction remains open during model requests.
+Each mutation tool call executes in its own short SurrealDB transaction and commits before returning. `storeNode` and `storeEdge` therefore return real IDs immediately. Earlier successful calls remain after a later Pi turn fails, and no transaction remains open during model requests. Composite operations such as node merge, edge merge, and edge-type rename are atomic within their individual calls.
 
 Read tools expose `searchMemory`, `getNode`, and `exploreGraph`. Discovery tools expose `findSimilar` and `findUnlinkedCooccurrences`. Results contain canonical IDs, bounded node fields, edge IDs, and unprocessed evidence projections; they omit embeddings and queue lease metadata.
 
@@ -180,7 +180,7 @@ renameEdgeType({
 
 #### Workflow tool sets
 
-- **Ingest workflow:** `searchMemory`, `getNode`, `exploreGraph`, `storeNode`, `storeEdge`, and `updateNode`. It processes one leased intake batch, commits successful mutation turns, and reports errors so an interrupted batch can retry without holding a transaction across model requests.
+- **Ingest workflow:** `searchMemory`, `getNode`, `exploreGraph`, `storeNode`, `storeEdge`, and `updateNode`. It processes one leased intake batch, commits each successful mutation call, and reports errors so an interrupted batch can retry without holding a transaction across model requests.
 - **Recall workflow:** `searchMemory`, `getNode`, `exploreGraph`, and a model-only `answerRecall` tool. `answerRecall` accepts the existing answer, evidence flag, and node/edge/unprocessed citation arrays. It validates citations against evidence collected in the session and terminates the run only when the response is valid. The HTTP layer still resolves citations against live storage before returning the response.
 - **Dream workflow:** one scheduler-facing workflow with separate request-scoped Pi sessions for deduplication and connection discovery. Deduplication gets `findSimilar`, `getNode`, `exploreGraph`, `mergeNodes`, `mergeEdges`, `updateNode`, `removeEdge`, and `renameEdgeType`. Connection discovery gets `findSimilar`, `findUnlinkedCooccurrences`, `getNode`, `exploreGraph`, `storeEdge`, and `updateNode`.
 
@@ -205,7 +205,7 @@ interface DreamScheduler {
 }
 ```
 
-The intake pipeline keeps paragraph/sentence chunking, synchronous searchable staging, contiguous leased batches, lease renewal, retry backoff, pause/resume/discard, and clean-acknowledgement semantics. A batch is acknowledged only after the ingest workflow completes without errors; mutation turns commit independently, so committed turns remain after a later failure and replay remains at-least-once. The dream scheduler keeps idle backoff, activity wake-up, per-idle-period convergence limits, dedup-before-connect ordering, cancellation, and dream-age updates.
+The intake pipeline keeps paragraph/sentence chunking, synchronous searchable staging, contiguous leased batches, lease renewal, retry backoff, pause/resume/discard, and clean-acknowledgement semantics. A batch is acknowledged only after the ingest workflow completes without errors; mutation calls commit independently, so committed calls remain after a later failure and replay remains at-least-once. The dream scheduler keeps idle backoff, activity wake-up, per-idle-period convergence limits, dedup-before-connect ordering, cancellation, and dream-age updates.
 
 #### HTTP adapter
 

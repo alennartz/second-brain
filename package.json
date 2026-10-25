@@ -8,6 +8,8 @@
     "test": "tests"
   },
   "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun --watch run src/main.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

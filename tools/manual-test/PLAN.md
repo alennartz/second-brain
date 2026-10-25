@@ -1,49 +1,60 @@
 # Manual Test Plan
 
-## HTTP intake and recall
+## Bun server health and fresh startup
 
-Exercise synchronous `POST /ingest`, search queued document chunks, and observe
-background organization through `GET /ingest/pipeline` and `GET /recall`.
-This is the primary intake journey. Driver: `curl` via `bash`.
+1. Copy `.env.example` to `.env` and set workflow models and credentials.
+2. Start the server with `bun run src/main.ts` or `make dev`.
+3. Request `GET /health` and verify `{"status":"ok"}`.
+4. Confirm a new database directory exists at `BRAIN_DB_PATH`.
+5. Stop and restart the server.
+6. Request `GET /health` again and confirm the database opens without migration.
 
-## Pipeline operations
+**Pass:** The Bun entry point starts, reports health, and reopens its fresh
+latest-schema database.
 
-Inspect queue health and use pause, resume, and discard controls for an intake
-document. This protects operator recovery and cleanup behavior. Driver: `curl`
-via `bash`.
+## HTTP intake, queue, recall, and graph
 
-## MCP intake and recall
+1. Send `POST /ingest` with text, hints, source, and an idempotency key.
+2. Confirm the response contains `chunks_stored` before organization completes.
+3. Search with `POST /recall` and verify queued evidence appears separately.
+4. Inspect `GET /ingest/pipeline` for ready, leased, retry, and worker counts.
+5. Pause, resume, and discard one intake through the pipeline controls.
+6. Poll `POST /dream` and `GET /dream/jobs/{job_id}`.
+7. Read an organized node with `GET /graph/{record_id}`.
+8. Retry the same ingest request with the same key and verify no duplicate
+   chunks are stored.
 
-Stage text through the configured MCP tools and retrieve graph and unprocessed
-evidence with separate citations. This keeps the agent-facing entry point
-aligned with HTTP. Driver: direct Python MCP tool invocation when practical.
+**Pass:** Intake staging is synchronous, queue controls affect one intake,
+recall keeps unprocessed evidence separate, graph lookup returns canonical IDs,
+and dream jobs reach a terminal state.
 
-## Go CLI ingest
+## Go CLI
 
-Run the one-shot `brain ingest` command against the service and verify the
-synchronous chunk-count acknowledgement. This protects the shipped terminal
-client. Driver: direct shell invocation via `bash`.
+1. Build the client with `make build-client`.
+2. Run `brain ingest` against the local server.
+3. Run `brain recall` and verify grouped evidence.
+4. Run `brain graph` with a canonical node ID.
 
-## Converse staging
+**Pass:** The client uses the non-conversation HTTP contract without errors.
 
-Stage text through the converse ingest path and inspect the resulting queue or
-unprocessed recall context. This is adjacent to the intake surface, but the Jev
-routing path is owned by the separate `jev-converse-routing` topic. Driver:
-`curl` when a configured non-Jev path is available; Jev assertions are recorded
-as scope limitations.
+## Restart and shutdown
+
+1. Stage an intake and confirm it appears in pipeline or recall output.
+2. Stop the Bun process with SIGTERM.
+3. Confirm the process releases workers before it closes storage.
+4. Start it again and repeat the health, recall, and graph checks.
+
+**Pass:** Shutdown settles active work and restart preserves the fresh database.
 
 ## Android Flutter client smoke journey
 
 **Status:** deferred. The containerized toolchain supports checks and builds, but
-no connected phone or Android emulator is available here. Real-phone installation,
-live debugging, and VM-service connection remain unrun.
+no connected phone or Android emulator is available here.
 
-Run this journey later in an Android emulator environment. It targets the
-emulator, not the real phone used for wireless live debugging:
+Run this journey later in an Android emulator or real-phone environment:
 
 1. First-launch server setup.
-2. Capture success and the stored chunk acknowledgement.
+2. Capture success and stored chunk acknowledgement.
 3. Failed Capture retention and explicit retry.
-4. Ask recall and expanded evidence.
-5. Back from the result route with the question retained.
-6. Capture and Ask submission while the keyboard is open.
+4. Ask recall and grouped evidence.
+5. Capture and Ask submission while the keyboard is open.

@@ -4,6 +4,8 @@ services:
     ports:
       - "8000:8000"
     env_file: .env
+    environment:
+      BRAIN_DB_PATH: /data/brain.surreal
     volumes:
       - brain-data:/data
     healthcheck:
@@ -16,8 +18,11 @@ services:
     build: .
     ports:
       - "8001:8000"
+    env_file: .env
     environment:
-      BRAIN_TEST_MODE: "true"
+      BRAIN_DB_PATH: /data/brain-test.surreal
+    volumes:
+      - test-brain-data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 5s
@@ -32,8 +37,7 @@ services:
       - "${MOBILE_SERVER_BIND_ADDRESS:?MOBILE_SERVER_BIND_ADDRESS is required; pass --env-file .env.mobile.local}:8200:8000"
     env_file: "${MOBILE_ENV_FILE:-.env.mobile.local}"
     environment:
-      BRAIN_DB_PATH: /data/brain.db
-      BRAIN_TEST_MODE: "false"
+      BRAIN_DB_PATH: /data/brain.surreal
     volumes:
       - mobile-brain-data:/data
     healthcheck:
@@ -46,4 +50,5 @@ services:
 
 volumes:
   brain-data:
+  test-brain-data:
   mobile-brain-data:

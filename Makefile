@@ -3,34 +3,26 @@
 # --- Dev workflow ---
 
 .PHONY: install
-install: ## Install all dependencies (Python + pre-commit hooks)
-	uv sync --all-extras
-	uv run pre-commit install
+install: ## Install Bun dependencies and pre-commit hooks
+	bun install --frozen-lockfile
+	pre-commit install
 
 .PHONY: dev
-dev: ## Start the dev server with hot reload
-	uv run uvicorn second_brain.app:app --reload
+dev: ## Start the Bun server with hot reload
+	bun --watch run src/main.ts
 
-# --- Python quality ---
+# --- TypeScript quality ---
 
 .PHONY: test
-test: ## Run Python tests
-	uv run pytest -v
-
-.PHONY: lint
-lint: ## Lint Python code
-	uv run ruff check src/ tests/
-
-.PHONY: format
-format: ## Format Python code
-	uv run ruff format src/ tests/
+test: ## Run Bun tests
+	bun test
 
 .PHONY: typecheck
-typecheck: ## Type-check Python code
-	uv run basedpyright src/
+typecheck: ## Type-check TypeScript code
+	bun run typecheck
 
 .PHONY: check
-check: lint typecheck test ## Run all Python quality checks
+check: typecheck test ## Run TypeScript checks
 
 # --- Go quality ---
 
@@ -101,7 +93,7 @@ mobile-devtools: ## Run loopback-only Flutter DevTools
 # --- All quality ---
 
 .PHONY: check-all
-check-all: check test-client lint-client ## Run all quality checks (Python + Go)
+check-all: check test-client lint-client ## Run all Bun and Go checks (excludes optional Flutter checks)
 
 # --- Docker ---
 

@@ -2,6 +2,7 @@
 .git/
 client/
 tests/
+src/second_brain/
 data/
 docs/
 *.pyc

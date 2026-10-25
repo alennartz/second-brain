@@ -518,4 +518,4 @@ Delete the old Python server, Python dependencies, compatibility fixture, and mi
 Update `codemap.md` to the implemented TypeScript modules. Record the specified DR-001 supersession through the decision-records skill.
 
 **Verify:** All listed TypeScript tests and typecheck pass. Manual HTTP journeys pass. The production image starts without Python and initializes an empty latest-schema database.
-**Status:** in progress
+**Status:** done

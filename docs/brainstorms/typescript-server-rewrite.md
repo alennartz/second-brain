@@ -10,7 +10,7 @@ Replace the Python server with a TypeScript server built and run with Bun. Use t
 - **HTTP scope.** Preserve every existing non-conversation endpoint, payload, status, and workflow contract. Remove `/converse` and `/converse/stream`. Conversation mode is intentionally not part of the replacement API.
 - **Client scope.** Do not change the Go or Flutter clients in this work. Their conversation paths become stale follow-up work because the server no longer exposes those routes.
 - **Database compatibility.** Open the existing SurrealDB file directly. Keep tables, fields, record IDs, indexes, vectors, and existing records unchanged. The TypeScript server must not require a data migration.
-- **Runtime compatibility.** Preserve active `BRAIN_` configuration names and operational controls. Remove Jev and other conversation-only settings because their feature is gone.
+- **Runtime configuration.** Intentionally introduce a Pi-native model surface. Expose one required `provider/model:effort` string per workflow, such as `BRAIN_INGEST_MODEL`, `BRAIN_RECALL_MODEL`, and `BRAIN_DREAM_MODEL`. Keep embeddings separate because existing vectors must remain compatible. Remove Jev, old reasoning-provider settings, and other conversation-only settings.
 - **Workflow compatibility.** Preserve database effects, queue leasing and retry semantics, citations, strict output validation, dream scheduling, and lifecycle behavior. Prompt wording and model answer wording can change.
 - **Pi session model.** Use Pi idiomatically with one in-memory session per ingest, recall, or dream operation. Do not persist transcripts or reuse sessions across requests.
 - **Agent tool surface.** Give agents only knowledge-domain tools. Do not expose Pi filesystem, shell, network, default resource, or MCP tools.
@@ -22,7 +22,7 @@ Replace the Python server with a TypeScript server built and run with Bun. Use t
 
 ## Direction
 
-Create a Bun-native TypeScript server whose architecture is shaped by Pi's session, tool, model, and resource seams. Keep SurrealDB and the public non-conversation service stable at the boundary. Treat storage, domain operations, agent workflows, scheduling, configuration, provider adapters, and HTTP lifecycle as replaceable internal components with explicit interfaces. Remove MCP and conversation concerns rather than carrying dead compatibility code.
+Create a Bun-native TypeScript server whose architecture is shaped by Pi's session, tool, model, and resource seams. Keep SurrealDB and the public non-conversation service stable at the boundary. Use required Pi model strings with explicit thinking levels for each workflow, while retaining a separate embedding adapter for the existing vector space. Treat storage, domain operations, agent workflows, scheduling, configuration, provider adapters, and HTTP lifecycle as replaceable internal modules with explicit interfaces. Remove MCP and conversation concerns rather than carrying dead compatibility code.
 
 ## Open questions
 

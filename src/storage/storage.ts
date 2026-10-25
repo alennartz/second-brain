@@ -31,6 +31,7 @@ export interface StorageTransaction {
   createEdge(input: NewEdge): Promise<EdgeRecord>;
   getEdge(id: EdgeId): Promise<EdgeRecord | undefined>;
   deleteEdge(id: EdgeId): Promise<void>;
+  updateEdgeFields(id: EdgeId, fields: { context?: string; edge_type?: string; in?: NodeId; out?: NodeId }): Promise<EdgeRecord | undefined>;
   getIncomingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   getOutgoingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   getEdgesByType(edgeType: string): Promise<readonly EdgeRecord[]>;
@@ -43,6 +44,9 @@ export interface StorageTransaction {
 }
 
 export interface Storage {
+  countNodes(): Promise<number>;
+  selectDreamBatch(kind: "entity" | "all", limit: number): Promise<readonly NodeRecord[]>;
+  incrementDreamAge(nodeIds: readonly NodeId[]): Promise<void>;
   withTransaction<T>(operation: (transaction: StorageTransaction) => Promise<T>): Promise<T>;
   init(): Promise<void>;
   close(): Promise<void>;
@@ -55,6 +59,7 @@ export interface Storage {
   createEdge(input: NewEdge): Promise<EdgeRecord>;
   getEdge(id: EdgeId): Promise<EdgeRecord | undefined>;
   deleteEdge(id: EdgeId): Promise<void>;
+  updateEdgeFields(id: EdgeId, fields: { context?: string; edge_type?: string; in?: NodeId; out?: NodeId }): Promise<EdgeRecord | undefined>;
   getIncomingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   getOutgoingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   findEdges(from: NodeId, edgeType: string, to: NodeId): Promise<readonly EdgeRecord[]>;
@@ -89,6 +94,10 @@ export interface Storage {
 }
 
 export class StorageStub implements Storage {
+  async countNodes(): Promise<number> { throw new Error("not implemented"); }
+  async selectDreamBatch(_kind: "entity" | "all", _limit: number): Promise<readonly NodeRecord[]> { throw new Error("not implemented"); }
+  async incrementDreamAge(_nodeIds: readonly NodeId[]): Promise<void> { throw new Error("not implemented"); }
+  async updateEdgeFields(_id: EdgeId, _fields: { context?: string; edge_type?: string; in?: NodeId; out?: NodeId }): Promise<EdgeRecord | undefined> { throw new Error("not implemented"); }
   async getEdgesByType(_edgeType: string): Promise<readonly EdgeRecord[]> {
     throw new Error("not implemented");
   }

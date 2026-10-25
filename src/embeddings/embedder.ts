@@ -9,8 +9,19 @@ export interface Embedder {
 export type EmbeddingProvider = {
   embed(request: { model: string; dimensions: number; texts: readonly string[]; signal?: AbortSignal }): Promise<readonly (readonly number[])[]>;
 };
-export function createEmbedder(_options: { model: string; dimensions: number; provider: EmbeddingProvider }): Embedder {
-  throw new Error("not implemented");
+export function createEmbedder(options: { model: string; dimensions: number; provider: EmbeddingProvider }): Embedder {
+  if (!Number.isInteger(options.dimensions) || options.dimensions <= 0) throw new Error("Invalid embedding dimensions");
+  const embedBatch = async (texts: readonly string[], signal?: AbortSignal): Promise<readonly (readonly number[])[]> => {
+    signal?.throwIfAborted();
+    if (!texts.length) return [];
+    const vectors = await options.provider.embed({ model: options.model, dimensions: options.dimensions, texts, ...(signal ? { signal } : {}) });
+    signal?.throwIfAborted();
+    if (vectors.length !== texts.length || vectors.some(vector => vector.length !== options.dimensions || vector.some(value => !Number.isFinite(value)))) {
+      throw new Error("Invalid embedding vectors: count, dimensions, or finite values");
+    }
+    return vectors.map(vector => [...vector]);
+  };
+  return { embedBatch, async embed(text, signal) { return (await embedBatch([text], signal))[0]!; } };
 }
 
 export type EmbedderResolver = (

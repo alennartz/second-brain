@@ -1,4 +1,4 @@
-import type { TUnsafe } from "@sinclair/typebox";
+import { Type, type TUnsafe } from "@sinclair/typebox";
 import type { DreamJob, GraphResponse, IntakeBody, PipelineSnapshot, RecallBody, RecallResponse } from "./contracts";
 
 export interface HttpSchemas {
@@ -19,5 +19,25 @@ export interface HttpSchemas {
 }
 
 export function createHttpSchemas(): HttpSchemas {
-  throw new Error("not implemented");
+  const count = Type.Integer({ minimum: 0 });
+  const dictionary = Type.Record(Type.String(), Type.Unknown());
+  const dictionaries = Type.Array(dictionary);
+  const nullableTime = Type.Union([Type.String(), Type.Null()]);
+  const identity = (name: string) => Type.Object({ [name]: Type.String({ minLength: 1 }) });
+  return {
+    ingestBody: Type.Object({ text: Type.String(), hints: Type.Optional(Type.Array(Type.String())), source: Type.Optional(Type.String()) }),
+    ingestHeaders: Type.Object({ "idempotency-key": Type.Optional(Type.String()) }),
+    ingestResponse: Type.Object({ chunks_stored: count }),
+    recallBody: Type.Object({ question: Type.String(), hints: Type.Optional(Type.Array(Type.String())) }),
+    recallResponse: Type.Object({ answer: Type.String(), context: Type.Union([Type.Null(), Type.Object({ nodes: dictionaries, edges: dictionaries, unprocessed: dictionaries })]) }),
+    graphParams: identity("record_id"),
+    graphResponse: Type.Object({ node: dictionary, connections: Type.Array(Type.Object({ edge: dictionary, node: dictionary })) }),
+    intakeParams: identity("intake_id"),
+    intakeResponse: identity("intake_id"),
+    discardResponse: Type.Object({ intake_id: Type.String(), chunks_discarded: count }),
+    dreamParams: identity("job_id"),
+    dreamResponse: Type.Object({ job_id: Type.String(), status: Type.Union([Type.Literal("pending"), Type.Literal("running"), Type.Literal("complete"), Type.Literal("failed")]), error: Type.Union([Type.String(), Type.Null()]) }),
+    pipelineResponse: Type.Object({ ready: count, leased: count, retry_wait: count, paused: count, oldest_ready_at: nullableTime, oldest_retry_at: nullableTime, worker_count: count, active_leases: count, stuck_intakes: dictionaries, recent_errors: dictionaries }),
+    healthResponse: Type.Object({ status: Type.Literal("ok") }),
+  } as unknown as HttpSchemas;
 }

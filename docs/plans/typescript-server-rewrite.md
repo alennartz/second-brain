@@ -346,6 +346,8 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 
 ## Steps
 
+**Pre-implementation commit:** `ddb100c491484ad904de355657e23081bfffdabd`
+
 ### Step 1: Establish the Bun dependency gate
 
 Use Bun package-manager commands to install the latest compatible SurrealDB, Elysia, TypeBox, Pi, OpenAI, and Bun type dependencies and generate `bun.lock`. Pin native engine versions through Bun, not manual manifest edits. Keep `package.json` test and typecheck commands. Keep the old service runnable until the fresh-schema and behavior gate passes.
@@ -353,7 +355,7 @@ Use Bun package-manager commands to install the latest compatible SurrealDB, Ely
 Read the installed Pi SDK documentation for sessions, resource loaders, model runtime, custom tools, and Codemode before implementing its adapter. Use the installed SDK version, not CLI orchestration.
 
 **Verify:** Bun loads the native engine and the installed Pi exports used by `tests/agent-runtime/sdk-smoke.test.ts`. Existing Python startup remains available.
-**Status:** not started
+**Status:** done
 
 ### Step 2: Implement configuration and embeddings
 
@@ -362,7 +364,7 @@ Implement `parseWorkflowModelRef` and `parseSettings` in `src/core/config.ts`. R
 Implement `createEmbedder` in `src/embeddings/embedder.ts` using its injected `EmbeddingProvider`. Forward model, dimensions, ordered texts, and cancellation. Reject wrong vector counts, dimensions, and non-finite values. Empty batches require no provider call. Add `src/embeddings/openai.ts` to adapt the official OpenAI client to `EmbeddingProvider`. Preserve the configured embedding model and dimensions. Keep chat model selection independent.
 
 **Verify:** `bun test tests/config.test.ts tests/embedding.test.ts tests/embedding-adapter.test.ts` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 3: Open latest embedded storage
 
@@ -371,7 +373,7 @@ Implement `createEmbeddedStorage` in `src/storage/embedded.ts`. Keep SDK connect
 Connect with `createNodeEngines()` to `surrealkv://<dbPath>`, then select the `brain` namespace and database. Define the latest schema and vector indexes without migration code. Initialize relation tables, queue fields, index names, and configured dimensions. Normalize SDK IDs and datetimes into `src/core/types.ts` values. Omit vectors from public records. Make close safe after partial initialization.
 
 **Verify:** `bun test tests/surrealdb-latest.test.ts` passes once search support in Step 5 is complete. Fresh startup, index creation, and reopen checks pass now.
-**Status:** not started
+**Status:** done
 
 ### Step 4: Implement graph storage transactions
 
@@ -382,7 +384,7 @@ Implement node creation, lookup, field updates, and deletion. Preserve unrelated
 Implement relation creation, lookup, deletion, incoming/outgoing traversal, `findEdges`, and `getEdgesByType`. Preserve directed endpoints and canonical relation-table IDs. Commit each standalone mutation before returning. Validate identifiers before dynamic table access. Do not expose raw queries or SDK objects.
 
 **Verify:** Graph and transaction cases in `tests/storage.test.ts` pass, including rollback and retention of earlier committed calls.
-**Status:** not started
+**Status:** done
 
 ### Step 5: Implement search and discovery storage
 
@@ -391,7 +393,7 @@ Implement `searchCandidates`, `findSimilarCandidates`, `searchIntakeChunks`, and
 Keep embeddings internally available for similarity searches. Exclude the source node from similar candidates. Discover entity pairs through shared note-to-entity `references` relations. Exclude pairs already linked in either direction. Return canonical IDs and shared note IDs without SDK values or queue metadata.
 
 **Verify:** Search and discovery cases in `tests/storage.test.ts` and the full `tests/surrealdb-latest.test.ts` pass.
-**Status:** not started
+**Status:** done
 
 ### Step 6: Implement atomic intake storage
 
@@ -402,7 +404,7 @@ Stage chunks and the idempotency record atomically. Match the Python fingerprint
 Claim one intake's contiguous eligible head chunks within the character budget. Reclaim expired leases. Renewal, deletion, and release require current ownership. Failed batch embeddings and rejected transaction callbacks leave no partial rows. Keep operational metadata available only through queue records and snapshots.
 
 **Verify:** All intake and transaction cases in `tests/storage.test.ts` pass, including stale ownership, replay, and batch rollback.
-**Status:** not started
+**Status:** done
 
 ### Step 7: Implement knowledge reads and singular writes
 
@@ -413,7 +415,7 @@ Implement `storeNode`, `storeEdge`, and `updateNode`. Store one independent reco
 Implement `searchMemory`, `getNode`, `exploreGraph`, `findSimilar`, and `findUnlinkedCooccurrences`. Bound traversal and result projections. Return absent nodes without fabrication. Reject names and non-node IDs in graph reads.
 
 **Verify:** Singular write, exact edit, read, search, and discovery cases in `tests/knowledge.test.ts` pass.
-**Status:** not started
+**Status:** done
 
 ### Step 8: Implement atomic graph reconciliation and tools
 
@@ -424,7 +426,7 @@ Node merges retain the survivor and explicit reconciled fields. Repoint incident
 Implement `tools(names)` with exactly the requested loadout. Each tool validates parameters, supplies an output schema, and returns `StructuredToolResult.structuredContent`. Normalize forgiving arguments without weakening canonical-ID or mutation validation. Check the session signal before work and before mutations.
 
 **Verify:** `bun test tests/knowledge.test.ts` passes, including schema checks, cancellation, and atomic failure cases.
-**Status:** not started
+**Status:** done
 
 ### Step 9: Implement the Pi runtime
 
@@ -435,7 +437,7 @@ Adapt `AgentTool` parameters, output validation, structured content, and failure
 Use only request-scoped session/result state. Reuse the injected shared `ModelRuntime` for model selection and standard credentials.
 
 **Verify:** `bun test tests/agent-runtime.test.ts tests/agent-runtime/sdk-smoke.test.ts` passes without external model calls.
-**Status:** not started
+**Status:** done
 
 ### Step 10: Implement the three workflows
 
@@ -448,7 +450,7 @@ Recall wraps read tools to collect successful evidence per request. Add the mode
 Dream selects its two distinct approved loadouts and creates a separate runtime call for each phase. Report mutation errors, cancellation, and touched node IDs without undoing earlier writes.
 
 **Verify:** `bun test tests/workflows.test.ts` passes, including hints, citations, closed loadouts, partial progress, and cancellation.
-**Status:** not started
+**Status:** done
 
 ### Step 11: Implement leased intake processing
 
@@ -459,7 +461,7 @@ Use instance-owned worker, lease, and cancellation state. Keep `start` and `stop
 Stop polling during shutdown, apply the grace period, cancel active workflows, release unacknowledged leases, and await settlement. Merge live worker visibility into snapshots. Forward pause/resume/discard to the selected intake. Notify activity after staging.
 
 **Verify:** `bun test tests/intake-pipeline.test.ts tests/intake-reliability.test.ts` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 12: Implement dream storage and scheduling
 
@@ -470,7 +472,7 @@ Implement `createDreamScheduler` in `src/workflows/dream-scheduler.ts` using `Dr
 Keep idle state and controllers inside the scheduler instance. Activity resets backoff and convergence, wakes idle waits, and cancels active work. Stop awaits active cycles. Preserve `ceil(sqrt(nodeCount / batchSize))`, capped exponential delays, public snapshots, and state notifications. Repeated starts create no duplicate loop.
 
 **Verify:** `bun test tests/dream-scheduler.test.ts tests/dream-convergence.test.ts` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 13: Implement HTTP contracts and recall resolution
 
@@ -479,7 +481,7 @@ Implement `createHttpSchemas` in `src/http/schemas.ts` with TypeBox schemas for 
 Implement `HttpApplicationError` and `createRecallService` in `src/http/contracts.ts`. Forward question and hints to the workflow. Resolve every citation against live evidence before returning context. Reject missing records and storage failures rather than returning cached projections. Return null context for evidence-free answers.
 
 **Verify:** `bun test tests/http-schemas.test.ts tests/recall-service.test.ts` passes.
-**Status:** not started
+**Status:** done
 
 ### Step 14: Implement the Elysia adapter
 
@@ -488,7 +490,7 @@ Implement `createHttpServer` in `src/http/server.ts`. Mount only the non-convers
 Map application failures to existing statuses and `{ detail }` responses. Return 404 for absent jobs, absent graph records, and zero-count pipeline controls. Malformed bodies return framework validation responses before application calls. Do not mount conversation or MCP routes. Route handlers import neither Pi nor SurrealDB.
 
 **Verify:** `bun test tests/http.test.ts` passes, including ordinary missing-route 404s and validation 422s.
-**Status:** not started
+**Status:** done
 
 ### Step 15: Compose and start the application
 
@@ -501,7 +503,7 @@ Implement `HttpApplication` composition with staging limits, activity notificati
 Add `src/main.ts` to parse environment settings, create standard Pi model configuration and OpenAI embedding transport, start the application, listen on port 8000, and handle termination. Do not import Python or use global service locators.
 
 **Verify:** `bun test tests/application.test.ts` passes. The Bun entry point serves `/health` and releases workers and storage on termination.
-**Status:** not started
+**Status:** done
 
 ### Step 16: Pass the replacement gate and cut over
 
@@ -516,4 +518,4 @@ Delete the old Python server, Python dependencies, compatibility fixture, and mi
 Update `codemap.md` to the implemented TypeScript modules. Record the specified DR-001 supersession through the decision-records skill.
 
 **Verify:** All listed TypeScript tests and typecheck pass. Manual HTTP journeys pass. The production image starts without Python and initializes an empty latest-schema database.
-**Status:** not started
+**Status:** in progress

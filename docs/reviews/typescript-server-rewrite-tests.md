@@ -6,7 +6,7 @@
 
 ## Summary
 
-The original tests covered the main module boundaries but missed several acceptance contracts. The approved changes replace canned assertions and add database compatibility, runtime, queue, convergence, and live citation checks. Production interfaces remain unimplemented, so this review approves the behavioral contract, not implementation correctness.
+The original tests covered the main module boundaries but missed several acceptance contracts. The approved changes replace canned assertions and add fresh-database, runtime, queue, convergence, and live citation checks. Production interfaces remain unimplemented, so this review approves the behavioral contract, not implementation correctness.
 
 ## Findings
 
@@ -19,14 +19,14 @@ The original tests covered the main module boundaries but missed several accepta
 
 The tests demanded fixed vectors, record IDs, search rows, and lease results without arranging their inputs. These assertions could only validate canned responses. The user approved stateful storage tests with isolated databases and deterministic embedding injection. The revised tests cover graph records, search, re-embedding, transactions, and queue state through public interfaces.
 
-### 2. Database compatibility did not cross the Python boundary
+### 2. Fresh database coverage was missing
 
 - **Category:** missing coverage
 - **Severity:** critical
-- **Location:** `tests/surrealdb-compatibility.test.ts:7-30` before review
+- **Location:** `tests/surrealdb-latest.test.ts:1-20`
 - **Status:** resolved
 
-The original test opened a shared path and demanded `note:1`. It did not read an existing Python database. The user approved isolated fixtures produced by the Python server. Compatibility coverage now checks existing records, vectors, relations, indexes, queue state, reopen persistence, and plain domain serialization. The user also approved retaining versioned test-only fixture provenance before Python source removal. The production image excludes this reference.
+The original test opened a shared path and demanded `note:1`. The user approved an isolated fresh database with the TypeScript-owned schema. Fresh-schema coverage now checks records, vectors, relations, indexes, queue state, reopen persistence, and plain domain serialization. No Python fixture or migration provenance is required.
 
 ### 3. Runtime tests did not execute Pi or Codemode
 

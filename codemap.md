@@ -176,4 +176,4 @@ Provides permanent instructions and shell-driven journeys for the public HTTP AP
 
 **Dependencies:** HTTP, Go client, Flutter mobile client
 
-**Files:** `tools/manual-test/**`, `docs/manual-tests/typescript-server-rewrite.md`, `docs/manual-tests/typescript-server.md`
+**Files:** `tools/manual-test/**`, `docs/manual-tests/typescript-server.md`

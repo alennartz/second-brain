@@ -2,8 +2,13 @@
 
 **Snapshot:** 2026-10-24
 
-This record describes the local Second Brain instance on this machine. It is a
-single-user service. It is not a public deployment.
+This is a historical snapshot of the pre-rewrite service. It does not confirm a
+production cutover to the Bun server. The Bun server requires a fresh latest-
+schema database and does not migrate the previous database. Before cutover,
+back up and reset the active database with the procedure in
+[`deploy/README.md`](../deploy/README.md).
+
+The service is single-user. It is not a public deployment.
 
 ## Runtime
 
@@ -25,35 +30,20 @@ proxy, or application authentication layer.
 
 ## Application configuration
 
-The service reads `/home/alenna/repos/second-brain/.env`. The file mode is
-`0600`. Provider keys are stored there and are not recorded in this document.
-
-```text
-BRAIN_DB_PATH=/data/brain.db
-BRAIN_REASONING_MODEL=openai:gemma4-26b-a4b
-BRAIN_REASONING_BASE_URL=http://jetson.ordernet:8082/v1
-BRAIN_EMBEDDING_MODEL=openai:harrier-oss-v1-0.6b
-BRAIN_EMBEDDING_BASE_URL=http://jetson.ordernet:8084/v1
-BRAIN_EMBEDDING_DIMENSIONS=1024
-```
-
-The upstream OpenAI-compatible routes are:
-
-```text
-POST http://jetson.ordernet:8082/v1/chat/completions
-POST http://jetson.ordernet:8084/v1/embeddings
-```
-
-The reasoning endpoint returned `200 OK` for a direct `gemma4-26b-a4b`
-request on this snapshot date. A completed graph-ingestion run remains
-unverified under the configured provider.
+The pre-rewrite service read `/home/alenna/repos/second-brain/.env`, whose mode
+was `0600`. Its model and endpoint settings are not valid Bun server
+configuration and are not reproduced here. The Bun server requires
+`BRAIN_INGEST_MODEL`, `BRAIN_RECALL_MODEL`, and `BRAIN_DREAM_MODEL`, each in
+`provider/model:effort` format. See the root README for current settings. The
+rewrite's manual run did not verify this production deployment with the Bun
+image or updated environment.
 
 ## Database state
 
-The active database was reset before this snapshot. The active
-`data/brain.db` directory is about `148K`, and the intake pipeline reports no
-ready, leased, retrying, or paused document chunks. It contains the fresh
-SurrealKV database and schema metadata.
+The pre-rewrite active database was reset before this snapshot. The active
+`data/brain.db` directory was about `148K`, and the intake pipeline reported no
+ready, leased, retrying, or paused document chunks. That database state predates
+the Bun server's latest schema. Do not reuse it for the Bun server.
 
 The previous database remains recoverable in timestamped reset archives and
 safety directories. Experiment databases remain outside the reset scope.
@@ -90,16 +80,17 @@ The one-time fresh database reset is documented in
 
 ## Shutdown behavior
 
-When the service stops, the ingestion pipeline stops claiming new processing
-batches. Database search and graph-write operations finish once started. An
-active LLM call is canceled when shutdown begins. Its document chunks lose the
-lease immediately and return to retry state. The existing Docker and systemd
-stop timeouts remain hard fallbacks for a database operation that does not
-finish.
+The Bun application stops intake polling, waits through its configured shutdown
+grace period, cancels remaining work, releases unacknowledged leases, and closes
+storage after its workers stop. Docker and systemd stop timeouts provide the hard
+fallback.
 
-## Verification status
+## Verification status as of the snapshot
 
-Verified on this machine:
+The checks below verified the pre-rewrite deployment only. They do not verify
+the Bun image, updated environment, or fresh latest-schema database.
+
+Verified on this machine before the rewrite:
 
 - health at `127.0.0.1:8100`;
 - loopback-only binding;
@@ -114,4 +105,4 @@ Verified on this machine:
 Not verified against the active database:
 
 - archive restore, because it would replace the active database; and
-- completed graph ingestion through the upstream reasoning provider.
+- completed graph ingestion with the provider configured at the time.

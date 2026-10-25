@@ -16,7 +16,7 @@ make install
 
 # Configure provider credentials and workflow models
 cp .env.example .env
-# Edit .env. Set OPENAI_API_KEY or another Pi provider credential.
+# Edit .env. Set credentials for the configured Pi chat provider and embeddings.
 
 # Start the Bun server with hot reload
 make dev
@@ -26,9 +26,11 @@ make build-client
 ./client/brain
 ```
 
-The server creates a fresh `surrealkv://` database at `BRAIN_DB_PATH`. It does
-not migrate the old Python database. Remove the new database directory to start
-over.
+The server initializes a fresh latest-schema `surrealkv://` database at
+`BRAIN_DB_PATH`. It does not migrate database files from the former server.
+Before cutover, build the Bun image, then archive and reset the active database
+with the procedure in [`deploy/README.md`](deploy/README.md). To start over later,
+stop the server and remove its database directory.
 
 ## HTTP API
 
@@ -45,9 +47,9 @@ The server exposes the non-conversation API:
 - `GET /graph/{record_id}`
 
 `POST /ingest` stages searchable chunks before it returns. The background
-pipeline later organizes those chunks. `GET /recall` is not available. Use
-`POST /recall` with a JSON body containing `question` and optional `hints`.
-Conversation and MCP routes are intentionally absent.
+pipeline later organizes those chunks. Use `POST /recall` with a JSON body
+containing `question` and optional `hints`. Conversation and MCP routes are
+intentionally absent.
 
 ```bash
 curl http://localhost:8000/health
@@ -130,7 +132,7 @@ The HNSW indexes store their configured dimension.
 ## Local production deployment
 
 The local production service builds the Bun image, mounts `/data`, and listens
-on loopback. Set `BRAIN_DB_PATH=/data/brain.surreal` in the deployment environment.
+on loopback. Set `BRAIN_DB_PATH=/data/brain.db` in the deployment environment.
 
 ```bash
 cp deploy/deploy.env.example deploy/deploy.env

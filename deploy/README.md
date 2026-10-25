@@ -141,10 +141,17 @@ place.
 
 ## One-time fresh database reset
 
-A fresh start is an operator action. It is not part of `make deploy` and does
-not run during routine updates. Run the standalone shell below. It fails closed:
-it stops before moving data, removes incomplete output, and recovers a service
-that was active before the reset.
+Before replacing the former Python server, build the Bun image with the tag in
+`BRAIN_IMAGE`. Then archive and reset the active database with this procedure.
+The reset stops the old service, moves its database, and starts the configured
+image against a fresh path. The Bun server initializes the latest schema but
+does not migrate or support the former database files. Do not point the Bun
+server at the old database. This reset is an operator action. It is not part of
+`make deploy` and does not run during routine updates.
+
+Run the standalone shell below. It fails closed: it stops before moving data,
+removes incomplete output, and recovers a service that was active before the
+reset.
 
 ```bash
 bash -euo pipefail <<'RESET'

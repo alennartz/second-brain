@@ -69,11 +69,22 @@ export function createDreamScheduler(d: DreamSchedulerDependencies): DreamSchedu
   }
   async function loop() {
     while (state.running) {
+      if (!state.limitKnown) {
+        try {
+          state.maxIdleCycles = Math.ceil(Math.sqrt(await d.queue.countNodes() / d.settings.batchSize));
+          state.limitKnown = true;
+          notify();
+        } catch {
+          await Promise.resolve();
+          continue;
+        }
+      }
+      if (!state.running) break;
       const controller = new AbortController();
       state.wait = controller;
       const generation = state.generation;
       try {
-        if (state.limitKnown && snapshot().converged) {
+        if (snapshot().converged) {
           await new Promise<void>(resolve => {
             if (controller.signal.aborted) { resolve(); return; }
             controller.signal.addEventListener("abort", () => resolve(), { once: true });
@@ -88,16 +99,6 @@ export function createDreamScheduler(d: DreamSchedulerDependencies): DreamSchedu
       }
       if (!state.running) break;
       if (controller.signal.aborted || generation !== state.generation) continue;
-      if (!state.limitKnown) {
-        try {
-          state.maxIdleCycles = Math.ceil(Math.sqrt(await d.queue.countNodes() / d.settings.batchSize));
-          state.limitKnown = true;
-          notify();
-        } catch {
-          continue;
-        }
-        if (!state.running || generation !== state.generation) continue;
-      }
       let result: DreamCycleResult;
       try { result = await runCycle(); }
       catch { continue; }

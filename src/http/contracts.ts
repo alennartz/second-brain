@@ -59,15 +59,18 @@ export function createRecallService(_workflow: RecallAnswerSource, _storage: Rec
     if (!result.hasEvidence) return { answer: result.answer, context: null };
     async function resolve(ids: readonly string[], read: (id: string) => Promise<Record<string, unknown> | undefined>) {
       const records = await Promise.all(ids.map(id => read(id)));
-      return records.filter((record): record is Record<string, unknown> => record !== undefined);
+      return {
+        records: records.filter((record): record is Record<string, unknown> => record !== undefined),
+        missing: records.some(record => record === undefined),
+      };
     }
     const [nodes, edges, unprocessed] = await Promise.all([
       resolve(result.nodeIds, id => _storage.getNode(id)),
       resolve(result.edgeIds, id => _storage.getEdge(id)),
       resolve(result.unprocessedIds, id => _storage.getUnprocessed(id)),
     ]);
-    if (!nodes.length && !edges.length && !unprocessed.length) return { answer: result.answer, context: null };
-    return { answer: result.answer, context: { nodes, edges, unprocessed } };
+    if (nodes.missing || edges.missing || unprocessed.missing) return { answer: result.answer, context: null };
+    return { answer: result.answer, context: { nodes: nodes.records, edges: edges.records, unprocessed: unprocessed.records } };
   } };
 }
 export type HttpFailureKind = "unavailable" | "invalid" | "conflict" | "upstream";

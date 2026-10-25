@@ -21,9 +21,9 @@ describe("live recall evidence", () => {
     const service = createRecallService({ run: async () => ({ answer: "None", hasEvidence: false, nodeIds: [], edgeIds: [], unprocessedIds: [] }) }, evidence);
     expect(await service.recall({ question: "topic" })).toEqual({ answer: "None", context: null });
   });
-  test("rejects a citation that no longer resolves to live evidence", async () => {
+  test("returns null context when a citation no longer resolves to live evidence", async () => {
     const service = createRecallService({ run: async () => ({ answer: "Found", hasEvidence: true, nodeIds: ["note:deleted"], edgeIds: [], unprocessedIds: [] }) }, evidence);
-    await expect(service.recall({ question: "topic" })).rejects.toThrow();
+    await expect(service.recall({ question: "topic" })).resolves.toEqual({ answer: "Found", context: null });
   });
   test("propagates failed live reads instead of returning stale evidence", async () => {
     const service = createRecallService({ run: async () => ({ answer: "Found", hasEvidence: true, nodeIds: ["note:a"], edgeIds: [], unprocessedIds: [] }) }, { ...evidence, getNode: async () => { throw new Error("storage unavailable"); } });

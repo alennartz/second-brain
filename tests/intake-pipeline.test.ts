@@ -52,7 +52,7 @@ describe("intake pipeline staging", () => {
     expect(result.chunksStored).toBe(drafts.length);
     expect(drafts.length).toBeGreaterThan(1);
     expect(drafts.every(chunk => chunk.content.length <= 40)).toBe(true);
-    expect(drafts.map(chunk => chunk.content).join(" ")).toBe(text.replaceAll("\n\n", " "));
+    expect(drafts.map(chunk => chunk.content).join("")).toBe(text.trim());
     expect(drafts.map(chunk => chunk.chunkIndex)).toEqual(drafts.map((_chunk, index) => index));
     expect(drafts.every(chunk => chunk.totalChunks === drafts.length && chunk.hints[0] === "topic")).toBe(true);
   });

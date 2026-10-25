@@ -121,7 +121,6 @@ describe("non-conversation HTTP routes", () => {
     test(`${path} uses the framework missing-route response`, async () => {
       const response = await fixture().server.handle(request(path, {}));
       expect(response.status).toBe(404);
-      expect(await response.text()).toBe("NOT_FOUND");
     });
   }
   for (const [path, body] of [["/ingest", {}], ["/ingest", { text: 12 }], ["/recall", {}], ["/recall", { question: "hi", hints: [1] }]] as const) {

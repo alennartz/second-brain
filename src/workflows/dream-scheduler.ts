@@ -16,6 +16,7 @@ export type DreamSchedulerDependencies = {
   workflow: DreamWorkflow;
   queue: DreamQueue;
   clock: WorkflowClock;
+  onStateChange?: (state: { completedIdleCycles: number; maxIdleCycles: number; converged: boolean }) => void;
   settings: {
     batchSize: number;
     idleMs: number;
@@ -28,6 +29,7 @@ export interface DreamScheduler {
   stop(): Promise<void>;
   touchActivity(): void;
   runCycle(): Promise<DreamCycleResult>;
+  snapshot(): { completedIdleCycles: number; maxIdleCycles: number; converged: boolean };
 }
 export function createDreamScheduler(_dependencies: DreamSchedulerDependencies): DreamScheduler {
   throw new Error("not implemented");

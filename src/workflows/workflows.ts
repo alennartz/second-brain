@@ -14,6 +14,7 @@ export type WorkflowDependencies = {
 export type IngestBatch = {
   intakeId: string;
   leaseToken: string;
+  attemptCount?: number;
   chunks: readonly { id: string; chunkIndex: number; content: string; hints: readonly string[] }[];
 };
 export type IngestOutcome = { clean: boolean; aborted: boolean; errors: readonly string[] };
@@ -32,7 +33,7 @@ export type RecallAnswer = {
   unprocessedIds: readonly NodeId[];
 };
 export interface RecallWorkflow {
-  run(question: string, signal?: AbortSignal): Promise<RecallAnswer>;
+  run(question: string, signal?: AbortSignal, hints?: readonly string[]): Promise<RecallAnswer>;
 }
 export function createRecallWorkflow(_dependencies: WorkflowDependencies): RecallWorkflow {
   throw new Error("not implemented");

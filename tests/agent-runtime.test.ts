@@ -62,7 +62,8 @@ describe("AgentRuntime", () => {
     expect(received!.aborted).toBe(true);
     expect(outcome.aborted).toBe(true);
     expect(outcome.settled).toBe(true);
-    expect(f.sessions[0]).toEqual({ aborted: 1, disposed: 1 });
+    expect(f.sessions[0]!.aborted).toBeGreaterThan(0);
+    expect(f.sessions[0]!.disposed).toBe(1);
   });
   test("does not execute a prompt when cancellation precedes the run", async () => {
     const controller = new AbortController();

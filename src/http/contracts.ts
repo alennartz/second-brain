@@ -38,6 +38,22 @@ export interface HttpApplication {
   recall(request: RecallBody): Promise<RecallResponse>;
   getGraph(recordId: string): Promise<GraphResponse | undefined>;
 }
+export interface RecallEvidenceStore {
+  getNode(id: string): Promise<Record<string, unknown> | undefined>;
+  getEdge(id: string): Promise<Record<string, unknown> | undefined>;
+  getUnprocessed(id: string): Promise<Record<string, unknown> | undefined>;
+}
+export interface RecallAnswerSource {
+  run(question: string, signal?: AbortSignal, hints?: readonly string[]): Promise<{
+    answer: string; hasEvidence: boolean;
+    nodeIds: readonly string[]; edgeIds: readonly string[]; unprocessedIds: readonly string[];
+  }>;
+}
+export function createRecallService(_workflow: RecallAnswerSource, _storage: RecallEvidenceStore): {
+  recall(request: RecallBody): Promise<RecallResponse>;
+} {
+  throw new Error("not implemented");
+}
 export type HttpFailureKind = "unavailable" | "invalid" | "conflict" | "upstream";
 export class HttpApplicationError extends Error {
   constructor(public readonly kind: HttpFailureKind, message: string) {

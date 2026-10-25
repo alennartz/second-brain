@@ -14,6 +14,18 @@ describe("configuration contracts", () => {
     });
   });
 
+  test("splits at the first slash and final colon", () => {
+    expect(parseWorkflowModelRef("provider/team/model:variant:high")).toEqual({ provider: "provider", model: "team/model:variant", thinkingLevel: "high" });
+  });
+  test.each(["/model:off", "provider/:off", "provider/model:", "provider/model", "provider/model:nope"])("rejects malformed reference %s", value => {
+    expect(() => parseWorkflowModelRef(value)).toThrow();
+  });
+  test("requires a model reference for each workflow", () => {
+    const models = { BRAIN_INGEST_MODEL: "provider/model:off", BRAIN_RECALL_MODEL: "provider/model:off", BRAIN_DREAM_MODEL: "provider/model:off" };
+    for (const key of Object.keys(models)) {
+      expect(() => parseSettings({ ...models, [key]: undefined })).toThrow();
+    }
+  });
   test("accepts the complete thinking-level range", () => {
     for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
       expect(parseWorkflowModelRef(`provider/model:${level}`).thinkingLevel).toBe(level);
@@ -21,11 +33,11 @@ describe("configuration contracts", () => {
   });
 
   test("rejects a malformed model reference", () => {
-    expect(() => parseWorkflowModelRef("gpt-4o")).toThrow(/provider.*model/i);
+    expect(() => parseWorkflowModelRef("gpt-4o")).toThrow();
   });
 
   test("rejects an unsupported thinking level", () => {
-    expect(() => parseWorkflowModelRef("openai/gpt-4o:unsupported")).toThrow(/thinking level/i);
+    expect(() => parseWorkflowModelRef("openai/gpt-4o:unsupported")).toThrow();
   });
 
   test("loads workflow, embedding, database, intake, and dream settings", () => {

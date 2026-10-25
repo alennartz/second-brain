@@ -14,7 +14,36 @@ import type {
   Timestamp,
 } from "../core/types.ts";
 
+/**
+ * Domain-only transaction scope for composite graph mutations.
+ *
+ * The scope never exposes SurrealDB values. The storage implementation commits
+ * all calls or rolls them back when the callback rejects.
+ */
+export type UnlinkedCooccurrenceCandidate = { fromId: NodeId; toId: NodeId; sharedNoteIds: readonly NodeId[] };
+
+export interface StorageTransaction {
+  createNode(input: NewNode): Promise<NodeRecord>;
+  getNode(id: NodeId): Promise<NodeRecord | undefined>;
+  updateNodeFields(id: NodeId, fields: NodeFields): Promise<NodeRecord | undefined>;
+  deleteNode(id: NodeId): Promise<void>;
+
+  createEdge(input: NewEdge): Promise<EdgeRecord>;
+  getEdge(id: EdgeId): Promise<EdgeRecord | undefined>;
+  deleteEdge(id: EdgeId): Promise<void>;
+  getIncomingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
+  getOutgoingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
+  getEdgesByType(edgeType: string): Promise<readonly EdgeRecord[]>;
+  findEdges(from: NodeId, edgeType: string, to: NodeId): Promise<readonly EdgeRecord[]>;
+  createIntakeChunks(
+    intakeId: string,
+    chunks: readonly IntakeChunkDraft[],
+    idempotencyKey?: string,
+  ): Promise<number>;
+}
+
 export interface Storage {
+  withTransaction<T>(operation: (transaction: StorageTransaction) => Promise<T>): Promise<T>;
   init(): Promise<void>;
   close(): Promise<void>;
 
@@ -32,6 +61,8 @@ export interface Storage {
 
   searchCandidates(query: string, limit: number): Promise<MemorySearchResult>;
   findSimilarCandidates(id: NodeId, limit: number): Promise<readonly NodeRecord[]>;
+  getEdgesByType(edgeType: string): Promise<readonly EdgeRecord[]>;
+  findUnlinkedCooccurrenceCandidates(limit: number): Promise<readonly UnlinkedCooccurrenceCandidate[]>;
 
   createIntakeChunks(
     intakeId: string,
@@ -58,6 +89,20 @@ export interface Storage {
 }
 
 export class StorageStub implements Storage {
+  async getEdgesByType(_edgeType: string): Promise<readonly EdgeRecord[]> {
+    throw new Error("not implemented");
+  }
+
+  async findUnlinkedCooccurrenceCandidates(_limit: number): Promise<readonly UnlinkedCooccurrenceCandidate[]> {
+    throw new Error("not implemented");
+  }
+
+  async withTransaction<T>(
+    _operation: (transaction: StorageTransaction) => Promise<T>,
+  ): Promise<T> {
+    throw new Error("not implemented");
+  }
+
   async init(): Promise<void> {
     throw new Error("not implemented");
   }

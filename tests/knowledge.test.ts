@@ -1,16 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { createKnowledgeGraph } from "../src/knowledge/index.ts";
-import { StorageStub } from "../src/storage/storage.ts";
+import { createEmbeddedStorage } from "../src/storage/embedded.ts";
+import { EmbedderStub } from "../src/embeddings/embedder.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Value } from "@sinclair/typebox/value";
 
 async function fixture() {
-  const storage = new StorageStub();
-  await storage.init();
+  const root = await mkdtemp(join(tmpdir(), "second-brain-knowledge-"));
+  const storage = createEmbeddedStorage({ dbPath: join(root, "brain.surreal"), embeddingDimensions: 3, embedder: new EmbedderStub(() => [1, 0, 0]) });
+  try { await storage.init(); } catch (error) { await storage.close(); await rm(root, { recursive: true, force: true }); throw error; }
   const graph = createKnowledgeGraph(storage);
-  return { graph, storage };
+  const close = async () => { try { await storage.close(); } finally { await rm(root, { recursive: true, force: true }); } };
+  return { graph, storage, close };
 }
 async function run(body: (graph: ReturnType<typeof createKnowledgeGraph>) => Promise<void>) {
-  const { graph, storage } = await fixture();
-  try { await body(graph); } finally { await storage.close(); }
+  const { graph, close } = await fixture();
+  try { await body(graph); } finally { await close(); }
 }
 const entity = (name: string) => ({ kind: "entity" as const, name, type: "person" });
 describe("KnowledgeGraph", () => {
@@ -29,7 +36,7 @@ describe("KnowledgeGraph", () => {
     const a = await g.storeNode(entity("Ada")), b = await g.storeNode(entity("Grace"));
     const result = await g.storeEdge({ fromId: a.id, edgeType: "knows", toId: b.id });
     expect(result.status).toBe("created");
-    expect(result.edge?.id).toMatch(/^edge:/);
+    expect(result.edge?.id).toMatch(/^[^:]+:.+$/);
   }));
   test("skips self edges with a structured reason", () => run(async g => {
     const a = await g.storeNode(entity("Ada"));
@@ -83,13 +90,13 @@ describe("KnowledgeGraph", () => {
     expect(result.unprocessed).toBeArray();
   }));
   test("searches queued evidence without exposing queue lease metadata", async () => {
-    const { graph, storage } = await fixture();
+    const { graph, storage, close } = await fixture();
     try {
       await storage.createIntakeChunks("intake-one", [{ chunk_index: 0, total_chunks: 1, content: "Ada wrote programs", source: "api", hints: [] }]);
       const result = await graph.searchMemory({ query: "Ada" });
       expect(result.unprocessed).toContainEqual(expect.objectContaining({ intake_id: "intake-one", content: "Ada wrote programs" }));
       expect(JSON.stringify(result.unprocessed)).not.toMatch(/lease_token|lease_expires|attempt_count|next_attempt/);
-    } finally { await storage.close(); }
+    } finally { await close(); }
   });
   test("explores graph neighbors and includes canonical edge IDs", () => run(async g => {
     const a = await g.storeNode(entity("Ada")), b = await g.storeNode(entity("Grace"));
@@ -107,8 +114,8 @@ describe("KnowledgeGraph", () => {
   test("discovers cooccurring nodes and excludes already linked pairs", () => run(async g => {
     const a = await g.storeNode(entity("Ada")), b = await g.storeNode(entity("Grace"));
     const note = await g.storeNode({ kind: "note", content: "Ada met Grace" });
-    await g.storeEdge({ fromId: note.id, edgeType: "mentions", toId: a.id });
-    await g.storeEdge({ fromId: note.id, edgeType: "mentions", toId: b.id });
+    await g.storeEdge({ fromId: note.id, edgeType: "references", toId: a.id });
+    await g.storeEdge({ fromId: note.id, edgeType: "references", toId: b.id });
     expect(await g.findUnlinkedCooccurrences({})).toContainEqual(expect.objectContaining({ sharedNoteIds: [note.id] }));
     await g.storeEdge({ fromId: a.id, edgeType: "knows", toId: b.id });
     expect(await g.findUnlinkedCooccurrences({})).toEqual([]);
@@ -165,6 +172,12 @@ describe("KnowledgeGraph", () => {
     expect(tools[0]!.outputSchema).toBeDefined();
     const result = await tools[0]!.execute(entity("Ada"), new AbortController().signal);
     expect(result.structuredContent).toMatchObject({ id: expect.stringMatching(/^entity:/) });
+  }));
+  test("validates direct tool arguments and structured results", () => run(async g => {
+    const tool = g.tools(["storeNode"])[0]!;
+    await expect(tool.execute({ kind: "entity", name: 12 }, new AbortController().signal)).rejects.toThrow();
+    const result = await tool.execute(entity("Ada"), new AbortController().signal);
+    expect(Value.Check(tool.outputSchema!, result.structuredContent)).toBe(true);
   }));
   test("every public tool exposes parameter and output schemas", () => run(async g => {
     const names = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"] as const;

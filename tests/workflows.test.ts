@@ -75,6 +75,22 @@ describe("ingest workflow", () => {
 });
 
 describe("recall workflow", () => {
+  test("passes caller hints into the recall operation", async () => {
+    const workflow = createRecallWorkflow(dependencies(async request => {
+      expect(request.prompt).toContain("project-alpha");
+      await request.tools.find(tool => tool.name === "answerRecall")!.execute({ answer: "None", hasEvidence: false, nodeIds: [], edgeIds: [], unprocessedIds: [] }, new AbortController().signal);
+      return settled;
+    }));
+    await workflow.run("topic", undefined, ["project-alpha"]);
+  });
+  test("validates answer arguments before accepting structured output", async () => {
+    const workflow = createRecallWorkflow(dependencies(async request => {
+      const answer = request.tools.find(tool => tool.name === "answerRecall")!;
+      await expect(answer.execute({ answer: 1, hasEvidence: false, nodeIds: [], edgeIds: [], unprocessedIds: [] }, new AbortController().signal)).rejects.toThrow();
+      return settled;
+    }));
+    await expect(workflow.run("topic")).rejects.toThrow();
+  });
   test("exposes only read tools and answerRecall and returns a valid evidence-free answer", async () => {
     const answer = { answer: "No evidence found.", hasEvidence: false, nodeIds: [], edgeIds: [], unprocessedIds: [] };
     const workflow = createRecallWorkflow(dependencies(async request => {

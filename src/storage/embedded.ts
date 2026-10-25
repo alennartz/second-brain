@@ -5,6 +5,8 @@ export interface EmbeddedStorageOptions {
   dbPath: string;
   embeddingDimensions: number;
   embedder: Embedder;
+  /** Clock used for lease and retry state transitions in deterministic tests. */
+  clock?: () => Date;
 }
 
 /**

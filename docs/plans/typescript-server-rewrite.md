@@ -224,6 +224,18 @@ Elysia routes call the application interfaces and contain no Pi or SurrealDB cod
 
 Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters, and responses. `POST /converse`, `/converse/stream`, and `/mcp` do not exist. Missing routes return the framework’s normal `404` response.
 
+### Review additions
+
+Recall preserves caller hints through `RecallWorkflow.run(question, signal, hints)`. The application exposes `createRecallService` with an injected workflow and live evidence store. It resolves node, edge, and intake citations against current records before returning HTTP context. Storage failures cannot produce stale context. A citation that no longer resolves must not reach the HTTP response.
+
+Composite graph mutations use the storage adapter's atomic transaction seam. Storage and its transaction scope expose `getEdgesByType` for atomic global renames. Storage also exposes normalized unlinked cooccurrence candidates with canonical IDs and shared note IDs. Discovery follows existing note-to-entity `references` relations and excludes linked entity pairs. Raw SurrealQL remains inside storage. Intake staging uses an atomic content fingerprint contract. Matching idempotency retries return zero newly stored chunks while the intake remains queued, as the Python service does. Conflicting content cannot change stored evidence.
+
+Embedding tests use a configured adapter factory and deterministic provider injection. Storage tests use stateful boundary operations, not fixed stub responses. Compatibility tests use isolated local databases and a Python-produced fixture. The fixture preserves record identities, fields, vectors, relations, indexes, and queue state without migration. Before deleting Python server sources, preserve a versioned test-only fixture producer and its inputs, or a generated fixture with provenance. Keep this reference outside the production image. Production startup must not require Python.
+
+The Pi runtime exposes an SDK-backed smoke seam with deterministic model transport. Tests execute direct and Codemode calls through actual Pi orchestration, validate tool schemas, and check provider/model selection without external model requests.
+
+Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal failure cancels work and prevents acknowledgement. Dream scheduling exposes a public snapshot and optional state observer. These report completed idle cycles, the convergence limit, and convergence state. The limit preserves `ceil(sqrt(nodeCount / batchSize))` and resets on activity.
+
 ### Technology Choices
 
 - **Bun** — package manager, runtime, test runner, and production image. This removes Python from the server runtime.
@@ -251,7 +263,7 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 - `src/embeddings/embedder.ts` — embedding adapter contract and test stub.
 - `src/storage/storage.ts` — storage, graph primitive, search, and intake queue contracts with a test stub.
 - `src/storage/embedded.ts` — Bun-native embedded SurrealDB storage factory seam.
-- `src/agent-runtime/index.ts` — request-scoped Pi runtime, session, tool, event, and structured result contracts.
+- `src/agent-runtime/index.ts` — request-scoped Pi runtime, injectable session factory, SDK-backed runtime factory, tool, event, and structured result contracts.
 - `src/knowledge/index.ts` — KnowledgeGraph reads, discovery, mutation, merge, removal, rename, and tool contracts.
 - `src/workflows/workflows.ts` — ingest, recall, and dream workflow contracts.
 - `src/workflows/intake-pipeline.ts` — staged intake, queue adapter, clock, and pipeline lifecycle contracts.
@@ -264,10 +276,12 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 ### Test Files
 
 - `tests/config.test.ts` — workflow model parsing and complete environment settings.
-- `tests/embedding.test.ts` — single and batch embedding results with cancellation signals.
+- `tests/embedding.test.ts` — configured single and batch embedding adapter calls, cancellation, and empty batches.
+- `tests/embedding-adapter.test.ts` — configured provider/model/dimension forwarding, invalid vectors, and provider failures.
 - `tests/storage.test.ts` — storage lifecycle, graph records, search projections, intake leases, and queue snapshots.
 - `tests/surrealdb-compatibility.test.ts` — embedded `surrealkv://` storage startup and SDK value normalization gate.
 - `tests/agent-runtime.test.ts` — isolated sessions, closed tools, Codemode configuration, events, cancellation, results, and disposal.
+- `tests/agent-runtime/sdk-smoke.test.ts` — SDK-backed runtime operations with deterministic provider transport, direct/Codemode invocation, and schema failures.
 - `tests/knowledge.test.ts` — graph writes, canonical IDs, exact edits, read and discovery projections, atomic merges, edge operations, schemas, and cancellation.
 - `tests/workflows.test.ts` — ingest, recall, and dream tool loadouts, citations, mutation failures, and cancellation.
 - `tests/intake-pipeline.test.ts` — synchronous staging, chunk bounds, idempotency, queue controls, retries, acknowledgement, and worker shutdown.
@@ -275,6 +289,9 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 - `tests/http-schemas.test.ts` — TypeBox body, header, path, response, status, and evidence shape boundaries.
 - `tests/http.test.ts` — non-conversation routes, status codes, Location headers, idempotency forwarding, validation, and removed routes.
 - `tests/application.test.ts` — shared composition, startup ordering, failure cleanup, worker shutdown, and storage closure.
+- `tests/recall-service.test.ts` — caller hints, live citation resolution, evidence-free context, and storage failures.
+- `tests/intake-reliability.test.ts` — heartbeat ownership loss, workflow exceptions, and capped retry delays.
+- `tests/dream-convergence.test.ts` — per-idle-period cutoff, public convergence state, and activity reset.
 
 ### Behaviors Covered
 
@@ -289,6 +306,8 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 - Storage owns lifecycle, canonical node and edge records, graph edge direction, search results, and separate unprocessed evidence.
 - Intake storage exposes contiguous lease, renewal, release, acknowledgement, and queue snapshot contracts without leaking SDK values.
 - The embedded storage adapter accepts a local SurrealKV path and returns plain domain values instead of SurrealDB SDK records.
+- The compatibility gate opens Python-produced records, vectors, relations, indexes, and queue state through Bun. Preserve the versioned test-only producer or generated fixture provenance before removing Python sources. Exclude Python from the production image.
+- Stateful storage tests cover embedding updates, hybrid search, atomic transaction rollback, intake content fingerprints, replay, lease expiry, and ownership checks.
 
 #### Pi agent runtime
 
@@ -322,3 +341,5 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 - Conversation and MCP routes remain absent and return normal missing-route responses.
 - Application startup creates one shared model runtime, embedder, storage, knowledge module, workers, scheduler, and dream-job registry in dependency order.
 - Shutdown and startup failures stop workers before storage closure and release resources on every partial-start path.
+
+**Review status:** approved

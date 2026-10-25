@@ -1,33 +1,37 @@
 import { describe, expect, test } from "bun:test";
-import { EmbedderStub, type Embedder } from "../src/embeddings/embedder.ts";
+import { createEmbedder, type EmbeddingProvider } from "../src/embeddings/embedder.ts";
 
-describe("Embedder contract", () => {
-  test("returns one vector for one text", async () => {
-    const embedder: Embedder = new EmbedderStub();
-
-    await expect(embedder.embed("remember this source text")).resolves.toEqual([
-      0.1,
-      0.2,
-      0.3,
-    ]);
+function fixture(provider: EmbeddingProvider) {
+  return createEmbedder({ model: "compatible", dimensions: 3, provider });
+}
+describe("Embedder boundary", () => {
+  test("returns the provider vector for one text", async () => {
+    const embedder = fixture({ embed: async request => {
+      expect(request.texts).toEqual(["source text"]);
+      return [[0.25, 0.5, 0.75]];
+    } });
+    expect(await embedder.embed("source text")).toEqual([0.25, 0.5, 0.75]);
   });
-
-  test("returns one vector per input in batch order", async () => {
-    const embedder: Embedder = new EmbedderStub();
-
-    await expect(embedder.embedBatch(["first", "second"])).resolves.toEqual([
-      [0.1, 0.2],
-      [0.3, 0.4],
-    ]);
-  });
-
-  test("accepts an abort signal on single and batch requests", async () => {
-    const embedder: Embedder = new EmbedderStub();
+  test("preserves batch order and forwards cancellation", async () => {
     const controller = new AbortController();
-
-    await expect(embedder.embed("cancel-aware", controller.signal)).resolves.toEqual([
-      0.1,
-    ]);
-    await expect(embedder.embedBatch([], controller.signal)).resolves.toEqual([]);
+    const embedder = fixture({ embed: async request => {
+      expect(request.texts).toEqual(["first", "second"]);
+      expect(request.signal).toBe(controller.signal);
+      return [[1, 0, 0], [0, 1, 0]];
+    } });
+    expect(await embedder.embedBatch(["first", "second"], controller.signal)).toEqual([[1, 0, 0], [0, 1, 0]]);
+  });
+  test("does not call the provider after cancellation", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const embedder = fixture({ embed: async () => { calls++; return [[1, 0, 0]]; } });
+    await expect(embedder.embed("cancelled", controller.signal)).rejects.toThrow();
+    await expect(embedder.embedBatch(["cancelled"], controller.signal)).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+  test("returns an empty batch without provider work", async () => {
+    const embedder = fixture({ embed: async () => { throw new Error("unexpected call"); } });
+    expect(await embedder.embedBatch([])).toEqual([]);
   });
 });

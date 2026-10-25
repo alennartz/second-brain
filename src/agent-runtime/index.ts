@@ -1,4 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type WorkflowModelRef = { provider: string; model: string; thinkingLevel: ThinkingLevel };
@@ -27,6 +28,12 @@ export type AgentRunResult = {
 };
 export interface AgentRuntime { run(request: AgentRunRequest): Promise<AgentRunResult> }
 
+export type SdkAgentRuntimeOptions = {
+  modelRuntime: ModelRuntime;
+  cwd: string;
+  agentDir: string;
+};
+
 export type SessionOptions = {
   model: WorkflowModelRef;
   systemPrompt: string;
@@ -42,6 +49,9 @@ export interface RuntimeSession {
   dispose(): Promise<void>;
 }
 export type SessionFactory = (options: SessionOptions) => Promise<RuntimeSession>;
+export function createSdkAgentRuntime(_options: SdkAgentRuntimeOptions): AgentRuntime {
+  throw new Error("not implemented");
+}
 export function createAgentRuntime(_factory?: SessionFactory): AgentRuntime {
   throw new Error("not implemented");
 }

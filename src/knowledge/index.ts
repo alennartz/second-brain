@@ -89,7 +89,7 @@ export function createKnowledgeGraph(storage: Storage): KnowledgeGraph {
         const node = await requireNode(tx, input.id);
         const text = node[input.field];
         if (typeof text !== "string" || text.split(input.oldText).length !== 2) throw new Error("Exact edit requires one match");
-        const fields = { [input.field]: text.replace(input.oldText, input.newText) };
+        const fields = { [input.field]: text.replace(input.oldText, () => input.newText) };
         validateFields(node, fields);
         return projectNode((await tx.updateNodeFields(input.id, fields))!);
       });
@@ -141,8 +141,9 @@ export function createKnowledgeGraph(storage: Storage): KnowledgeGraph {
             if (context) { await tx.updateEdgeFields(previous.id, { context }); relationships.set(key, { ...previous, context }); }
             await tx.deleteEdge(edge.id); continue;
           }
-          relationships.set(key, edge);
-          if (from !== edge.from || to !== edge.to) await tx.updateEdgeFields(edge.id, { in: from, out: to });
+          let retained = edge;
+          if (from !== edge.from || to !== edge.to) retained = (await tx.updateEdgeFields(edge.id, { in: from, out: to }))!;
+          relationships.set(key, retained);
         }
         const updated = Object.keys(input.survivorFields ?? {}).length ? (await tx.updateNodeFields(survivor.id, input.survivorFields!))! : survivor;
         for (const id of input.loserIds) await tx.deleteNode(id);

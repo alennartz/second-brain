@@ -69,20 +69,38 @@ export function createDreamScheduler(d: DreamSchedulerDependencies): DreamSchedu
   }
   async function loop() {
     while (state.running) {
-      if (!state.limitKnown) {
-        state.maxIdleCycles = Math.ceil(Math.sqrt(await d.queue.countNodes() / d.settings.batchSize)); state.limitKnown = true; notify();
-      }
-      if (!state.running) break;
-      const controller = new AbortController(); state.wait = controller;
+      const controller = new AbortController();
+      state.wait = controller;
       const generation = state.generation;
-      if (snapshot().converged) await new Promise<void>(resolve => controller.signal.addEventListener("abort", () => resolve(), { once: true }));
-      else {
-        try { await d.clock.sleep(Math.min(d.settings.maxDelayMs, d.settings.idleMs * d.settings.backoffFactor ** state.completedIdleCycles), controller.signal); }
-        catch { if (!controller.signal.aborted) throw new Error("Dream idle wait failed"); }
+      try {
+        if (state.limitKnown && snapshot().converged) {
+          await new Promise<void>(resolve => {
+            if (controller.signal.aborted) { resolve(); return; }
+            controller.signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        } else {
+          await d.clock.sleep(Math.min(d.settings.maxDelayMs, d.settings.idleMs * d.settings.backoffFactor ** state.completedIdleCycles), controller.signal);
+        }
+      } catch {
+        if (state.running && !controller.signal.aborted) continue;
+      } finally {
+        if (state.wait === controller) state.wait = undefined;
       }
       if (!state.running) break;
       if (controller.signal.aborted || generation !== state.generation) continue;
-      const result = await runCycle();
+      if (!state.limitKnown) {
+        try {
+          state.maxIdleCycles = Math.ceil(Math.sqrt(await d.queue.countNodes() / d.settings.batchSize));
+          state.limitKnown = true;
+          notify();
+        } catch {
+          continue;
+        }
+        if (!state.running || generation !== state.generation) continue;
+      }
+      let result: DreamCycleResult;
+      try { result = await runCycle(); }
+      catch { continue; }
       if (!result.aborted && generation === state.generation) { state.completedIdleCycles++; notify(); }
     }
   }

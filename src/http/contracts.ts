@@ -35,6 +35,7 @@ export interface HttpApplication {
   discard(intakeId: string): Promise<number>;
   startDream(): Promise<DreamJob>;
   getDreamJob(jobId: string): Promise<DreamJob | undefined>;
+  waitForDreamJobs?(): Promise<void>;
   recall(request: RecallBody): Promise<RecallResponse>;
   getGraph(recordId: string): Promise<GraphResponse | undefined>;
 }
@@ -56,11 +57,8 @@ export function createRecallService(_workflow: RecallAnswerSource, _storage: Rec
     const result = await _workflow.run(request.question, undefined, request.hints);
     if (!result.hasEvidence) return { answer: result.answer, context: null };
     async function resolve(ids: readonly string[], read: (id: string) => Promise<Record<string, unknown> | undefined>) {
-      return Promise.all(ids.map(async id => {
-        const record = await read(id);
-        if (!record) throw new HttpApplicationError("upstream", `Evidence no longer exists: ${id}`);
-        return record;
-      }));
+      const records = await Promise.all(ids.map(id => read(id)));
+      return records.filter((record): record is Record<string, unknown> => record !== undefined);
     }
     const [nodes, edges, unprocessed] = await Promise.all([
       resolve(result.nodeIds, id => _storage.getNode(id)),

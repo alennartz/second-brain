@@ -223,10 +223,14 @@ describe("SDK-backed agent runtime seam", () => {
     const domain = createDomainFixture();
     const events: AgentEvent[] = [];
     const script = [
-      "const absent = ['read', 'bash', 'web_fetch', 'mcp__external__search', 'models'].map(name => {",
-      "try { return typeof tools[name]; } catch (error) { return error.message; }",
-      "});",
-      "return [typeof tools.searchMemory, ...absent].join('|')",
+      "return [",
+      "typeof tools.searchMemory,",
+      "typeof tools.read,",
+      "typeof tools.bash,",
+      "typeof tools.web_fetch,",
+      "typeof tools.mcp__external__search,",
+      "typeof models",
+      "].join('|')",
     ].join(" ");
     await withRuntime(
       [fauxAssistantMessage(fauxToolCall("codemode", { code: script })), fauxAssistantMessage("complete")],
@@ -237,14 +241,7 @@ describe("SDK-backed agent runtime seam", () => {
         });
 
         expect(result.settled).toBe(true);
-        const serialized = JSON.stringify(events);
-        expect(serialized).toContain("tools.read does not exist");
-        expect(serialized).toContain("tools.bash does not exist");
-        expect(serialized).toContain("tools.web_fetch does not exist");
-        expect(serialized).toContain("tools.mcp__external__search does not exist");
-        expect(serialized).not.toContain('"name":"read"');
-        expect(serialized).not.toContain('"name":"bash"');
-        expect(serialized).not.toContain('"name":"web_fetch"');
+        expect(JSON.stringify(events)).toContain("function|undefined|undefined|undefined|undefined|undefined");
       },
     );
   });

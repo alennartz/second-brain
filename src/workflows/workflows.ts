@@ -28,15 +28,17 @@ const ingestNames = ["searchMemory", "getNode", "exploreGraph", "storeNode", "st
 const readNames = ["searchMemory", "getNode", "exploreGraph"];
 const selectTools = (d: WorkflowDependencies, names: readonly string[]) => d.tools.filter(t => names.includes(t.name));
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
-function resultErrors(result: Awaited<ReturnType<WorkflowRuntime["run"]>>) {
-  return [...result.toolResults.filter(t => t.isError).map(t => JSON.stringify(t.structuredContent)), ...(!result.settled ? ["Run did not settle"] : [])];
+const ingestMutationTools = new Set(["storeNode", "storeEdge", "updateNode"]);
+function resultErrors(result: Awaited<ReturnType<WorkflowRuntime["run"]>>, mutationOnly = false) {
+  const toolErrors = result.toolResults.filter(t => t.isError && (!mutationOnly || ingestMutationTools.has(t.toolName)));
+  return [...toolErrors.map(t => JSON.stringify(t.structuredContent)), ...(!result.settled ? ["Run did not settle"] : [])];
 }
 export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
   return { async run(batch, signal) {
     try {
       if (signal?.aborted) return { clean: false, aborted: true, errors: [] };
       const result = await d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), tools: selectTools(d, ingestNames), signal });
-      const errors = resultErrors(result);
+      const errors = resultErrors(result, true);
       const aborted = result.aborted || !!signal?.aborted;
       return { clean: !aborted && !errors.length, aborted, errors };
     } catch (error) { return { clean: false, aborted: !!signal?.aborted, errors: [errorText(error)] }; }

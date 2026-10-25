@@ -20,6 +20,8 @@ export const schema = `
         DEFINE FIELD IF NOT EXISTS type ON entity TYPE string;
         DEFINE FIELD IF NOT EXISTS description ON entity TYPE option<string>;
         DEFINE FIELD IF NOT EXISTS embedding ON entity TYPE option<array<float>>;
+        DEFINE FIELD IF NOT EXISTS created_at ON entity TYPE datetime DEFAULT time::now();
+        DEFINE FIELD IF NOT EXISTS updated_at ON entity TYPE datetime DEFAULT time::now();
         DEFINE FIELD IF NOT EXISTS dream_age ON entity TYPE int DEFAULT 0;
 
         -- Edge tables

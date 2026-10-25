@@ -15,7 +15,7 @@ The TypeScript server implements most planned modules, but the review found two 
 - **Category:** plan deviation
 - **Severity:** critical
 - **Location:** `tests/agent-runtime/sdk-smoke.test.ts:222-247`, `tests/surrealdb-compatibility.test.ts`, `tests/surrealdb-latest.test.ts:1-158`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Restore the test files to the pre-implementation baseline and move contract changes into the test-writing commit.
 
 The plan requires listed tests to remain immutable between `ddb100c491484ad904de355657e23081bfffdabd` and implementation. The implementation modifies the SDK smoke test and replaces the compatibility test with a latest-engine test. This makes the implementation able to change its own acceptance contract.
@@ -25,7 +25,7 @@ The plan requires listed tests to remain immutable between `ddb100c491484ad904de
 - **Category:** code correctness
 - **Severity:** critical
 - **Location:** `src/workflows/intake-pipeline.ts:58-74`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Port the Python index-based splitter and preserve every character and its whitespace.
 
 The sentence regex skips text when punctuation is not followed by whitespace. It drops prefixes from decimals, URLs, versions, filenames, abbreviations, and leading ellipses. Joining units with a space also destroys paragraph newlines, so staged evidence no longer matches the submitted source.
@@ -35,7 +35,7 @@ The sentence regex skips text when punctuation is not followed by whitespace. It
 - **Category:** code correctness
 - **Severity:** critical
 - **Location:** `src/storage/embedded.ts:70`, `src/knowledge/index.ts:145-148`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Re-relate an edge with changed endpoints, then delete the old relation record.
 
 SurrealDB ignores the attempted `in` and `out` update on relation records. `mergeNodes` then deletes the loser and cascades its edges, instead of moving them to the survivor. Graph structure disappears during deduplication.
@@ -55,7 +55,7 @@ Step 16 marks the cutover complete but requires deleting the old server and depe
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `src/application/composition.ts:83-90`, `src/application/runtime.ts:40-47`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Track every manual dream promise and await its settlement before closing storage.
 
 `startDream` queues `runCycle` without recording it. Runtime shutdown stops workers and closes storage without awaiting those jobs. A pending cycle can access closed storage after shutdown, violating the planned lifecycle guarantee.
@@ -65,7 +65,7 @@ Step 16 marks the cutover complete but requires deleting the old server and depe
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `src/http/server.ts:5-10,17-41`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Attach the shared response schemas and map application failures for pipeline controls, dream jobs, and graph lookup.
 
 The plan requires shared response schemas on every route and existing `{ detail }` status mapping. Pause, resume, discard, dream-job lookup, and graph lookup have no response schema. Their direct failures bypass `HttpApplicationError` handling and can become framework 500 responses.
@@ -85,7 +85,7 @@ The plan requires manual HTTP journeys and a production-image startup check. The
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/knowledge/index.ts:92`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Pass a replacement function to `String.replace` so `newText` is inserted literally.
 
 String replacement interprets `$$`, `$&`, ``$` ``, and `$'`. Editing a field to contain money or other literal dollar sequences stores different text than requested, violating the exact-edit contract.
@@ -95,7 +95,7 @@ String replacement interprets `$$`, `$&`, ``$` ``, and `$'`. Editing a field to 
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/storage/embedded.ts:35-67`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Share one embedding-text helper between creation and updates, and set `updated_at` on every meaningful update.
 
 Creation embeds `description || name`, while updates choose `content`, `description`, or `name` from only the changed fields. Renaming an entity with a description therefore changes its vector to name-only. The update path also fails to refresh `updated_at`, leaving stale metadata and search vectors.
@@ -105,7 +105,7 @@ Creation embeds `description || name`, while updates choose `content`, `descript
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/workflows/dream-scheduler.ts:72-74`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Compute the convergence limit after the idle sleep, immediately before the first cycle.
 
 The scheduler counts nodes before waiting for the idle period. An empty database computes a zero limit and can remain converged forever, so dreaming does not start after the first ingest unless another activity signal arrives. Non-empty databases also use a stale limit.
@@ -115,7 +115,7 @@ The scheduler counts nodes before waiting for the idle period. An empty database
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/workflows/dream-scheduler.ts:73,91`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Catch `countNodes` and cycle errors inside the loop and retry or report them on the next idle period.
 
 A rejected `countNodes` or cycle promise rejects the stored loop promise. Nothing observes it until `stop`, so dreaming stops silently and the rejection can terminate the Bun process.
@@ -125,7 +125,7 @@ A rejected `countNodes` or cycle promise rejects the stored loop promise. Nothin
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/http/contracts.ts:58-63`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Drop citations that no longer resolve and return the answer with the remaining live evidence.
 
 The ingest worker can delete an intake chunk while recall is still running. The service throws when an `unprocessed` citation disappears, turning a normal capture-then-ask race into a 502 instead of filtering stale evidence.
@@ -135,7 +135,7 @@ The ingest worker can delete an intake chunk while recall is still running. The 
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/application/composition.ts:88`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Map an aborted cycle to the failed job state with an explicit cancellation error.
 
 Activity can abort an active dream cycle. The result has `aborted: true` and no errors, but the job handler maps that result to `complete`, reporting successful work that did not finish.
@@ -145,7 +145,7 @@ Activity can abort an active dream cycle. The result has `aborted: true` and no 
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/workflows/intake-pipeline.ts:100-103,117-125`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Use one instance-level shutdown controller and link every newly started batch to it.
 
 A worker can be inside `claimIntakeBatch` while `stop` checks `state.active`. The batch is then started without an abort signal that shutdown controls, so shutdown can wait for a full model run and exceed its grace period.
@@ -155,7 +155,7 @@ A worker can be inside `claimIntakeBatch` while `stop` checks `state.active`. Th
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/workflows/workflows.ts:31-41`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Count only unrecovered mutation failures when deciding whether an ingest batch is clean.
 
 Every tool error marks the run unclean, including transient or recoverable read-tool errors. The entire batch is released and replayed, while `storeNode` is not idempotent. Repeated read errors can therefore create duplicate nodes on each retry.
@@ -175,7 +175,7 @@ Graph traversal, queue operations, similarity search, and discovery load broad t
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/workflows/intake-pipeline.ts:104`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Log or expose the caught worker error before the retry sleep.
 
 The worker catches all errors and sleeps without recording them. Queue outages and failures while releasing or deleting batches become invisible, which prevents operators from diagnosing stalled intake.
@@ -185,7 +185,7 @@ The worker catches all errors and sleeps without recording them. Queue outages a
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/application/runtime.ts:15-30`, `src/application/composition.ts:36-67`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Type `CompositionFactories` with `Storage` and `KnowledgeGraph` instead of `unknown` and casts.
 
 The composition seam accepts `unknown` and casts each factory result back to a domain type. This removes compile-time checking at the startup seam and permits incompatible adapters to enter the application. The runtime and agent modules also duplicate the workflow model types.

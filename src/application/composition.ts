@@ -1,9 +1,10 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { Settings } from "../core/config";
 import type { Embedder } from "../embeddings/embedder";
+import type { Storage } from "../storage/storage";
+import type { NodeRecord, EdgeRecord } from "../core/types";
 import { createSdkAgentRuntime } from "../agent-runtime";
 import { createEmbeddedStorage } from "../storage/embedded";
-import type { Storage } from "../storage/storage";
 import { createKnowledgeGraph, type KnowledgeGraph } from "../knowledge";
 import { createIngestWorkflow, createRecallWorkflow, createDreamWorkflow } from "../workflows/workflows";
 import { createIntakePipeline, type IntakePipeline, type WorkflowClock } from "../workflows/intake-pipeline";
@@ -22,25 +23,24 @@ export const systemClock: WorkflowClock = {
     });
   },
 };
-function nodeWire(node: { id: string; [key: string]: unknown }): Record<string, unknown> {
+function nodeWire(node: NodeRecord): Record<string, unknown> {
   const { kind, dreamAge, createdAt, updatedAt, ...fields } = node;
   return { ...fields, ...(dreamAge === undefined ? {} : { dream_age: dreamAge }), ...(createdAt === undefined ? {} : { created_at: createdAt }), ...(updatedAt === undefined ? {} : { updated_at: updatedAt }) };
 }
-function edgeWire(edge: { id: string; [key: string]: unknown }): Record<string, unknown> {
+function edgeWire(edge: EdgeRecord): Record<string, unknown> {
   const { edgeType, ...fields } = edge;
   return { ...fields, table: edge.id.split(":")[0] };
 }
 const toolNames = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"] as const;
-export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories {
+export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, KnowledgeGraph, IntakePipeline, DreamScheduler> {
   const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir });
-  const workflowDependencies = (knowledge: unknown, model: Settings["ingestModel"]) => ({ runtime, model, tools: (knowledge as KnowledgeGraph).tools(toolNames) });
+  const workflowDependencies = (knowledge: KnowledgeGraph, model: Settings["ingestModel"]) => ({ runtime, model, tools: knowledge.tools(toolNames) });
   return {
     createModelRuntime: () => modelRuntime,
     createEmbedder: () => embedder,
     createStorage: () => createEmbeddedStorage({ dbPath: settings.dbPath, embeddingDimensions: settings.embeddingDimensions, embedder }),
-    createKnowledge: storage => createKnowledgeGraph(storage as Storage),
-    createPipeline({ storage: managed, knowledge }) {
-      const storage = managed as Storage;
+    createKnowledge: storage => createKnowledgeGraph(storage),
+    createPipeline({ storage, knowledge }) {
       return createIntakePipeline({
         workflow: createIngestWorkflow(workflowDependencies(knowledge, settings.ingestModel)), clock: systemClock,
         settings: { chunkMaxChars: settings.intake.chunkChars, workers: settings.intake.workerConcurrency, pollMs: settings.intake.pollIntervalSeconds * 1000, leaseRenewMs: settings.intake.leaseSeconds * 1000 / 3, retryBaseMs: settings.intake.retryBaseDelaySeconds * 1000, retryCapMs: settings.intake.retryMaxDelaySeconds * 1000, shutdownGraceMs: settings.intake.shutdownGraceSeconds * 1000 },
@@ -58,16 +58,15 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         },
       });
     },
-    createScheduler({ storage: managed, knowledge }) {
-      const storage = managed as Storage;
+    createScheduler({ storage, knowledge }) {
       const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(knowledge, settings.dreamModel)), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000 } });
       return settings.dream.enabled ? scheduler : { ...scheduler, start() {} };
     },
-    createApplication({ storage: managed, knowledge, pipeline: managedPipeline, scheduler: managedScheduler, dreamJobs }) {
-      const storage = managed as Storage, pipeline = managedPipeline as IntakePipeline, scheduler = managedScheduler as DreamScheduler;
+    createApplication({ storage, knowledge, pipeline, scheduler, dreamJobs }) {
+      const pendingDreamJobs = new Set<Promise<void>>();
       const recall = createRecallService(createRecallWorkflow(workflowDependencies(knowledge, settings.recallModel)), {
-        getNode: async id => { const node = await storage.getNode(id); return node ? nodeWire(node as unknown as { id: string; [key: string]: unknown }) : undefined; },
-        getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge as unknown as { id: string; [key: string]: unknown }) : undefined; },
+        getNode: async id => { const node = await storage.getNode(id); return node ? nodeWire(node) : undefined; },
+        getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge) : undefined; },
         getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at"].map(key => [key, record[key as keyof typeof record]])); },
       });
       return {
@@ -83,11 +82,25 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         async startDream() {
           const job = { job_id: crypto.randomUUID(), status: "pending" as const, error: null };
           dreamJobs.set(job.job_id, job);
+          let settle!: () => void;
+          const completion = new Promise<void>(resolve => { settle = resolve; });
+          pendingDreamJobs.add(completion);
+          completion.then(() => pendingDreamJobs.delete(completion));
           queueMicrotask(() => {
             dreamJobs.set(job.job_id, { ...job, status: "running" });
-            void scheduler.runCycle().then(result => { dreamJobs.set(job.job_id, { ...job, status: result.errors.length ? "failed" : "complete", error: result.errors.length ? result.errors.join("\n") : null }); }, error => { dreamJobs.set(job.job_id, { ...job, status: "failed", error: String(error) }); });
+            void scheduler.runCycle().then(result => {
+              const error = result.errors.length ? result.errors.join("\n") : result.aborted ? "Dream cycle cancelled" : null;
+              dreamJobs.set(job.job_id, { ...job, status: error ? "failed" : "complete", error });
+              settle();
+            }, error => {
+              dreamJobs.set(job.job_id, { ...job, status: "failed", error: String(error) });
+              settle();
+            });
           });
           return job;
+        },
+        async waitForDreamJobs() {
+          while (pendingDreamJobs.size) await Promise.all([...pendingDreamJobs]);
         },
         getDreamJob: async id => dreamJobs.get(id),
         recall: async request => { scheduler.touchActivity(); return recall.recall(request); },
@@ -95,8 +108,8 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
           const node = await storage.getNode(id); if (!node) return undefined;
           const edges = [...await storage.getIncomingEdges(id), ...await storage.getOutgoingEdges(id)];
           const connections = [];
-          for (const edge of edges) { const other = await storage.getNode(edge.from === id ? edge.to : edge.from); if (other) connections.push({ edge: edgeWire(edge as unknown as { id: string; [key: string]: unknown }), node: nodeWire(other as unknown as { id: string; [key: string]: unknown }) }); }
-          return { node: nodeWire(node as unknown as { id: string; [key: string]: unknown }), connections };
+          for (const edge of edges) { const other = await storage.getNode(edge.from === id ? edge.to : edge.from); if (other) connections.push({ edge: edgeWire(edge), node: nodeWire(other) }); }
+          return { node: nodeWire(node), connections };
         },
       };
     },

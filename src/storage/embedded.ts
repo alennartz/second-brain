@@ -12,7 +12,12 @@ function rid(value: string): StringRecordId { const split = value.indexOf(":"); 
 function plain(value: any): any { if (value == null) return null; if (value instanceof RecordId) return value.toString(); if (value instanceof Date) return value.toISOString(); if (Array.isArray(value)) return value.map(plain); if (typeof value === "object") { if (typeof value.toISOString === "function") return value.toISOString(); return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,plain(v)])); } return value; }
 function node(row: Row): NodeRecord { const { embedding, dream_age, created_at, updated_at, ...rest } = row; return { ...rest, table: row.id.split(":")[0], kind: row.id.split(":")[0], dreamAge: dream_age ?? 0, ...(created_at ? { createdAt: created_at } : {}), ...(updated_at ? { updatedAt: updated_at } : {}) } as NodeRecord; }
 function edge(row: Row): any { return { id: row.id, from: row.in, to: row.out, edgeType: row.id.split(":")[0], ...(row.context != null ? { context: row.context } : {}) }; }
-function chunk(row: Row): IntakeChunkRecord { const { embedding, worker_id, paused, ...rest } = row; return { ...rest, state: paused ? "paused" : row.state, next_attempt_at: row.next_attempt_at ?? null, lease_token: row.lease_token ?? null, lease_expires_at: row.lease_expires_at ?? null, last_error: row.last_error ?? null, idempotency_key: row.idempotency_key ?? null } as IntakeChunkRecord; }
+type EmbeddableNode = { kind?: string; id?: string; content?: string; description?: string; name?: string };
+function embeddingText(value: EmbeddableNode): string {
+ const kind = value.kind ?? value.id?.split(":")[0];
+ return kind === "note" ? value.content ?? "" : value.description || value.name || "";
+}
+function chunk(row: Row): IntakeChunkRecord {  const { embedding, worker_id, paused, ...rest } = row; return { ...rest, state: paused ? "paused" : row.state, next_attempt_at: row.next_attempt_at ?? null, lease_token: row.lease_token ?? null, lease_expires_at: row.lease_expires_at ?? null, last_error: row.last_error ?? null, idempotency_key: row.idempotency_key ?? null } as IntakeChunkRecord; }
 const evidence = (r: Row) => Object.fromEntries(["id","intake_id","chunk_index","total_chunks","content","source","hints","created_at"].filter(k => r[k] != null).map(k => [k,r[k]]));
 function cosine(a: number[], b: number[]): number { const dot = a.reduce((sum,v,i) => sum + v * (b[i] ?? 0),0); return dot / (Math.hypot(...a) * Math.hypot(...b) || 1); }
 export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage {
@@ -32,8 +37,15 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
   const remove = async (id: string) => { await query("DELETE $id", { id: rid(id) }); };
   const allEdges = async () => { const info: any = plain((await driver.query("INFO FOR DB"))[0]); const names = Object.keys(info.tables ?? {}).filter(k => !["note","entity","intake_chunk","intake_key"].includes(k)); return (await Promise.all(names.map(rows))).flat().filter(r => r.in && r.out); };
   const create = async (name: string, fields: Row) => (await query(`CREATE ${table(name)} CONTENT $fields RETURN AFTER`, { fields }))[0]!;
-  const createNode = async (input: NewNode) => { const { kind, ...fields } = input; const text = kind === "note" ? input.content : input.description || input.name; return node(await create(kind, { ...fields, ...(kind === "note" ? { source: input.source ?? "api" } : {}), embedding: [...await options.embedder.embed(text)], dream_age: 0 })); };
-  const updateNodeFields = async (id: string, fields: NodeFields) => { const old = await get(id); if (!old) return undefined; const data: Row = { ...fields }; if (fields.dreamAge !== undefined) { data.dream_age = fields.dreamAge; delete data.dreamAge; } const text = fields.content ?? fields.description ?? fields.name; if (text !== undefined) data.embedding = [...await options.embedder.embed(text)]; return node(await merge(id, data)); };
+  const createNode = async (input: NewNode) => { const { kind, ...fields } = input; const timestamp = new Date(now()); return node(await create(kind, { ...fields, ...(kind === "note" ? { source: input.source ?? "api" } : {}), embedding: [...await options.embedder.embed(embeddingText(input))], dream_age: 0, created_at: timestamp, updated_at: timestamp })); };
+  const updateNodeFields = async (id: string, fields: NodeFields) => {
+   const old = await get(id); if (!old) return undefined;
+   const data: Row = { ...fields };
+   if (fields.dreamAge !== undefined) { data.dream_age = fields.dreamAge; delete data.dreamAge; }
+   if (fields.content !== undefined || fields.description !== undefined || fields.name !== undefined) data.embedding = [...await options.embedder.embed(embeddingText({ ...old, ...fields }))];
+   data.updated_at = new Date(now());
+   return node(await merge(id, data));
+  };
   const createIntakeChunks = async (intakeId: string, drafts: readonly IntakeChunkDraft[], key?: string) => {
    const fingerprint = createHash("sha256").update(JSON.stringify(drafts.map(d => ({ content: d.content, source: d.source ?? "api", hints: d.hints ?? [] })))).digest("hex");
    if (key) { const prior = (await query("SELECT * FROM $id", { id: new RecordId("intake_key", key) }))[0]; if (prior) { if (prior.fingerprint !== fingerprint) throw new Error("Idempotency content conflict"); return 0; } }
@@ -62,12 +74,12 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
    async getNode(id: string) { const r = await get(id); return r ? node(r) : undefined; }, deleteNode: remove,
    async createEdge(input: NewEdge) { table(input.edgeType); return edge((await query(`RELATE $from->${input.edgeType}->$to CONTENT $fields RETURN AFTER`, { from: rid(input.fromId), to: rid(input.toId), fields: { ...(input.context !== undefined ? {context: input.context} : {}) } }))[0]!); },
    async getEdge(id: string) { const r = await get(id); return r ? edge(r) : undefined; }, deleteEdge: remove,
-   async updateEdgeFields(id: string, fields: Row) { const old = await get(id); if (!old) return undefined; const targetType = fields.edgeType ?? fields.edge_type; const from = fields.fromId ?? fields.in ?? old.in; const to = fields.toId ?? fields.out ?? old.out;
-    if (targetType && targetType !== id.split(":")[0]) {
-     const created = (await query(`RELATE $from->${table(targetType)}->$to CONTENT $fields RETURN AFTER`, { from: rid(from), to: rid(to), fields: { ...old, id: undefined, in: undefined, out: undefined, context: fields.context ?? old.context } }))[0]!;
+   async updateEdgeFields(id: string, fields: Row) { const old = await get(id); if (!old) return undefined; const targetType = fields.edgeType ?? fields.edge_type ?? id.split(":")[0]; const from = fields.fromId ?? fields.in ?? old.in; const to = fields.toId ?? fields.out ?? old.out; table(targetType); rid(from); rid(to);
+    if (targetType !== id.split(":")[0] || from !== old.in || to !== old.out) {
+     const created = (await query(`RELATE $from->${table(targetType)}->$to CONTENT $fields RETURN AFTER`, { from: rid(from), to: rid(to), fields: { ...(fields.context !== undefined ? { context: fields.context } : old.context !== undefined ? { context: old.context } : {}) } }))[0]!;
      await remove(id); return edge(created);
     }
-    const data: Row = { in: rid(from), out: rid(to), ...(fields.context !== undefined ? { context: fields.context } : {}) }; return edge(await merge(id,data)); },
+    const data: Row = { ...(fields.context !== undefined ? { context: fields.context } : {}) }; return edge(await merge(id,data)); },
    async getIncomingEdges(id: string) { rid(id); return (await allEdges()).filter(r => r.out === id).map(edge); },
    async getOutgoingEdges(id: string) { rid(id); return (await allEdges()).filter(r => r.in === id).map(edge); },
    async getEdgesByType(type: string) { return (await rows(type)).filter(r => r.in && r.out).map(edge); },

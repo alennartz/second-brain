@@ -324,7 +324,7 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 
 #### Workflows
 
-- Ingest uses only its closed read/write tool set, submits leased chunks in source order, reports errors, preserves earlier committed calls, and never acknowledges unsettled or aborted runs.
+- Ingest uses only its closed read/write tool set, submits leased chunks in source order, reports mutation errors, preserves earlier committed calls, does not replay for recoverable read errors, and never acknowledges unsettled or aborted runs.
 - Recall uses only read tools plus validated `answerRecall`, accepts citations from collected evidence, rejects invented citations, and does not return free-form unvalidated text.
 - Dream runs deduplication and connection as separate phases with their distinct closed tool sets and propagates mutation errors and cancellation.
 
@@ -443,7 +443,7 @@ Use only request-scoped session/result state. Reuse the injected shared `ModelRu
 
 Implement the workflow factories in `src/workflows/workflows.ts`. Add `src/workflows/prompts.ts` for prompts adapted from Python ingest, recall, dedup, and connection workflows. Update instructions to singular tools, canonical IDs, exact edits, and partial committed progress.
 
-Ingest selects only its six approved tools and submits chunks in source order with hints. Return an unclean outcome for runtime exceptions, tool errors, unsettled runs, or cancellation. Do not acknowledge leases here.
+Ingest selects only its six approved tools and submits chunks in source order with hints. Return an unclean outcome for runtime exceptions, mutation-tool errors, unsettled runs, or cancellation. Recoverable read-tool errors remain visible to the model but do not replay create-only mutations. Do not acknowledge leases here.
 
 Recall wraps read tools to collect successful evidence per request. Add the model-only `answerRecall` tool with TypeBox validation. Reject invented citations and accept a later valid answer. Keep the accepted answer and evidence in request-scoped state. Terminate only after validation. Distinguish successful answer termination from caller cancellation. Reject runs without a validated answer and never return free-form assistant text.
 

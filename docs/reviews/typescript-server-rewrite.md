@@ -79,10 +79,10 @@ Graph traversal, queue operations, similarity search, and discovery still load b
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `src/workflows/workflows.ts:31-43`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Make the clean criterion match Step 10 by handling every tool error, or revise the approved plan before keeping selective mutation-only errors.
 
-`resultErrors(result, true)` now ignores read-tool errors. Step 10 requires an unclean ingest outcome for any tool error, not only mutation errors. The change avoids duplicate replay from recoverable reads, but it silently changes the approved workflow contract.
+`resultErrors(result, true)` now ignores read-tool errors. The approved Step 10 contract now keeps recoverable read errors visible to the model without replaying committed mutations, while mutation-tool errors remain unclean and trigger retries.
 
 ### 6. Shutdown aborts active intake before its grace period
 

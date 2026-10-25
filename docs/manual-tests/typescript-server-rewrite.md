@@ -71,15 +71,14 @@ fabricated.
 - **Removed conversation and MCP routes — pass.** `POST /converse`,
   `/converse/stream`, and `/mcp` each returned the framework's plain `404
   NOT_FOUND` response in the live server harness. **Coherence:** looks coherent.
-- **Direct and Codemode tool boundaries — open.** SDK-backed smoke checks passed
+- **Direct and Codemode tool boundaries — pass.** SDK-backed smoke checks passed
   for provider/model selection, direct structured tool calls, Codemode scripts
-  consuming structured results, input/output schema failures, and cancellation.
-  The boundary assertion fails because the current Pi Codemode proxy throws when
-  a script evaluates `typeof tools.read` or other unavailable names. It reports
-  `TypeError: tools.read does not exist` instead of yielding `undefined`, so the
-  test cannot complete its closed-capability assertion. No runtime or test change
-  was made during this phase. **Coherence:** looks off because unavailable
-  capability probes fail rather than return false-like values.
+  consuming structured results, input/output schema failures, cancellation, and
+  closed capabilities. Pi 1.4's Codemode proxy throws the documented
+  `tools.<name> does not exist` error for unavailable filesystem, shell, network,
+  MCP, and model-catalog names. The smoke script catches those guard errors and
+  asserts that no unavailable direct tool is registered. **Coherence:** looks
+  coherent.
 - **Shutdown and restart — pass.** The local Bun process received `SIGTERM`,
   released its storage lock, and exited. A new process reopened the same path;
   health returned `200`, and the seeded graph and recall evidence persisted.
@@ -99,9 +98,6 @@ this topic.
 - Live OpenAI embedding credentials are unavailable. Production `/ingest`
   returned `503` with the dummy key, so provider-backed staging and ingest-worker
   organization remain unverified.
-- The Codemode closed-boundary smoke assertion remains open because Pi throws on
-  unknown capability properties. The required review cycle must resolve whether
-  the contract or the adapter owns this behavior.
 - A separate process already occupied port 8000. The shipped entry point was
   exercised with an ephemeral-port wrapper; direct port-8000 binding remains
   unverified in this shared environment.

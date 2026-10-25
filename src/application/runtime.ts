@@ -18,17 +18,18 @@ export interface CompositionFactories<
   TKnowledge = unknown,
   TPipeline extends ManagedPipeline = ManagedPipeline,
   TScheduler extends ManagedScheduler = ManagedScheduler,
+  TModelRuntime extends object = object,
 > {
-  createModelRuntime(): unknown;
+  createModelRuntime(): TModelRuntime;
   createEmbedder(): TEmbedder;
   createStorage(embedder: TEmbedder): TStorage;
   createKnowledge(storage: TStorage): TKnowledge;
-  createPipeline(dependencies: { storage: TStorage; knowledge: TKnowledge; modelRuntime: unknown }): TPipeline;
-  createScheduler(dependencies: { storage: TStorage; knowledge: TKnowledge; modelRuntime: unknown }): TScheduler;
+  createPipeline(dependencies: { storage: TStorage; knowledge: TKnowledge; modelRuntime: TModelRuntime }): TPipeline;
+  createScheduler(dependencies: { storage: TStorage; knowledge: TKnowledge; modelRuntime: TModelRuntime }): TScheduler;
   createApplication(dependencies: {
     storage: TStorage;
     knowledge: TKnowledge;
-    modelRuntime: unknown;
+    modelRuntime: TModelRuntime;
     pipeline: TPipeline;
     scheduler: TScheduler;
     dreamJobs: Map<string, DreamJob>;
@@ -44,13 +45,15 @@ export async function startApplication<
   TKnowledge,
   TPipeline extends ManagedPipeline,
   TScheduler extends ManagedScheduler,
->(factories: CompositionFactories<TEmbedder, TStorage, TKnowledge, TPipeline, TScheduler>): Promise<ApplicationRuntime> {
+  TModelRuntime extends object,
+>(factories: CompositionFactories<TEmbedder, TStorage, TKnowledge, TPipeline, TScheduler, TModelRuntime>): Promise<ApplicationRuntime> {
   const modelRuntime = factories.createModelRuntime();
   const embedder = factories.createEmbedder();
   const storage = factories.createStorage(embedder);
   const state: { pipeline?: ManagedPipeline; scheduler?: ManagedScheduler; application?: HttpApplication; shutdown?: Promise<void> } = {};
   async function cleanup() {
     const errors: unknown[] = [];
+    state.application?.beginShutdown?.();
     for (const resource of [state.pipeline, state.scheduler]) {
       if (!resource) continue;
       try { await resource.stop(); }

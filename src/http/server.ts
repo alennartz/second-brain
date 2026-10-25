@@ -2,10 +2,13 @@ import { Elysia } from "elysia";
 import { Type } from "@sinclair/typebox";
 import { HttpApplicationError, type HttpApplication } from "./contracts";
 import { createHttpSchemas, type HttpSchemas } from "./schemas";
+import { InvalidInputError } from "../core/types";
 
 function applicationError(error: unknown): HttpApplicationError {
   if (error instanceof HttpApplicationError) return error;
-  return new HttpApplicationError("unavailable", error instanceof Error ? error.message : String(error));
+  const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof InvalidInputError) return new HttpApplicationError("invalid", message);
+  return new HttpApplicationError("unavailable", message);
 }
 function callApplication<T>(operation: () => Promise<T>): Promise<T> {
   return Promise.resolve().then(operation).catch(error => { throw applicationError(error); });

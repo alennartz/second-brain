@@ -1,8 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ingestPrompt, recallPrompt, dedupPrompt, connectPrompt } from "./prompts";
-import type { AgentRuntime, AgentTool, WorkflowModelRef } from "../agent-runtime";
-import type { EdgeId, NodeId } from "../core/types";
+import type { AgentRuntime, AgentTool } from "../agent-runtime";
+import type { WorkflowModelRef } from "../core/config";
+import { InvalidInputError, type EdgeId, type NodeId } from "../core/types";
 
 export type WorkflowModel = WorkflowModelRef;
 export type WorkflowTool = AgentTool;
@@ -76,16 +77,16 @@ export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
     } }));
     tools.push({ name: "answerRecall", description: "Submit a validated answer with citations from collected evidence", parameters: answerSchema, outputSchema: answerSchema, execute: async (args, executionSignal) => {
       signal?.throwIfAborted(); executionSignal.throwIfAborted();
-      if (!Value.Check(answerSchema, args)) throw new Error("Invalid recall answer");
+      if (!Value.Check(answerSchema, args)) throw new InvalidInputError("Invalid recall answer");
       const answer = args as RecallAnswer;
-      if (answer.nodeIds.some(id => !nodes.has(id)) || answer.edgeIds.some(id => !edges.has(id)) || answer.unprocessedIds.some(id => !raw.has(id))) throw new Error("Unknown citation");
+      if (answer.nodeIds.some(id => !nodes.has(id)) || answer.edgeIds.some(id => !edges.has(id)) || answer.unprocessedIds.some(id => !raw.has(id))) throw new InvalidInputError("Unknown citation");
       const count = answer.nodeIds.length + answer.edgeIds.length + answer.unprocessedIds.length;
-      if (answer.hasEvidence !== (count > 0)) throw new Error("Evidence flag does not match citations");
+      if (answer.hasEvidence !== (count > 0)) throw new InvalidInputError("Evidence flag does not match citations");
       state.answer = answer;
       return { toolName: "answerRecall", structuredContent: answer, stop: true };
     } });
     const result = await d.runtime.run({ model: d.model, systemPrompt: recallPrompt, prompt: JSON.stringify({ question, hints }), tools, signal });
-    if (signal?.aborted || result.aborted || !result.settled || !state.answer) throw new Error("Recall did not return a validated answer");
+    if (signal?.aborted || result.aborted || !result.settled || !state.answer) throw new InvalidInputError("Recall did not return a validated answer");
     return state.answer;
   } };
 }

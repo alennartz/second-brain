@@ -2,6 +2,13 @@ export type NodeId = string;
 export type EdgeId = string;
 export type Timestamp = string;
 
+export class InvalidInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidInputError";
+  }
+}
+
 export type NodeKind = "note" | "entity";
 
 export interface NodeFields {

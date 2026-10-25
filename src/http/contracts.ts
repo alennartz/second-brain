@@ -35,6 +35,7 @@ export interface HttpApplication {
   discard(intakeId: string): Promise<number>;
   startDream(): Promise<DreamJob>;
   getDreamJob(jobId: string): Promise<DreamJob | undefined>;
+  beginShutdown?(): void;
   waitForDreamJobs?(): Promise<void>;
   recall(request: RecallBody): Promise<RecallResponse>;
   getGraph(recordId: string): Promise<GraphResponse | undefined>;
@@ -65,6 +66,7 @@ export function createRecallService(_workflow: RecallAnswerSource, _storage: Rec
       resolve(result.edgeIds, id => _storage.getEdge(id)),
       resolve(result.unprocessedIds, id => _storage.getUnprocessed(id)),
     ]);
+    if (!nodes.length && !edges.length && !unprocessed.length) return { answer: result.answer, context: null };
     return { answer: result.answer, context: { nodes, edges, unprocessed } };
   } };
 }

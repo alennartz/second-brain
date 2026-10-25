@@ -32,7 +32,7 @@ function edgeWire(edge: EdgeRecord): Record<string, unknown> {
   return { ...fields, table: edge.id.split(":")[0] };
 }
 const toolNames = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"] as const;
-export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, KnowledgeGraph, IntakePipeline, DreamScheduler> {
+export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, KnowledgeGraph, IntakePipeline, DreamScheduler, ModelRuntime> {
   const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir });
   const workflowDependencies = (knowledge: KnowledgeGraph, model: Settings["ingestModel"]) => ({ runtime, model, tools: knowledge.tools(toolNames) });
   return {
@@ -64,6 +64,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
     },
     createApplication({ storage, knowledge, pipeline, scheduler, dreamJobs }) {
       const pendingDreamJobs = new Set<Promise<void>>();
+      let shuttingDown = false;
       const recall = createRecallService(createRecallWorkflow(workflowDependencies(knowledge, settings.recallModel)), {
         getNode: async id => { const node = await storage.getNode(id); return node ? nodeWire(node) : undefined; },
         getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge) : undefined; },
@@ -80,6 +81,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         pipelineSnapshot: async () => { const snapshot = await pipeline.snapshot(); return { ...snapshot, stuck_intakes: [...snapshot.stuck_intakes], recent_errors: [...snapshot.recent_errors] }; },
         pause: id => pipeline.pause(id), resume: id => pipeline.resume(id), discard: id => pipeline.discard(id),
         async startDream() {
+          if (shuttingDown) throw new HttpApplicationError("unavailable", "Application is shutting down");
           const job = { job_id: crypto.randomUUID(), status: "pending" as const, error: null };
           dreamJobs.set(job.job_id, job);
           let settle!: () => void;
@@ -87,6 +89,11 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
           pendingDreamJobs.add(completion);
           completion.then(() => pendingDreamJobs.delete(completion));
           queueMicrotask(() => {
+            if (shuttingDown) {
+              dreamJobs.set(job.job_id, { ...job, status: "failed", error: "Application is shutting down" });
+              settle();
+              return;
+            }
             dreamJobs.set(job.job_id, { ...job, status: "running" });
             void scheduler.runCycle().then(result => {
               const error = result.errors.length ? result.errors.join("\n") : result.aborted ? "Dream cycle cancelled" : null;
@@ -99,6 +106,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
           });
           return job;
         },
+        beginShutdown() { shuttingDown = true; },
         async waitForDreamJobs() {
           while (pendingDreamJobs.size) await Promise.all([...pendingDreamJobs]);
         },

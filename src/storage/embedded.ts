@@ -3,12 +3,12 @@ import { createNodeEngines } from "@surrealdb/node";
 import { createHash, randomUUID } from "node:crypto";
 import type { Embedder } from "../embeddings/embedder.ts";
 import type { Storage, StorageTransaction } from "./storage.ts";
-import type { NewNode, NodeFields, NewEdge, IntakeChunkDraft, NodeRecord, IntakeChunkRecord } from "../core/types.ts";
+import { InvalidInputError, type NewNode, type NodeFields, type NewEdge, type IntakeChunkDraft, type NodeRecord, type IntakeChunkRecord } from "../core/types.ts";
 import { schema, vectorSchema } from "./schema.ts";
 export interface EmbeddedStorageOptions { dbPath: string; embeddingDimensions: number; embedder: Embedder; clock?: () => Date }
 type Row = Record<string, any>;
-function table(value: string): string { if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) throw new Error("Invalid table"); return value; }
-function rid(value: string): StringRecordId { const split = value.indexOf(":"); if (split < 1 || !value.slice(split + 1)) throw new Error("Invalid record ID"); table(value.slice(0, split)); return new StringRecordId(value); }
+function table(value: string): string { if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) throw new InvalidInputError("Invalid table"); return value; }
+function rid(value: string): StringRecordId { const split = value.indexOf(":"); if (split < 1 || !value.slice(split + 1)) throw new InvalidInputError("Invalid record ID"); table(value.slice(0, split)); return new StringRecordId(value); }
 function plain(value: any): any { if (value == null) return null; if (value instanceof RecordId) return value.toString(); if (value instanceof Date) return value.toISOString(); if (Array.isArray(value)) return value.map(plain); if (typeof value === "object") { if (typeof value.toISOString === "function") return value.toISOString(); return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,plain(v)])); } return value; }
 function node(row: Row): NodeRecord { const { embedding, dream_age, created_at, updated_at, ...rest } = row; return { ...rest, table: row.id.split(":")[0], kind: row.id.split(":")[0], dreamAge: dream_age ?? 0, ...(created_at ? { createdAt: created_at } : {}), ...(updated_at ? { updatedAt: updated_at } : {}) } as NodeRecord; }
 function edge(row: Row): any { return { id: row.id, from: row.in, to: row.out, edgeType: row.id.split(":")[0], ...(row.context != null ? { context: row.context } : {}) }; }

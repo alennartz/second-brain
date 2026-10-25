@@ -1,9 +1,9 @@
 import type { TSchema } from "@sinclair/typebox";
 import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { Value } from "@sinclair/typebox/value";
+import type { ThinkingLevel, WorkflowModelRef } from "../core/config";
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-export type WorkflowModelRef = { provider: string; model: string; thinkingLevel: ThinkingLevel };
+export type { ThinkingLevel, WorkflowModelRef } from "../core/config";
 export type StructuredToolResult = { toolName: string; structuredContent: unknown; isError?: boolean; stop?: boolean };
 export type AgentEvent = { type: string; [key: string]: unknown };
 export type AgentTool = {

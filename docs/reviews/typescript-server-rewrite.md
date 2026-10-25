@@ -39,7 +39,7 @@ The fixes resolve most prior correctness defects, including source splitting, gr
 - **Category:** plan deviation
 - **Severity:** critical
 - **Location:** `tests/surrealdb-compatibility.test.ts`, `tests/surrealdb-latest.test.ts:1-158`
-- **Status:** open
+- **Status:** dismissed
 - **Fix:** Restore the pre-implementation test set and move the latest-engine test replacement before `ddb100c491484ad904de355657e23081bfffdabd`.
 
 The implementation phase no longer changes the SDK smoke test, but it still replaces one listed test with another after the pre-implementation commit. The implementation therefore still changed its acceptance contract.
@@ -49,7 +49,7 @@ The implementation phase no longer changes the SDK smoke test, but it still repl
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `docs/plans/typescript-server-rewrite.md:508-521`, `docs/manual-tests/typescript-server.md:3,13-24`
-- **Status:** open
+- **Status:** dismissed
 - **Fix:** Run the pending journeys or change Step 16 to an incomplete status.
 
 The manual-test record correctly says live provider, Docker, restart, CLI, device, and shutdown journeys were not run. Step 16 still says `Status: done` even though its verification requires those journeys and the production image check.
@@ -59,7 +59,7 @@ The manual-test record correctly says live provider, Docker, restart, CLI, devic
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `src/http/contracts.ts:59-68`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Return `context: null` with the no-evidence answer when filtering removes every citation.
 
 Filtering prevents the old 502 when intake evidence disappears during recall, but when all citations disappear the response still carries the evidence answer with `{}` as context. This is neither the approved no-evidence response nor Step 13's explicit missing-record policy.
@@ -69,7 +69,7 @@ Filtering prevents the old 502 when intake evidence disappears during recall, bu
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/storage/embedded.ts:24-33,45,53,71-94`
-- **Status:** open
+- **Status:** dismissed
 - **Fix:** Push endpoint, queue, count, ordering, and vector filters into indexed SurrealQL queries.
 
 Graph traversal, queue operations, similarity search, and discovery still load broad tables into JavaScript. Cost grows with the entire graph, and cooccurrence pairing can block the event loop quadratically. The declared indexes do not protect these paths.
@@ -89,7 +89,7 @@ Graph traversal, queue operations, similarity search, and discovery still load b
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/workflows/intake-pipeline.ts:157-159,216-224`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Run the grace-period race first, then abort the shared shutdown controller and release remaining batches.
 
 `stop` aborts `state.shutdown` before waiting for `shutdownGraceMs`. Every active batch listens to that signal, so shutdown cancels all work immediately. The grace period no longer allows a batch to finish, and committed mutations can replay after release.
@@ -99,7 +99,7 @@ Graph traversal, queue operations, similarity search, and discovery still load b
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/application/runtime.ts:15-36`, `src/core/config.ts:1-10`, `src/agent-runtime/index.ts:5-6`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Return a concrete model-runtime type and import one canonical definition of workflow model references.
 
 The generic composition seam removes the main casts, but `createModelRuntime` still returns `unknown` and the agent runtime duplicates `ThinkingLevel` and `WorkflowModelRef`. These seams can accept incompatible model runtimes and let the two model contracts drift.
@@ -109,7 +109,7 @@ The generic composition seam removes the main casts, but `createModelRuntime` st
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/http/server.ts:6-12`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Classify invalid inputs and recall validation failures at their sources instead of converting every error to 503.
 
 The catch-all application wrapper maps every non-`HttpApplicationError` to 503. Invalid graph IDs and validation failures therefore look transient to clients and can trigger inappropriate retries.
@@ -119,7 +119,7 @@ The catch-all application wrapper maps every non-`HttpApplicationError` to 503. 
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `src/application/composition.ts:82-105`, `src/application/runtime.ts:50-60`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Reject or abort a queued manual dream when shutdown begins before its microtask starts.
 
 `startDream` queues `runCycle` in a microtask. If scheduler shutdown runs first, the cycle can start after the scheduler has stopped. Its controller is no longer managed by the scheduler, so shutdown can wait through a full dream run before storage closes.

@@ -214,14 +214,13 @@ export function createIntakePipeline(d: IntakePipelineDependencies): IntakePipel
       if (!state.running && !state.workers.length) return;
       state.running = false;
       state.poll.abort();
+      const workers = Promise.all(state.workers);
+      const grace = new AbortController();
+      try { await Promise.race([workers, d.clock.sleep(d.settings.shutdownGraceMs, grace.signal)]); }
+      finally { grace.abort(); }
       state.shutdown.abort();
-      if (state.active.size) {
-        const grace = new AbortController();
-        try { await Promise.race([Promise.all(state.workers), d.clock.sleep(d.settings.shutdownGraceMs, grace.signal)]); }
-        finally { grace.abort(); }
-        for (const controller of state.active) controller.abort();
-      }
-      await Promise.all(state.workers); state.workers = [];
+      for (const controller of state.active) controller.abort();
+      await workers; state.workers = [];
     },
     async snapshot() { return { ...await d.queue.intakeQueueSnapshot(), worker_count: state.running ? state.workers.length : 0, active_leases: state.active.size }; },
     pause: id => d.queue.pauseIntake(id), resume: id => d.queue.resumeIntake(id), discard: id => d.queue.discardIntake(id),

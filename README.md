@@ -105,7 +105,7 @@ All settings use environment variables. Workflow model references use
 
 | Variable | Default | Description |
 |---|---|---|
-| `BRAIN_DB_PATH` | `data/brain.surreal` | Fresh SurrealKV database path |
+| `BRAIN_DB_PATH` | `data/brain.db` | Fresh SurrealKV database path |
 | `BRAIN_INGEST_MODEL` | required | Model for intake organization |
 | `BRAIN_RECALL_MODEL` | required | Model for evidence-backed recall |
 | `BRAIN_DREAM_MODEL` | required | Model for graph refinement |

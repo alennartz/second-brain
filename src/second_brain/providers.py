@@ -143,6 +143,8 @@ def create_model(
     reasoning_effort: ReasoningEffort | None = None,
     chat_template_kwargs: dict[str, object] | None = None,
     temperature: float | None = None,
+    timeout_seconds: float = 60,
+    client_max_retries: int = 0,
 ) -> Any:
     """Create a pydantic-ai model from a provider:model_name string.
 
@@ -160,7 +162,9 @@ def create_model(
     Anthropic). *reasoning_effort* sets the OpenAI ``reasoning_effort`` request
     parameter and is valid only for OpenAI models. *chat_template_kwargs* is
     sent as request ``extra_body`` for self-hosted servers (SGLang) and is
-    ignored elsewhere.
+    ignored elsewhere. *timeout_seconds* bounds self-hosted request inactivity.
+    *client_max_retries* controls SDK transport retries only for *base_url*.
+    The intake queue owns retries by default; other providers keep SDK defaults.
     """
     if base_url is not None:
         if foundry_url is not None:
@@ -193,7 +197,12 @@ def create_model(
                     dump["metadata"] = None
                 return _ChatCompletion.model_validate(dump)
 
-        client = AsyncOpenAI(base_url=base_url, api_key=key or "none")
+        client = AsyncOpenAI(
+            base_url=base_url,
+            api_key=key or "none",
+            timeout=timeout_seconds,
+            max_retries=client_max_retries,
+        )
         return TolerantOpenAIChatModel(
             model_name,
             provider=OpenAIProvider(openai_client=client),

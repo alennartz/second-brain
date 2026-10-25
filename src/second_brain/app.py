@@ -59,7 +59,10 @@ _model: Any = None
 _routing_model: Any = None  # Optional optimization; startup failure leaves this unset.
 _scheduler: DreamScheduler | None = None
 _ingestion_pipeline: IngestionPipeline | None = None
-_ingest_agent = create_ingest_agent()
+_ingest_agent = create_ingest_agent(
+    native_output=settings.reasoning_base_url is not None,
+    max_output_tokens=settings.ingest_max_output_tokens,
+)
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()
 
@@ -136,6 +139,8 @@ async def lifespan(app: FastAPI):
             reasoning_effort=settings.reasoning_effort,
             chat_template_kwargs=settings.reasoning_chat_template_kwargs,
             temperature=settings.reasoning_temperature,
+            timeout_seconds=settings.reasoning_timeout_seconds,
+            client_max_retries=settings.reasoning_client_max_retries,
         )
         embed_fn = create_embed_fn(
             settings.embedding_model,

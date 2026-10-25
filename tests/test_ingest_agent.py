@@ -1,6 +1,7 @@
 """Tests for the planning agent and its application-controlled writer."""
 
 import asyncio
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -36,6 +37,37 @@ def _valid_plan() -> dict:
         "updates": [],
         "summary": "Stored a note about Python.",
     }
+
+
+async def test_ingest_native_output_uses_json_schema_and_bounded_tokens(storage):
+    from pydantic_ai.messages import ModelResponse, TextPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from second_brain.providers import create_model
+
+    model = create_model("openai:local", None, base_url="http://localhost/v1")
+
+    def respond(_messages, info):
+        assert info.function_tools == []
+        assert info.output_tools == []
+        assert info.model_settings["max_tokens"] == 4096
+        parameters = info.model_request_parameters
+        assert parameters.output_mode == "native"
+        _, parameters = model.prepare_request(info.model_settings, parameters)
+        response_format = model._map_json_schema(parameters.output_object)
+        assert response_format["type"] == "json_schema"
+        schema = response_format["json_schema"]["schema"]
+        assert schema["additionalProperties"] is False
+        assert "edges" in schema["properties"]
+        return ModelResponse(parts=[TextPart(json.dumps(_valid_plan()))])
+
+    agent = create_ingest_agent(native_output=True, max_output_tokens=4096)
+    result = await agent.run(
+        "Plan Python notes.",
+        deps=IngestDeps(storage=storage),
+        model=FunctionModel(respond),
+    )
+    assert result.output == IngestPlan.model_validate(_valid_plan())
 
 
 async def test_ingest_agent_exposes_no_tools():

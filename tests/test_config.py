@@ -1,4 +1,30 @@
+import pytest
+from pydantic import ValidationError
+
 from second_brain.config import Settings
+
+
+def test_ingest_transport_limits_from_env(monkeypatch):
+    monkeypatch.setenv("BRAIN_REASONING_TIMEOUT_SECONDS", "30")
+    monkeypatch.setenv("BRAIN_REASONING_CLIENT_MAX_RETRIES", "0")
+    monkeypatch.setenv("BRAIN_INGEST_MAX_OUTPUT_TOKENS", "4096")
+    settings = Settings(_env_file=None)
+    assert settings.reasoning_timeout_seconds == 30
+    assert settings.reasoning_client_max_retries == 0
+    assert settings.ingest_max_output_tokens == 4096
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("reasoning_timeout_seconds", 0),
+        ("reasoning_client_max_retries", -1),
+        ("ingest_max_output_tokens", 0),
+    ],
+)
+def test_ingest_limits_reject_invalid_values(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
 
 
 def test_test_mode_defaults_false():

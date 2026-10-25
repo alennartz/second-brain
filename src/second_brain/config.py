@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
@@ -15,6 +16,11 @@ class Settings(BaseSettings):
     # recall/ingest loops deterministic and single-call-per-turn.
     reasoning_temperature: float | None = 0.0
     reasoning_base_url: str | None = None
+    # Bound silent self-hosted streams. The intake queue owns transport retries.
+    reasoning_timeout_seconds: float = Field(default=60, gt=0)
+    reasoning_client_max_retries: int = Field(default=0, ge=0)
+    # Bound planning output, including reasoning tokens, per model request.
+    ingest_max_output_tokens: int = Field(default=8192, gt=0)
     # SGLang chat-template knobs sent as request extra_body. The gemma4 reasoning
     # parser needs the thinking channel enabled or it leaks control tokens.
     reasoning_chat_template_kwargs: dict[str, object] = {"enable_thinking": True}

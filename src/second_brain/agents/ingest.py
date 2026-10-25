@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, NativeOutput, RunContext
 from pydantic_ai.exceptions import ModelRetry, UnexpectedModelBehavior
 from pydantic_ai.messages import OutputToolResultEvent, RetryPromptPart
 from pydantic_ai.models import Model
@@ -654,13 +654,22 @@ class AgentIngestBatchRunner:
         )
 
 
-def create_ingest_agent() -> Agent[IngestDeps, IngestPlan]:
-    """Create a planning-only agent; application code owns all writes."""
+def create_ingest_agent(
+    *, native_output: bool = False, max_output_tokens: int = 8192
+) -> Agent[IngestDeps, IngestPlan]:
+    """Create a bounded planning agent; application code owns all writes.
+
+    Self-hosted OpenAI endpoints use native JSON-schema output instead of
+    synthetic output tools. Other providers retain their existing output mode.
+    """
     agent = Agent(
         deps_type=IngestDeps,
-        output_type=IngestPlan,
+        output_type=NativeOutput(IngestPlan) if native_output else IngestPlan,
         retries=2,
-        model_settings={"parallel_tool_calls": False},
+        model_settings={
+            "parallel_tool_calls": False,
+            "max_tokens": max_output_tokens,
+        },
         system_prompt=(
             "You are a personal knowledge ingest planner. The user provides raw text; "
             "the application provides one broad search of existing notes and entities. "

@@ -45,6 +45,24 @@ def test_create_model_openai_compatible_base_url():
     assert str(result.provider.client.base_url) == "http://jetson.ordernet:8082/v1/"
 
 
+def test_self_hosted_client_bounds_silent_streams_without_sdk_retries():
+    result = create_model("openai:local", None, base_url="http://localhost/v1")
+    assert result.provider.client.timeout == 60
+    assert result.provider.client.max_retries == 0
+
+
+def test_self_hosted_client_accepts_explicit_transport_limits():
+    result = create_model(
+        "openai:local",
+        None,
+        base_url="http://localhost/v1",
+        timeout_seconds=25,
+        client_max_retries=1,
+    )
+    assert result.provider.client.timeout == 25
+    assert result.provider.client.max_retries == 1
+
+
 def test_create_model_openai_compatible_effort_setting():
     result = create_model(
         "openai:gemma4-26b-a4b",

@@ -5,6 +5,7 @@ data/
 backups/
 .venv/
 dist/
+node_modules/
 *.egg-info/
 .pytest_cache/
 .DS_Store

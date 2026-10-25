@@ -239,3 +239,86 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 ### DR Supersessions
 
 - **DR-001** (Batched Ingest Tool Over Structured Output) — superseded because the Pi rewrite keeps the search-before-write agent loop but replaces the old positional batch contract with singular `storeNode` and `storeEdge` tools, direct and Codemode invocation, canonical IDs for existing records, and explicit update/merge operations. The new design accepts partial graph progress during at-least-once intake processing.
+
+## Tests
+
+**Pre-test-write commit:** `babef48d9b6b4eed0ea649bc0899133a54fd600a`
+
+### Interface Files
+
+- `src/core/config.ts` — workflow model references, environment settings, intake settings, and dream settings.
+- `src/core/types.ts` — node, edge, search, intake chunk, claimed batch, and queue snapshot data types.
+- `src/embeddings/embedder.ts` — embedding adapter contract and test stub.
+- `src/storage/storage.ts` — storage, graph primitive, search, and intake queue contracts with a test stub.
+- `src/storage/embedded.ts` — Bun-native embedded SurrealDB storage factory seam.
+- `src/agent-runtime/index.ts` — request-scoped Pi runtime, session, tool, event, and structured result contracts.
+- `src/knowledge/index.ts` — KnowledgeGraph reads, discovery, mutation, merge, removal, rename, and tool contracts.
+- `src/workflows/workflows.ts` — ingest, recall, and dream workflow contracts.
+- `src/workflows/intake-pipeline.ts` — staged intake, queue adapter, clock, and pipeline lifecycle contracts.
+- `src/workflows/dream-scheduler.ts` — dream queue, cycle result, and scheduler lifecycle contracts.
+- `src/http/contracts.ts` — HTTP request, response, pipeline, dream job, and application contracts.
+- `src/http/schemas.ts` — shared TypeBox schema boundary types.
+- `src/http/server.ts` — Elysia server adapter boundary.
+- `src/application/runtime.ts` — startup composition and shutdown contracts.
+
+### Test Files
+
+- `tests/config.test.ts` — workflow model parsing and complete environment settings.
+- `tests/embedding.test.ts` — single and batch embedding results with cancellation signals.
+- `tests/storage.test.ts` — storage lifecycle, graph records, search projections, intake leases, and queue snapshots.
+- `tests/surrealdb-compatibility.test.ts` — embedded `surrealkv://` storage startup and SDK value normalization gate.
+- `tests/agent-runtime.test.ts` — isolated sessions, closed tools, Codemode configuration, events, cancellation, results, and disposal.
+- `tests/knowledge.test.ts` — graph writes, canonical IDs, exact edits, read and discovery projections, atomic merges, edge operations, schemas, and cancellation.
+- `tests/workflows.test.ts` — ingest, recall, and dream tool loadouts, citations, mutation failures, and cancellation.
+- `tests/intake-pipeline.test.ts` — synchronous staging, chunk bounds, idempotency, queue controls, retries, acknowledgement, and worker shutdown.
+- `tests/dream-scheduler.test.ts` — phase order, convergence, errors, idle backoff, activity wake-up, cancellation, and lifecycle.
+- `tests/http-schemas.test.ts` — TypeBox body, header, path, response, status, and evidence shape boundaries.
+- `tests/http.test.ts` — non-conversation routes, status codes, Location headers, idempotency forwarding, validation, and removed routes.
+- `tests/application.test.ts` — shared composition, startup ordering, failure cleanup, worker shutdown, and storage closure.
+
+### Behaviors Covered
+
+#### Configuration and model selection
+
+- Workflow model references split provider, model, and final thinking level and reject malformed or unsupported values.
+- Settings expose all three workflow models, embedding configuration, database path, intake limits, and dream controls.
+
+#### Embeddings and storage
+
+- Embedding calls return one vector per text and preserve batch order while accepting cancellation signals.
+- Storage owns lifecycle, canonical node and edge records, graph edge direction, search results, and separate unprocessed evidence.
+- Intake storage exposes contiguous lease, renewal, release, acknowledgement, and queue snapshot contracts without leaking SDK values.
+- The embedded storage adapter accepts a local SurrealKV path and returns plain domain values instead of SurrealDB SDK records.
+
+#### Pi agent runtime
+
+- Each run creates an isolated in-memory session with the selected model, explicit direct tools, Codemode enabled, and built-ins/resources disabled.
+- Runtime results preserve settled state, assistant text, structured tool results, events, cancellation, and disposal on every exit path.
+
+#### Knowledge graph
+
+- Node and edge mutations use canonical IDs, create singular records, reject names and missing endpoints, and skip self or duplicate edges with structured results.
+- Exact node edits require one match, validate resulting fields, re-embed searchable text, and do not write on invalid match counts.
+- Read and discovery tools return bounded graph and unprocessed evidence projections without embeddings or lease metadata.
+- Node and edge merges, removals, and global edge-type renames preserve survivor identities, repoint or deduplicate edges, remove self-edges, and remain atomic on invalid input.
+- Direct tools expose TypeBox parameter and output schemas with structured results compatible with Codemode, and cancellation stops execution.
+
+#### Workflows
+
+- Ingest uses only its closed read/write tool set, submits leased chunks in source order, reports errors, preserves earlier committed calls, and never acknowledges unsettled or aborted runs.
+- Recall uses only read tools plus validated `answerRecall`, accepts citations from collected evidence, rejects invented citations, and does not return free-form unvalidated text.
+- Dream runs deduplication and connection as separate phases with their distinct closed tool sets and propagates mutation errors and cancellation.
+
+#### Intake pipeline and dream scheduler
+
+- Intake stages nonblank text into bounded ordered chunks before acknowledgement, forwards idempotency keys, exposes queue controls, and reports retry/error state.
+- Pipeline acknowledges only clean batches, releases failed or aborted leases, and cancels active work during shutdown.
+- Dream deduplicates before connection, skips empty graphs, records phase failures, advances dream age, converges idle cycles with capped exponential delays, wakes on activity, and cancels active phases on stop.
+
+#### HTTP and application runtime
+
+- Shared TypeBox schemas validate bodies, headers, paths, response shapes, integer counts, job states, and separate unprocessed evidence.
+- Elysia preserves health, ingest, pipeline controls, recall, graph lookup, and asynchronous dream-job routes with documented statuses, Location headers, idempotency forwarding, and 404/422 behavior.
+- Conversation and MCP routes remain absent and return normal missing-route responses.
+- Application startup creates one shared model runtime, embedder, storage, knowledge module, workers, scheduler, and dream-job registry in dependency order.
+- Shutdown and startup failures stop workers before storage closure and release resources on every partial-start path.

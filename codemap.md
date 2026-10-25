@@ -16,10 +16,10 @@ graph LR
   MT --> M
   H --> A["Application"]
   A --> W["Workflows"]
-  A --> K["Knowledge"]
+  A --> K["Pi package"]
   A --> AR["Agent runtime"]
   W --> AR
-  W --> K
+  AR --> K
   K --> S["Storage"]
   S --> C["Core"]
   S --> E["Embeddings"]
@@ -35,7 +35,7 @@ sequenceDiagram
   participant A as Application
   participant W as Workflows
   participant AR as Agent runtime
-  participant K as Knowledge
+  participant K as Pi package
   participant S as Storage
   G->>H: POST /ingest
   H->>A: enqueue intake
@@ -54,7 +54,7 @@ sequenceDiagram
   participant A as Application
   participant W as Workflows
   participant AR as Agent runtime
-  participant K as Knowledge
+  participant K as Pi package
   participant S as Storage
   H->>A: POST /dream
   A->>W: start dream cycle
@@ -100,23 +100,23 @@ Provides validated embedding calls and an OpenAI provider adapter, independent o
 
 **Files:** `src/embeddings/**`, `tests/embedding.test.ts`, `tests/embedding-adapter.test.ts`
 
-### Knowledge (`src/knowledge/`)
+### Pi package (`packages/pi-second-brain/`)
 
-Owns graph business rules and model-facing domain tools over storage.
+Ships the knowledge tools as a pi package: one idiomatic extension file per tool, a typed graph library, and a storage bridge.
 
-**Responsibilities:** canonical-ID validation, argument normalization, bounded graph projections, singular writes, exact edits, traversal, search, discovery, merges, edge removal and edge-type renames, TypeBox tool contracts
+**Responsibilities:** TypeBox input and output schemas, graph business rules as free functions over storage, cancellation scoping, storage resolution (injected instance, injected configuration, or Pi settings with env-var and command secrets), session lifecycle cleanup
 
-**Dependencies:** Core for domain types, Storage for graph operations
+**Dependencies:** Core for domain types, Storage for persistence, Embeddings for self-initialized storage
 
-**Files:** `src/knowledge/**`, `tests/knowledge.test.ts`
+**Files:** `packages/pi-second-brain/**`, `tests/knowledge.test.ts`
 
 ### Agent runtime (`src/agent-runtime/`)
 
 Adapts Pi AgentSession to isolated, request-scoped workflow runs.
 
-**Responsibilities:** model selection, in-memory sessions, closed direct-tool and Codemode loadouts, event observation, cancellation, structured results, disposal
+**Responsibilities:** model selection, in-memory sessions, extension loading from the configured package path, tool activation by name, closed Codemode loadouts, custom tools such as answerRecall, event observation and structured result collection, cancellation, disposal
 
-**Dependencies:** Core for workflow model references, Pi SDK for session execution
+**Dependencies:** Core for workflow model references, the Pi package for discovered tools, Pi SDK for session execution
 
 **Files:** `src/agent-runtime/**`, `tests/agent-runtime.test.ts`, `tests/agent-runtime/**`
 
@@ -124,9 +124,9 @@ Adapts Pi AgentSession to isolated, request-scoped workflow runs.
 
 Runs ingest, recall, and dream workflows, plus intake and dream background processing.
 
-**Responsibilities:** closed workflow tool sets, evidence-validated recall, bounded intake staging, queue leases and retries, clean acknowledgement, dream phase ordering, idle backoff and convergence, cancellation, prompts
+**Responsibilities:** closed workflow tool-name sets, citation collection from tool events, the answerRecall custom tool, evidence-validated recall, bounded intake staging, queue leases and retries, clean acknowledgement, dream phase ordering, idle backoff and convergence, cancellation, prompts
 
-**Dependencies:** Agent runtime for model runs, Knowledge for domain tools, Core for shared types
+**Dependencies:** Agent runtime for model runs, Core for shared types
 
 **Files:** `src/workflows/**`, `tests/workflows.test.ts`, `tests/intake-pipeline.test.ts`, `tests/intake-reliability.test.ts`, `tests/dream-scheduler.test.ts`, `tests/dream-convergence.test.ts`
 
@@ -144,9 +144,9 @@ Defines typed HTTP contracts and adapts Elysia routes to the application boundar
 
 Composes production dependencies and owns application startup, shutdown, and HTTP-facing services.
 
-**Responsibilities:** shared runtime composition, startup ordering, partial-start cleanup, worker shutdown, storage closure, intake and recall services, graph wire projections, in-memory dream-job lifecycle, Bun entry point
+**Responsibilities:** shared runtime composition, storage injection into the Pi package bridge, startup ordering, partial-start cleanup, worker shutdown, storage closure, intake and recall services, graph wire projections, in-memory dream-job lifecycle, Bun entry point
 
-**Dependencies:** Core, Embeddings, Storage, Knowledge, Agent runtime, Workflows, HTTP contracts
+**Dependencies:** Core, Embeddings, Storage, Pi package bridge, Agent runtime, Workflows, HTTP contracts
 
 **Files:** `src/application/**`, `src/main.ts`, `tests/application.test.ts`
 
@@ -154,8 +154,9 @@ Composes production dependencies and owns application startup, shutdown, and HTT
 
 ### Go client (`client/`)
 
-Cobra commands and Bubble Tea TUI use the non-conversation HTTP API for ingest,
-recall, and graph lookup. The client is unchanged by the server rewrite.
+Cobra commands use the non-conversation HTTP API for ingest, recall, and graph
+lookup. The Bubble Tea TUI still targets the removed conversation API and is not
+supported by the Bun server.
 
 ### Flutter mobile client (`client/mobile/`)
 
@@ -164,9 +165,12 @@ drafts remain local. The client is unchanged by the server rewrite.
 
 ## Deployment and manual tests
 
-`Dockerfile` builds a Bun production image. `docker-compose.yml` provides server,
-test, and isolated mobile profiles with separate database volumes. `tools/mobile/`
-owns the pinned Flutter toolchain.
+`Dockerfile` builds a Bun production image and copies `packages/` beside `src/`.
+`docker-compose.yml` provides server, test, and isolated mobile profiles with separate
+database volumes. `tools/mobile/` owns the pinned Flutter toolchain.
+`.pi/settings.json` registers the package for direct Pi use in this repository. The
+server registers the same package through `BRAIN_PI_TOOLS_PACKAGE` and
+`DefaultResourceLoader` extension paths.
 
 ### Manual Test Tools (`tools/manual-test/`)
 

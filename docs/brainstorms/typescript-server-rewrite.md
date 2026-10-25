@@ -13,12 +13,13 @@ Replace the Python server with a TypeScript server built and run with Bun. Use t
 - **Runtime configuration.** Intentionally introduce a Pi-native model surface. Expose one required `provider/model:effort` string per workflow, such as `BRAIN_INGEST_MODEL`, `BRAIN_RECALL_MODEL`, and `BRAIN_DREAM_MODEL`. Keep embeddings separate because existing vectors must remain compatible. Remove Jev, old reasoning-provider settings, and other conversation-only settings.
 - **Workflow compatibility.** Preserve database effects, queue leasing and retry semantics, citations, strict output validation, dream scheduling, and lifecycle behavior. Prompt wording and model answer wording can change.
 - **Pi session model.** Use Pi idiomatically with one in-memory session per ingest, recall, or dream operation. Do not persist transcripts or reuse sessions across requests.
-- **Agent tool surface.** Give agents only knowledge-domain tools. Do not expose Pi filesystem, shell, network, default resource, or MCP tools.
-- **Structured output.** Keep strict validation for ingest plans and recall outputs. Invalid output must cause bounded repair or a controlled failure, not silent best-effort acceptance.
+- **Agent tool surface.** Enable Pi Codemode alongside direct knowledge-domain tools. Do not expose Pi filesystem, shell, network, or MCP tools, and disable Codemode model-catalog access. Every domain tool must expose structured results so direct calls and Codemode scripts share one contract.
+- **Tool ergonomics.** Keep ordinary operations singular so a model can call a tool repeatedly in one turn. Store nodes and edges are create-only. Edges use canonical IDs. Node updates use one exact old-text/new-text replacement. Node and edge merges remain explicit graph operations.
+- **Structured validation.** Validate tool arguments and structured results at the server seam. Do not require models to count positional references or generate internal IDs. Return actionable failures instead of silently accepting ambiguous writes.
 - **Embeddings.** Use a direct provider adapter for embeddings. Keep the configured embedding model, dimensions, and existing vector compatibility while Pi owns agent and model orchestration.
 - **Bun scope.** Use Bun for package installation, runtime, tests, and the production image. Remove Python from the server runtime image.
 - **Architecture latitude.** The architecture may reshape module boundaries. It must read the Pi SDK documents and choose seams that use Pi well without weakening the database and HTTP contracts.
-- **Acceptance bar.** Port the server test coverage to Bun and TypeScript, add database compatibility and HTTP contract checks, cover queue and scheduler behavior, and run manual smoke tests.
+- **Acceptance bar.** Port the server test coverage to Bun and TypeScript, add database compatibility and HTTP contract checks, cover queue and scheduler behavior, test direct and Codemode tool calls, and run manual smoke tests.
 
 ## Direction
 
@@ -28,11 +29,11 @@ Create a Bun-native TypeScript server whose architecture is shaped by Pi's sessi
 
 ### Sharp questions for architecting
 
-- Which HTTP framework or Bun-native server seam preserves the current routes, status codes, streaming behavior that remains, and lifespan controls?
-- Which Pi SDK session, resource-loader, custom-tool, model, and test seams fit stateless server operations without enabling unrelated Pi capabilities?
+- Which Elysia application and lifecycle seam preserves the current routes, status codes, error shapes, and startup/shutdown controls?
+- Which Pi SDK session, resource-loader, Codemode, custom-tool, model, and test seams fit stateless server operations without enabling unrelated Pi capabilities?
 - Which SurrealDB TypeScript driver and serialization layer can read the current embedded database and preserve record IDs, graph relations, vectors, and query behavior?
-- How will existing `BRAIN_` model strings, provider authentication modes, Azure Foundry settings, self-hosted OpenAI-compatible endpoints, and Pi model identifiers map without deployment changes?
-- How will strict ingest-plan and recall-output validation, bounded retries, usage limits, cancellation, and lease ownership work with Pi events and session completion?
+- How will required per-workflow `provider/model:effort` strings and standard Pi provider configuration map to model objects, including custom endpoints?
+- How will forgiving tool inputs, canonical-ID references, exact node edits, graph rewrites, cancellation, and lease ownership work with Pi events and session completion?
 - Which background lifecycle structure preserves ingestion workers, lease heartbeats, dream backoff, shutdown grace, and manual dream jobs under Bun?
 - Which conversation-only files, dependencies, tests, and documentation must be removed while leaving unrelated client changes untouched?
 

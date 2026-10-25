@@ -45,7 +45,7 @@ SurrealDB ignores the attempted `in` and `out` update on relation records. `merg
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `src/second_brain/**`, `pyproject.toml:1-38`, `uv.lock`, `test_scenario.py`, Python files under `tests/`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Delete the legacy server, Python dependencies, compatibility fixtures, and migration-only inputs as required by Step 16.
 
 Step 16 marks the cutover complete but requires deleting the old server and dependencies after the gate. The repository still carries them. This leaves the old runtime and its maintenance surface in the production source tree, contrary to the approved replacement scope.
@@ -75,7 +75,7 @@ The plan requires shared response schemas on every route and existing `{ detail 
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `docs/manual-tests/typescript-server.md:3,13-24`
-- **Status:** open
+- **Status:** dismissed
 - **Fix:** Run and record the Docker and live-provider journeys before marking Step 16 done.
 
 The plan requires manual HTTP journeys and a production-image startup check. The manual-test record says the automated gate passed but leaves live provider and Docker checks pending. The cutover status therefore overstates verification.
@@ -165,7 +165,8 @@ Every tool error marks the run unclean, including transient or recoverable read-
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `src/storage/embedded.ts:24-33,45,53,71-94`
-- **Status:** open
+- **Status:** dismissed
+- **Decision:** Broad indexed-query optimization needs a separate measured performance task.
 - **Fix:** Push endpoint, queue, count, ordering, and vector filters into indexed SurrealQL queries.
 
 Graph traversal, queue operations, similarity search, and discovery load broad tables into JavaScript and sort or pair them there. Query cost grows with the full graph, and cooccurrence pairing can block the event loop quadratically. The declared indexes do not provide their intended protection.

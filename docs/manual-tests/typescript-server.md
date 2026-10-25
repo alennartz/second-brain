@@ -1,6 +1,6 @@
 # Manual Testing — TypeScript Bun Server
 
-**Status:** automated contract gate passed; live provider and Docker journeys pending.
+**Status:** automated contract gate passed. Live provider, Docker, and device journeys were not run in this environment because credentials, a Docker daemon, and a connected device are unavailable.
 
 ## Automated gate
 
@@ -10,9 +10,9 @@
 - Pi direct and Codemode smoke with closed built-ins — pass.
 - HTTP validation, queue controls, recall evidence, graph lookup, and dream jobs — pass.
 
-## Pending live journeys
+## Release-only live journeys
 
-The following checks need a local provider credential and Docker daemon:
+The following checks require a local provider credential, Docker daemon, or connected device. Run them before a production release:
 
 - Start `bun run src/main.ts` and request `/health`.
 - Stage intake, inspect pipeline state, recall queued evidence, and poll a dream job.

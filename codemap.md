@@ -97,14 +97,8 @@ drafts remain local. The client is unchanged by the server rewrite.
 
 ## Deployment and manual tests
 
-`Dockerfile` builds a Bun production image and excludes the legacy Python source
-from the image. `docker-compose.yml` provides server, test, and isolated mobile
-profiles with separate database volumes. `tools/mobile/` owns the pinned
-Flutter toolchain. `tools/manual-test/` documents Bun HTTP, CLI, restart, and
-shutdown journeys. `docs/manual-tests/typescript-server.md` records the
-automated gate and pending live checks.
-
-## Legacy source
-
-`src/second_brain/` remains in the repository as a rollback reference. Production
-TypeScript startup does not import it, and the Docker image excludes it.
+`Dockerfile` builds a Bun production image. `docker-compose.yml` provides server,
+test, and isolated mobile profiles with separate database volumes. `tools/mobile/`
+owns the pinned Flutter toolchain. `tools/manual-test/` documents Bun HTTP, CLI,
+restart, and shutdown journeys. `docs/manual-tests/typescript-server.md` records
+the automated gate and release-only live checks.

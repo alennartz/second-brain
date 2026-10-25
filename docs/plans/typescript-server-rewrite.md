@@ -2,25 +2,25 @@
 
 ## Context
 
-Replace the Python server with a Bun-native TypeScript server using the Pi TypeScript SDK. Keep the existing SurrealDB file and the non-conversation HTTP service, while removing MCP and conversation mode. The completed TypeScript server is cut over as one replacement; the architecture must keep the old service runnable until the compatibility gate passes. The brainstorm is recorded in [`docs/brainstorms/typescript-server-rewrite.md`](../brainstorms/typescript-server-rewrite.md).
+Replace the Python server with a Bun-native TypeScript server using the Pi TypeScript SDK. Start with an empty database managed by the latest compatible SurrealDB stack and preserve the non-conversation HTTP service, while removing MCP and conversation mode. The completed TypeScript server is cut over as one replacement; the old service remains available only until the fresh-schema and behavior gate passes. The brainstorm is recorded in [`docs/brainstorms/typescript-server-rewrite.md`](../brainstorms/typescript-server-rewrite.md).
 
 ## Architecture
 
 ### Impacted Modules
 
-- **Core** — becomes TypeScript configuration, shared domain types, validation, embedded SurrealDB storage, and provider adapters. Storage keeps the existing schema, record IDs, vectors, hybrid search, graph primitives, and intake queue primitives. It owns embedding and search fusion in line with DR-002, and it does not leak SurrealDB SDK values through its interface.
+- **Core** — becomes TypeScript configuration, shared domain types, validation, latest embedded SurrealDB storage, and provider adapters. Storage owns the fresh schema, vectors, hybrid search, graph primitives, and intake queue primitives. It owns embedding and search fusion in line with DR-002, and it does not leak SurrealDB SDK values through its interface.
 - **Tools** — the shallow Python tool files become a deep `KnowledgeGraph` module. Its model-facing Pi tool adapters expose search, graph inspection, creation, exact editing, merging, edge removal, and edge-type renaming. It composes storage primitives but owns graph business rules.
 - **Agents** — becomes three workflows: **ingest**, **recall**, and **dream**. Pi replaces PydanticAI. Dream remains one workflow with separate deduplication and connection sessions. Conversation and Jev routing disappear.
 - **API** — becomes an Elysia HTTP adapter and application composition root. It preserves the non-conversation routes, response shapes, status codes, queue controls, dream jobs, and graph lookup. It does not mount MCP or conversation routes.
 - **Client** — unchanged in this work. Existing conversation paths become stale because the server intentionally removes those routes.
-- **Manual Test Tools** — the smoke suite moves to Bun-facing HTTP journeys and checks the new server lifecycle, database compatibility, intake pipeline, recall, graph reads, and dream jobs. Automated coverage must explicitly port the existing server tests, queue and scheduler tests, HTTP contracts, database compatibility cases, and direct/Codemode tool contracts.
+- **Manual Test Tools** — the smoke suite moves to Bun-facing HTTP journeys and checks the new server lifecycle, fresh database initialization, intake pipeline, recall, graph reads, and dream jobs. Automated coverage must explicitly port the existing server tests, queue and scheduler tests, fresh-schema checks, HTTP contracts, and direct/Codemode tool contracts.
 
 ### New Modules
 
 - **Pi agent runtime** (`src/agent-runtime/`) — a deep adapter around `createAgentSession`. It owns model selection, request-scoped in-memory sessions, closed tool loadouts, Codemode setup, prompt execution, event observation, cancellation, and disposal. Workflows do not import Pi session or resource-loader details.
 - **Knowledge graph** (`src/knowledge/`) — a deep domain module over storage. It owns model-facing tool contracts, canonical-ID validation, forgiving argument normalization, duplicate and self-edge handling, exact node edits, identity merges, edge merges, edge removal, and global edge-type renaming.
 - **Application runtime** (`src/application/`) — owns startup composition and shutdown. It creates one shared model runtime, embedding adapter, storage instance, knowledge module, intake pipeline, dream scheduler, and in-memory dream-job registry, then supplies them to Elysia route handlers.
-- **Embedding adapter** (`src/embeddings/`) — wraps the official OpenAI TypeScript client for the configured embedding model. It preserves the existing embedding dimensions and vector space while remaining independent from Pi’s chat-agent runtime.
+- **Embedding adapter** (`src/embeddings/`) — wraps the official OpenAI TypeScript client for the configured embedding model and dimensions while remaining independent from Pi’s chat-agent runtime.
 
 ### Interfaces
 
@@ -113,7 +113,7 @@ interface Storage {
 }
 ```
 
-The storage implementation uses `surrealdb` with `@surrealdb/node` and `@surrealdb/node-native`, connects to `surrealkv://<path>`, initializes the existing `brain` namespace/database schema and indexes, and normalizes record IDs and datetimes into plain values. It owns automatic embeddings for node creation and searchable field changes, plus BM25/vector fusion. It does not expose raw SurrealQL or SDK record types to workflows or tools.
+The storage implementation uses the latest compatible `surrealdb`, `@surrealdb/node`, and `@surrealdb/node-native` packages, connects to a fresh `surrealkv://<path>`, initializes the TypeScript-owned `brain` namespace/database schema and indexes, and normalizes record IDs and datetimes into plain values. It owns automatic embeddings for node creation and searchable field changes, plus BM25/vector fusion. It does not expose raw SurrealQL or SDK record types to workflows or tools.
 
 #### Knowledge graph tool contracts
 
@@ -228,9 +228,9 @@ Elysia uses the shared TypeBox schemas for JSON bodies, headers, path parameters
 
 Recall preserves caller hints through `RecallWorkflow.run(question, signal, hints)`. The application exposes `createRecallService` with an injected workflow and live evidence store. It resolves node, edge, and intake citations against current records before returning HTTP context. Storage failures cannot produce stale context. A citation that no longer resolves must not reach the HTTP response.
 
-Composite graph mutations use the storage adapter's atomic transaction seam. Storage and its transaction scope expose `getEdgesByType` for atomic global renames. Storage also exposes normalized unlinked cooccurrence candidates with canonical IDs and shared note IDs. Discovery follows existing note-to-entity `references` relations and excludes linked entity pairs. Raw SurrealQL remains inside storage. Intake staging uses an atomic content fingerprint contract. Matching idempotency retries return zero newly stored chunks while the intake remains queued, as the Python service does. Conflicting content cannot change stored evidence.
+Composite graph mutations use the storage adapter's atomic transaction seam. Storage and its transaction scope expose `getEdgesByType` for atomic global renames. Storage also exposes normalized unlinked cooccurrence candidates with canonical IDs and shared note IDs. Discovery follows note-to-entity `references` relations and excludes linked entity pairs. Raw SurrealQL remains inside storage. Intake staging uses an atomic content fingerprint contract. Matching idempotency retries return zero newly stored chunks while the intake remains queued. Conflicting content cannot change stored evidence.
 
-Embedding tests use a configured adapter factory and deterministic provider injection. Storage tests use stateful boundary operations, not fixed stub responses. Compatibility tests use isolated local databases and a Python-produced fixture. The fixture preserves record identities, fields, vectors, relations, indexes, and queue state without migration. Before deleting Python server sources, preserve a versioned test-only fixture producer and its inputs, or a generated fixture with provenance. Keep this reference outside the production image. Production startup must not require Python.
+Embedding tests use a configured adapter factory and deterministic provider injection. Storage tests use stateful boundary operations, not fixed stub responses. Fresh-database tests use isolated local databases, initialize the latest schema, verify indexes and relations, and reopen the database without migration or Python fixtures. Production startup and the test suite do not require Python server sources.
 
 The Pi runtime exposes an SDK-backed smoke seam with deterministic model transport. Tests execute direct and Codemode calls through actual Pi orchestration, validate tool schemas, and check provider/model selection without external model requests.
 
@@ -243,10 +243,10 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 - **Pi Codemode with `models: false`** — allows model-authored scripts to compose domain tools without exposing filesystem, shell, MCP, or classifier/image model capabilities. Direct tools remain active.
 - **Elysia** — Bun-native HTTP routing and lifecycle integration.
 - **TypeBox** — shared runtime schemas for Elysia, Pi tools, Codemode structured results, and inferred TypeScript types.
-- **SurrealDB JavaScript SDK with the native embedded engine** — `surrealdb`, `@surrealdb/node`, and pinned `@surrealdb/node-native` preserve direct `surrealkv://` access. The Bun compatibility smoke test is an implementation gate.
+- **Latest SurrealDB JavaScript SDK with the native embedded engine** — use the latest compatible `surrealdb`, `@surrealdb/node`, and `@surrealdb/node-native` packages for fresh `surrealkv://` storage. The fresh-schema and reopen smoke test is an implementation gate; no old-file compatibility is required.
 - **Official OpenAI TypeScript client** — direct embedding adapter, independent of Pi chat sessions, using standard provider credentials and preserving the current embedding model dimensions.
 - **Standard Pi provider configuration** — workflow model strings select models and thinking levels; standard Pi credentials and model definitions provide authentication and custom endpoint metadata.
-- **Bun test** — native test runner for unit, integration, HTTP, database-compatibility, and tool-contract tests.
+- **Bun test** — native test runner for unit, integration, HTTP, fresh-schema, and tool-contract tests.
 
 ### DR Supersessions
 
@@ -279,7 +279,7 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 - `tests/embedding.test.ts` — configured single and batch embedding adapter calls, cancellation, and empty batches.
 - `tests/embedding-adapter.test.ts` — configured provider/model/dimension forwarding, invalid vectors, and provider failures.
 - `tests/storage.test.ts` — storage lifecycle, graph records, search projections, intake leases, and queue snapshots.
-- `tests/surrealdb-compatibility.test.ts` — embedded `surrealkv://` storage startup and SDK value normalization gate.
+- `tests/surrealdb-latest.test.ts` — fresh latest-engine `surrealkv://` startup, schema/index initialization, SDK value normalization, and reopen gate.
 - `tests/agent-runtime.test.ts` — isolated sessions, closed tools, Codemode configuration, events, cancellation, results, and disposal.
 - `tests/agent-runtime/sdk-smoke.test.ts` — SDK-backed runtime operations with deterministic provider transport, direct/Codemode invocation, and schema failures.
 - `tests/knowledge.test.ts` — graph writes, canonical IDs, exact edits, read and discovery projections, atomic merges, edge operations, schemas, and cancellation.
@@ -306,8 +306,8 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 - Storage owns lifecycle, canonical node and edge records, graph edge direction, search results, and separate unprocessed evidence.
 - Intake storage exposes contiguous lease, renewal, release, acknowledgement, and queue snapshot contracts without leaking SDK values.
 - The embedded storage adapter accepts a local SurrealKV path and returns plain domain values instead of SurrealDB SDK records.
-- The compatibility gate opens Python-produced records, vectors, relations, indexes, and queue state through Bun. Preserve the versioned test-only producer or generated fixture provenance before removing Python sources. Exclude Python from the production image.
-- Stateful storage tests cover embedding updates, hybrid search, atomic transaction rollback, intake content fingerprints, replay, lease expiry, and ownership checks.
+- Fresh latest-engine storage initializes the TypeScript-owned schema, indexes, vectors, relations, and queue state, then reopens the same newly created database without migration.
+- Stateful storage tests cover embedding updates, hybrid search, atomic transaction rollback, intake content fingerprints, replay, lease expiry, and ownership checks without Python fixtures.
 
 #### Pi agent runtime
 
@@ -348,7 +348,7 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 
 ### Step 1: Establish the Bun dependency gate
 
-Use Bun package-manager commands to install the existing dependencies and generate `bun.lock`. Pin `@surrealdb/node-native` to an exact compatible version through Bun, not a manifest edit. Keep `package.json` test and typecheck commands. Keep the Python service and deployment runnable throughout the implementation gate.
+Use Bun package-manager commands to install the latest compatible SurrealDB, Elysia, TypeBox, Pi, OpenAI, and Bun type dependencies and generate `bun.lock`. Pin native engine versions through Bun, not manual manifest edits. Keep `package.json` test and typecheck commands. Keep the old service runnable until the fresh-schema and behavior gate passes.
 
 Read the installed Pi SDK documentation for sessions, resource loaders, model runtime, custom tools, and Codemode before implementing its adapter. Use the installed SDK version, not CLI orchestration.
 
@@ -364,13 +364,13 @@ Implement `createEmbedder` in `src/embeddings/embedder.ts` using its injected `E
 **Verify:** `bun test tests/config.test.ts tests/embedding.test.ts tests/embedding-adapter.test.ts` passes.
 **Status:** not started
 
-### Step 3: Open compatible embedded storage
+### Step 3: Open latest embedded storage
 
-Implement `createEmbeddedStorage` in `src/storage/embedded.ts`. Keep SDK connection, schema initialization, and normalization inside storage. Add private storage files where needed, including `src/storage/schema.ts` for the existing definitions.
+Implement `createEmbeddedStorage` in `src/storage/embedded.ts`. Keep SDK connection, fresh schema initialization, and normalization inside storage. Add private storage files where needed, including `src/storage/schema.ts` for the TypeScript-owned definitions.
 
-Connect with `createNodeEngines()` to `surrealkv://<dbPath>`, then select the `brain` namespace and database. Port `init_schema` and `init_vector_indexes` from `src/second_brain/db.py` without migrations. Preserve relation tables, queue fields, index names, dimensions, and record identities. Normalize SDK IDs and datetimes into `src/core/types.ts` values. Omit vectors from public records. Make close safe after partial initialization.
+Connect with `createNodeEngines()` to `surrealkv://<dbPath>`, then select the `brain` namespace and database. Define the latest schema and vector indexes without migration code. Initialize relation tables, queue fields, index names, and configured dimensions. Normalize SDK IDs and datetimes into `src/core/types.ts` values. Omit vectors from public records. Make close safe after partial initialization.
 
-**Verify:** `bun test tests/surrealdb-compatibility.test.ts` passes once search support in Step 5 is complete. Raw fixture startup, index retention, and reopen checks pass now.
+**Verify:** `bun test tests/surrealdb-latest.test.ts` passes once search support in Step 5 is complete. Fresh startup, index creation, and reopen checks pass now.
 **Status:** not started
 
 ### Step 4: Implement graph storage transactions
@@ -390,7 +390,7 @@ Implement `searchCandidates`, `findSimilarCandidates`, `searchIntakeChunks`, and
 
 Keep embeddings internally available for similarity searches. Exclude the source node from similar candidates. Discover entity pairs through shared note-to-entity `references` relations. Exclude pairs already linked in either direction. Return canonical IDs and shared note IDs without SDK values or queue metadata.
 
-**Verify:** Search and discovery cases in `tests/storage.test.ts` and the full `tests/surrealdb-compatibility.test.ts` pass.
+**Verify:** Search and discovery cases in `tests/storage.test.ts` and the full `tests/surrealdb-latest.test.ts` pass.
 **Status:** not started
 
 ### Step 6: Implement atomic intake storage
@@ -505,15 +505,15 @@ Add `src/main.ts` to parse environment settings, create standard Pi model config
 
 ### Step 16: Pass the replacement gate and cut over
 
-Run all listed immutable TypeScript tests with `bun test`, then run the existing typecheck command. Resolve implementation failures without changing tests. Keep the old production service available until database compatibility, runtime smoke, workflow reliability, and HTTP contracts pass.
+Run all listed TypeScript tests with `bun test`, then run the typecheck command. Resolve implementation failures without changing approved contracts. Keep the old production service available until fresh latest-schema initialization, runtime smoke, workflow reliability, and HTTP contracts pass.
 
 Update `tools/manual-test/README.md` and `tools/manual-test/PLAN.md` for Bun-facing startup, staging, pipeline controls, recall, graph lookup, dream-job polling, restart, and shutdown journeys. Use the existing non-conversation HTTP contract. Record results under `docs/manual-tests/`.
 
-After the gate passes, replace `Dockerfile` with a Bun production image and update `docker-compose.yml`, `Makefile`, `.env.example`, `.env.mobile.example`, and `README.md` for the TypeScript entry point and workflow references. Preserve database volumes and mobile isolation. Update server health checks for the Bun image. Remove Python, PydanticAI, MCP, conversation, and Jev from production execution. Do not change client code or ignored local environment files.
+After the gate passes, replace `Dockerfile` with a Bun production image and update `docker-compose.yml`, `Makefile`, `.env.example`, `.env.mobile.example`, and `README.md` for the TypeScript entry point and fresh database lifecycle. Preserve database volumes and mobile isolation. Update server health checks for the Bun image. Remove Python, PydanticAI, MCP, conversation, and Jev from production execution. Do not change client code or ignored local environment files.
 
-Retain the minimal versioned Python fixture reference required by `tests/surrealdb-compatibility.test.ts`: `src/second_brain/db.py`, its imported configuration/models/validation/package material, and required `pyproject.toml`/`uv.lock` inputs. Keep these test-only inputs at paths used by immutable tests. Document provenance and exclude them from the production image. Do not delete those inputs while compatibility tests import them. Remove remaining Python server sources only after they no longer support the compatibility reference or rollback gate.
+Delete the old Python server, Python dependencies, compatibility fixture, and migration-only inputs. The new server owns a fresh database path and initializes its latest schema at startup. Do not import or execute Python in tests or production.
 
 Update `codemap.md` to the implemented TypeScript modules. Record the specified DR-001 supersession through the decision-records skill.
 
-**Verify:** All listed TypeScript tests and typecheck pass. Manual HTTP journeys pass. The production image starts without Python and opens the existing database without migration. Compatibility tests still create their Python reference outside that image.
+**Verify:** All listed TypeScript tests and typecheck pass. Manual HTTP journeys pass. The production image starts without Python and initializes an empty latest-schema database.
 **Status:** not started

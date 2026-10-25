@@ -62,6 +62,7 @@ _ingestion_pipeline: IngestionPipeline | None = None
 _ingest_agent = create_ingest_agent(
     native_output=settings.reasoning_base_url is not None,
     max_output_tokens=settings.ingest_max_output_tokens,
+    retries=0 if settings.reasoning_base_url is not None else 2,
 )
 _recall_agent = create_recall_agent()
 _converse_agent = create_converse_agent()

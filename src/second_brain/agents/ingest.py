@@ -655,7 +655,10 @@ class AgentIngestBatchRunner:
 
 
 def create_ingest_agent(
-    *, native_output: bool = False, max_output_tokens: int = 8192
+    *,
+    native_output: bool = False,
+    max_output_tokens: int = 4096,
+    retries: int = 2,
 ) -> Agent[IngestDeps, IngestPlan]:
     """Create a bounded planning agent; application code owns all writes.
 
@@ -665,7 +668,7 @@ def create_ingest_agent(
     agent = Agent(
         deps_type=IngestDeps,
         output_type=NativeOutput(IngestPlan) if native_output else IngestPlan,
-        retries=2,
+        retries=retries,
         model_settings={
             "parallel_tool_calls": False,
             "max_tokens": max_output_tokens,

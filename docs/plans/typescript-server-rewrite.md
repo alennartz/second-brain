@@ -343,3 +343,177 @@ Ingest batches expose `attemptCount` for capped retry backoff. Lease renewal fai
 - Shutdown and startup failures stop workers before storage closure and release resources on every partial-start path.
 
 **Review status:** approved
+
+## Steps
+
+### Step 1: Establish the Bun dependency gate
+
+Use Bun package-manager commands to install the existing dependencies and generate `bun.lock`. Pin `@surrealdb/node-native` to an exact compatible version through Bun, not a manifest edit. Keep `package.json` test and typecheck commands. Keep the Python service and deployment runnable throughout the implementation gate.
+
+Read the installed Pi SDK documentation for sessions, resource loaders, model runtime, custom tools, and Codemode before implementing its adapter. Use the installed SDK version, not CLI orchestration.
+
+**Verify:** Bun loads the native engine and the installed Pi exports used by `tests/agent-runtime/sdk-smoke.test.ts`. Existing Python startup remains available.
+**Status:** not started
+
+### Step 2: Implement configuration and embeddings
+
+Implement `parseWorkflowModelRef` and `parseSettings` in `src/core/config.ts`. Require all three workflow references. Split the first slash and final colon. Validate the complete thinking-level range and numeric limits. Port intake and dream defaults from `src/second_brain/config.py`, without reasoning-provider or Jev settings.
+
+Implement `createEmbedder` in `src/embeddings/embedder.ts` using its injected `EmbeddingProvider`. Forward model, dimensions, ordered texts, and cancellation. Reject wrong vector counts, dimensions, and non-finite values. Empty batches require no provider call. Add `src/embeddings/openai.ts` to adapt the official OpenAI client to `EmbeddingProvider`. Preserve the configured embedding model and dimensions. Keep chat model selection independent.
+
+**Verify:** `bun test tests/config.test.ts tests/embedding.test.ts tests/embedding-adapter.test.ts` passes.
+**Status:** not started
+
+### Step 3: Open compatible embedded storage
+
+Implement `createEmbeddedStorage` in `src/storage/embedded.ts`. Keep SDK connection, schema initialization, and normalization inside storage. Add private storage files where needed, including `src/storage/schema.ts` for the existing definitions.
+
+Connect with `createNodeEngines()` to `surrealkv://<dbPath>`, then select the `brain` namespace and database. Port `init_schema` and `init_vector_indexes` from `src/second_brain/db.py` without migrations. Preserve relation tables, queue fields, index names, dimensions, and record identities. Normalize SDK IDs and datetimes into `src/core/types.ts` values. Omit vectors from public records. Make close safe after partial initialization.
+
+**Verify:** `bun test tests/surrealdb-compatibility.test.ts` passes once search support in Step 5 is complete. Raw fixture startup, index retention, and reopen checks pass now.
+**Status:** not started
+
+### Step 4: Implement graph storage transactions
+
+Implement graph operations from `Storage` and `StorageTransaction` in `src/storage/storage.ts` behind the embedded adapter. Implement `withTransaction` with commit on callback success and rollback on rejection. Keep transaction-scoped operations on that transaction, without nested commits.
+
+Implement node creation, lookup, field updates, and deletion. Preserve unrelated fields during updates. Embed note content and searchable entity name/description changes. Summary-only updates require no embedding call. Reject failed embeddings without changing records.
+
+Implement relation creation, lookup, deletion, incoming/outgoing traversal, `findEdges`, and `getEdgesByType`. Preserve directed endpoints and canonical relation-table IDs. Commit each standalone mutation before returning. Validate identifiers before dynamic table access. Do not expose raw queries or SDK objects.
+
+**Verify:** Graph and transaction cases in `tests/storage.test.ts` pass, including rollback and retention of earlier committed calls.
+**Status:** not started
+
+### Step 5: Implement search and discovery storage
+
+Implement `searchCandidates`, `findSimilarCandidates`, `searchIntakeChunks`, and `findUnlinkedCooccurrenceCandidates` inside storage. Port lexical/vector candidate retrieval and reciprocal-rank fusion from `src/second_brain/db.py`. Embed each query once. Return bounded graph results and separate unprocessed evidence. Follow DR-002 for fusion ownership.
+
+Keep embeddings internally available for similarity searches. Exclude the source node from similar candidates. Discover entity pairs through shared note-to-entity `references` relations. Exclude pairs already linked in either direction. Return canonical IDs and shared note IDs without SDK values or queue metadata.
+
+**Verify:** Search and discovery cases in `tests/storage.test.ts` and the full `tests/surrealdb-compatibility.test.ts` pass.
+**Status:** not started
+
+### Step 6: Implement atomic intake storage
+
+Implement `createIntakeChunks`, `getIntakeChunks`, queue claiming, renewal, acknowledgement, release, controls, and snapshots inside storage. Port `_intake_fingerprint`, `_select_claim`, and `_summarize_queue` behavior from `src/second_brain/db.py`. Use the injected clock for ownership and retry comparisons.
+
+Stage chunks and the idempotency record atomically. Match the Python fingerprint encoding. Matching retries return zero without embedding again. Conflicting content cannot modify evidence. Delete the idempotency record when its intake no longer has queued chunks, preserving later replay behavior.
+
+Claim one intake's contiguous eligible head chunks within the character budget. Reclaim expired leases. Renewal, deletion, and release require current ownership. Failed batch embeddings and rejected transaction callbacks leave no partial rows. Keep operational metadata available only through queue records and snapshots.
+
+**Verify:** All intake and transaction cases in `tests/storage.test.ts` pass, including stale ownership, replay, and batch rollback.
+**Status:** not started
+
+### Step 7: Implement knowledge reads and singular writes
+
+Implement `createKnowledgeGraph` in `src/knowledge/index.ts`. Add `src/knowledge/schemas.ts` for domain input and output schemas. Port applicable validation and projection rules from `src/second_brain/validation.py` and the Python tool files. Keep graph business rules here and queries inside storage.
+
+Implement `storeNode`, `storeEdge`, and `updateNode`. Store one independent record per node call. Validate canonical existing endpoints before relation writes. Return structured self-edge and duplicate skips. Exact edits require one nonempty match in an editable field. Validate the resulting node and never write on invalid matches. Use short storage transactions for mutation calls.
+
+Implement `searchMemory`, `getNode`, `exploreGraph`, `findSimilar`, and `findUnlinkedCooccurrences`. Bound traversal and result projections. Return absent nodes without fabrication. Reject names and non-node IDs in graph reads.
+
+**Verify:** Singular write, exact edit, read, search, and discovery cases in `tests/knowledge.test.ts` pass.
+**Status:** not started
+
+### Step 8: Implement atomic graph reconciliation and tools
+
+Implement `mergeNodes`, `mergeEdges`, `removeEdge`, and `renameEdgeType` in `src/knowledge/index.ts`. Validate all selected records before destructive changes. Use `withTransaction` for each composite call.
+
+Node merges retain the survivor and explicit reconciled fields. Repoint incident edges, remove self-edges, deduplicate converging relationships, and delete losers. Edge merges require the same ordered pair and preserve survivor identity. Global renames enumerate types within the transaction and merge collisions using the same policy. Adapt existing reconciliation behavior from `src/second_brain/tools/dream_tools.py`.
+
+Implement `tools(names)` with exactly the requested loadout. Each tool validates parameters, supplies an output schema, and returns `StructuredToolResult.structuredContent`. Normalize forgiving arguments without weakening canonical-ID or mutation validation. Check the session signal before work and before mutations.
+
+**Verify:** `bun test tests/knowledge.test.ts` passes, including schema checks, cancellation, and atomic failure cases.
+**Status:** not started
+
+### Step 9: Implement the Pi runtime
+
+Implement `createAgentRuntime` and `createSdkAgentRuntime` in `src/agent-runtime/index.ts`. Preserve the injected `SessionFactory` seam. Build one request-scoped in-memory session per run with the selected provider, model, and thinking level. Disable built-ins and persistent resources. Enable Codemode with `mode: "on"` and `models: false`, alongside direct domain tools.
+
+Adapt `AgentTool` parameters, output validation, structured content, and failures to Pi custom tools. Preserve structured domain results from direct and Codemode execution. Observe events without changing results. Wait for settlement, propagate cancellation, abort active execution, and dispose on every exit. Cancellation before execution must not send a prompt.
+
+Use only request-scoped session/result state. Reuse the injected shared `ModelRuntime` for model selection and standard credentials.
+
+**Verify:** `bun test tests/agent-runtime.test.ts tests/agent-runtime/sdk-smoke.test.ts` passes without external model calls.
+**Status:** not started
+
+### Step 10: Implement the three workflows
+
+Implement the workflow factories in `src/workflows/workflows.ts`. Add `src/workflows/prompts.ts` for prompts adapted from Python ingest, recall, dedup, and connection workflows. Update instructions to singular tools, canonical IDs, exact edits, and partial committed progress.
+
+Ingest selects only its six approved tools and submits chunks in source order with hints. Return an unclean outcome for runtime exceptions, tool errors, unsettled runs, or cancellation. Do not acknowledge leases here.
+
+Recall wraps read tools to collect successful evidence per request. Add the model-only `answerRecall` tool with TypeBox validation. Reject invented citations and accept a later valid answer. Keep the accepted answer and evidence in request-scoped state. Terminate only after validation. Distinguish successful answer termination from caller cancellation. Reject runs without a validated answer and never return free-form assistant text.
+
+Dream selects its two distinct approved loadouts and creates a separate runtime call for each phase. Report mutation errors, cancellation, and touched node IDs without undoing earlier writes.
+
+**Verify:** `bun test tests/workflows.test.ts` passes, including hints, citations, closed loadouts, partial progress, and cancellation.
+**Status:** not started
+
+### Step 11: Implement leased intake processing
+
+Implement `createIntakePipeline` in `src/workflows/intake-pipeline.ts`. Port paragraph/sentence splitting and oversized-unit handling from `src/second_brain/agents/ingestion_pipeline.py`. Stage ordered bounded drafts synchronously, forwarding hints, source, and idempotency keys.
+
+Use instance-owned worker, lease, and cancellation state. Keep `start` and `stop` idempotent. Renew active leases through the injected clock. Ownership loss or renewal failure cancels the workflow and prevents acknowledgement. Delete only clean, completed, still-owned batches. Release failed or aborted batches with capped retry delays derived from `attemptCount`. Report exceptions as failures.
+
+Stop polling during shutdown, apply the grace period, cancel active workflows, release unacknowledged leases, and await settlement. Merge live worker visibility into snapshots. Forward pause/resume/discard to the selected intake. Notify activity after staging.
+
+**Verify:** `bun test tests/intake-pipeline.test.ts tests/intake-reliability.test.ts` passes.
+**Status:** not started
+
+### Step 12: Implement dream storage and scheduling
+
+Add `countNodes(): Promise<number>`, `selectDreamBatch(kind: "entity" | "all", limit: number)`, and `incrementDreamAge(nodeIds: readonly NodeId[]): Promise<void>` to `Storage` and its stub in `src/storage/storage.ts`. Implement them inside embedded storage. Count notes and entities, select lowest dream ages, and increment only existing canonical nodes without upserts. Preserve persisted `dream_age` and timestamp behavior.
+
+Implement `createDreamScheduler` in `src/workflows/dream-scheduler.ts` using `DreamQueue`. Port idle timing and convergence rules from `src/second_brain/scheduler.py`. Deduplicate entities before connection discovery over a mixed batch. Report phase errors and age processed/touched surviving nodes.
+
+Keep idle state and controllers inside the scheduler instance. Activity resets backoff and convergence, wakes idle waits, and cancels active work. Stop awaits active cycles. Preserve `ceil(sqrt(nodeCount / batchSize))`, capped exponential delays, public snapshots, and state notifications. Repeated starts create no duplicate loop.
+
+**Verify:** `bun test tests/dream-scheduler.test.ts tests/dream-convergence.test.ts` passes.
+**Status:** not started
+
+### Step 13: Implement HTTP contracts and recall resolution
+
+Implement `createHttpSchemas` in `src/http/schemas.ts` with TypeBox schemas for all fields in `HttpSchemas`. Preserve wire dictionaries, nullable recall context, separate unprocessed evidence, integer counts, named path parameters, and the four dream-job states.
+
+Implement `HttpApplicationError` and `createRecallService` in `src/http/contracts.ts`. Forward question and hints to the workflow. Resolve every citation against live evidence before returning context. Reject missing records and storage failures rather than returning cached projections. Return null context for evidence-free answers.
+
+**Verify:** `bun test tests/http-schemas.test.ts tests/recall-service.test.ts` passes.
+**Status:** not started
+
+### Step 14: Implement the Elysia adapter
+
+Implement `createHttpServer` in `src/http/server.ts`. Mount only the non-conversation routes listed in the architecture. Attach shared body, header, path, and response schemas. Preserve snake-case wire fields, ingest defaults, idempotency forwarding, asynchronous dream status, and Location headers.
+
+Map application failures to existing statuses and `{ detail }` responses. Return 404 for absent jobs, absent graph records, and zero-count pipeline controls. Malformed bodies return framework validation responses before application calls. Do not mount conversation or MCP routes. Route handlers import neither Pi nor SurrealDB.
+
+**Verify:** `bun test tests/http.test.ts` passes, including ordinary missing-route 404s and validation 422s.
+**Status:** not started
+
+### Step 15: Compose and start the application
+
+Implement `startApplication` in `src/application/runtime.ts` against `CompositionFactories`. Create one shared model runtime, embedder, storage, and knowledge module. Initialize storage before workers. Supply one instance-owned dream-job Map to the application. Clean up partial starts and stop both workers before closing storage, even when one stop fails.
+
+Add `src/application/composition.ts` for production factories and domain adapters. Adapt storage snake-case intake records to `IngestBatch`, including attempt counts. Bind worker identity, batch-character limits, and lease duration in the queue adapter. Convert queue retry delays to clock-based timestamps. Map settings seconds/minutes to workflow milliseconds. Adapt the dream storage methods to `DreamQueue`.
+
+Implement `HttpApplication` composition with staging limits, activity notifications, live recall evidence, graph wire projections, and pending/running/complete/failed dream jobs. Keep jobs and active lifecycle work within the application instance. Ensure shutdown settles manual dream jobs before storage closure.
+
+Add `src/main.ts` to parse environment settings, create standard Pi model configuration and OpenAI embedding transport, start the application, listen on port 8000, and handle termination. Do not import Python or use global service locators.
+
+**Verify:** `bun test tests/application.test.ts` passes. The Bun entry point serves `/health` and releases workers and storage on termination.
+**Status:** not started
+
+### Step 16: Pass the replacement gate and cut over
+
+Run all listed immutable TypeScript tests with `bun test`, then run the existing typecheck command. Resolve implementation failures without changing tests. Keep the old production service available until database compatibility, runtime smoke, workflow reliability, and HTTP contracts pass.
+
+Update `tools/manual-test/README.md` and `tools/manual-test/PLAN.md` for Bun-facing startup, staging, pipeline controls, recall, graph lookup, dream-job polling, restart, and shutdown journeys. Use the existing non-conversation HTTP contract. Record results under `docs/manual-tests/`.
+
+After the gate passes, replace `Dockerfile` with a Bun production image and update `docker-compose.yml`, `Makefile`, `.env.example`, `.env.mobile.example`, and `README.md` for the TypeScript entry point and workflow references. Preserve database volumes and mobile isolation. Update server health checks for the Bun image. Remove Python, PydanticAI, MCP, conversation, and Jev from production execution. Do not change client code or ignored local environment files.
+
+Retain the minimal versioned Python fixture reference required by `tests/surrealdb-compatibility.test.ts`: `src/second_brain/db.py`, its imported configuration/models/validation/package material, and required `pyproject.toml`/`uv.lock` inputs. Keep these test-only inputs at paths used by immutable tests. Document provenance and exclude them from the production image. Do not delete those inputs while compatibility tests import them. Remove remaining Python server sources only after they no longer support the compatibility reference or rollback gate.
+
+Update `codemap.md` to the implemented TypeScript modules. Record the specified DR-001 supersession through the decision-records skill.
+
+**Verify:** All listed TypeScript tests and typecheck pass. Manual HTTP journeys pass. The production image starts without Python and opens the existing database without migration. Compatibility tests still create their Python reference outside that image.
+**Status:** not started

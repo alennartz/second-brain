@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ingestPrompt, recallPrompt, dedupPrompt, connectPrompt } from "./prompts";
-import type { AgentRuntime, AgentTool } from "../agent-runtime";
+import type { AgentEvent, AgentRuntime, AgentTool } from "../agent-runtime";
 import type { WorkflowModelRef } from "../core/config";
 import { InvalidInputError, type EdgeId, type NodeId } from "../core/types";
 
@@ -12,7 +12,6 @@ export type WorkflowRuntime = AgentRuntime;
 export type WorkflowDependencies = {
   runtime: WorkflowRuntime;
   model: WorkflowModel;
-  tools: readonly WorkflowTool[];
 };
 
 export type IngestBatch = {
@@ -27,7 +26,6 @@ export interface IngestWorkflow {
 }
 const ingestNames = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode"];
 const readNames = ["searchMemory", "getNode", "exploreGraph"];
-const selectTools = (d: WorkflowDependencies, names: readonly string[]) => d.tools.filter(t => names.includes(t.name));
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const ingestMutationTools = new Set(["storeNode", "storeEdge", "updateNode"]);
 function resultErrors(result: Awaited<ReturnType<WorkflowRuntime["run"]>>, mutationOnly = false) {
@@ -38,7 +36,7 @@ export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
   return { async run(batch, signal) {
     try {
       if (signal?.aborted) return { clean: false, aborted: true, errors: [] };
-      const result = await d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), tools: selectTools(d, ingestNames), signal });
+      const result = await d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal });
       const errors = resultErrors(result, true);
       const aborted = result.aborted || !!signal?.aborted;
       return { clean: !aborted && !errors.length, aborted, errors };
@@ -56,7 +54,13 @@ export type RecallAnswer = {
 export interface RecallWorkflow {
   run(question: string, signal?: AbortSignal, hints?: readonly string[]): Promise<RecallAnswer>;
 }
-const answerSchema = Type.Object({ answer: Type.String({ minLength: 1 }), hasEvidence: Type.Boolean(), nodeIds: Type.Array(Type.String()), edgeIds: Type.Array(Type.String()), unprocessedIds: Type.Array(Type.String()) });
+const answerSchema = Type.Object({
+  answer: Type.String({ minLength: 1, description: "Final answer text for the user." }),
+  hasEvidence: Type.Boolean({ description: "True only when at least one citation ID is present." }),
+  nodeIds: Type.Array(Type.String(), { description: "Cited note or entity IDs from this session's tool results." }),
+  edgeIds: Type.Array(Type.String(), { description: "Cited edge IDs from this session's tool results." }),
+  unprocessedIds: Type.Array(Type.String(), { description: "Cited raw evidence chunk IDs from this session's tool results." }),
+});
 export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
   return { async run(question, signal, hints = []) {
     signal?.throwIfAborted();
@@ -70,12 +74,15 @@ export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
       }
       if (typeof v.id === "string" && /^(note|entity):/.test(v.id)) nodes.add(v.id);
     };
-    const tools: WorkflowTool[] = selectTools(d, readNames).map(tool => ({ ...tool, execute: async (args, executionSignal) => {
-      const result = await tool.execute(args, executionSignal);
-      if (!result.isError) collect(result.structuredContent);
-      return result;
-    } }));
-    tools.push({ name: "answerRecall", description: "Submit a validated answer with citations from collected evidence", parameters: answerSchema, outputSchema: answerSchema, execute: async (args, executionSignal) => {
+    const tools: WorkflowTool[] = [];
+    const onEvent = (event: AgentEvent) => {
+      if (event.type !== "tool_execution_end" || event.isError || !readNames.includes(event.toolName as string)) return;
+      collect((event.result as { structuredContent?: unknown } | undefined)?.structuredContent);
+    };
+    tools.push({ name: "answerRecall", label: "Answer Recall",
+      description: "Submit the final validated answer directly. Use only citation IDs returned by the read tools. Set hasEvidence to false when all citation arrays are empty.",
+      promptSnippet: "Submit the final recall answer with validated citation IDs.",
+      parameters: answerSchema, outputSchema: answerSchema, execute: async (args, executionSignal) => {
       signal?.throwIfAborted(); executionSignal.throwIfAborted();
       if (!Value.Check(answerSchema, args)) throw new InvalidInputError("Invalid recall answer");
       const answer = args as RecallAnswer;
@@ -85,7 +92,21 @@ export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
       state.answer = answer;
       return { toolName: "answerRecall", structuredContent: answer, stop: true };
     } });
-    const result = await d.runtime.run({ model: d.model, systemPrompt: recallPrompt, prompt: JSON.stringify({ question, hints }), tools, signal });
+    const followUpState = { requested: false };
+    const result = await d.runtime.run({
+      model: d.model,
+      systemPrompt: recallPrompt,
+      prompt: JSON.stringify({ question, hints }),
+      toolNames: [...readNames],
+      customTools: tools,
+      signal,
+      onEvent,
+      followUp: current => {
+        if (followUpState.requested || state.answer || current.aborted || !current.settled) return undefined;
+        followUpState.requested = true;
+        return "Continue by calling answerRecall.";
+      },
+    });
     if (signal?.aborted || result.aborted || !result.settled || !state.answer) throw new InvalidInputError("Recall did not return a validated answer");
     return state.answer;
   } };
@@ -100,7 +121,7 @@ export function createDreamWorkflow(d: WorkflowDependencies): DreamWorkflow {
   async function run(ids: readonly string[], signal: AbortSignal | undefined, systemPrompt: string, names: readonly string[]): Promise<DreamPhaseResult> {
     try {
       if (signal?.aborted) return { aborted: true, errors: [] };
-      const result = await d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify(ids), tools: selectTools(d, names), signal });
+      const result = await d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify(ids), toolNames: [...names], signal });
       const touched = new Set<string>();
       for (const tool of result.toolResults) {
         if (tool.isError) continue;

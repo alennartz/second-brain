@@ -6,6 +6,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY src ./src
+COPY packages ./packages
 
 ENV NODE_ENV=production
 ENV BRAIN_DB_PATH=/data/brain.surreal

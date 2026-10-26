@@ -20,6 +20,10 @@ import {
   type StructuredToolResult,
   type WorkflowModelRef,
 } from "../../src/agent-runtime/index.ts";
+import { injectSecondBrainStorage } from "../../packages/pi-second-brain/lib/bridge.ts";
+import { createEmbeddedStorage } from "../../src/storage/embedded.ts";
+import type { Storage } from "../../src/storage/storage.ts";
+import { EmbedderStub } from "../../src/embeddings/embedder.ts";
 
 const model: WorkflowModelRef = {
   provider: "agent-runtime-smoke",
@@ -148,7 +152,8 @@ function request(tools: readonly AgentTool[], prompt = "Use the domain tools."):
     model,
     systemPrompt: "Use only the supplied domain tools.",
     prompt,
-    tools,
+    toolNames: [],
+    customTools: [...tools],
   };
 }
 
@@ -202,6 +207,24 @@ describe("SDK-backed agent runtime seam", () => {
         }));
       },
     );
+  });
+
+  test("sends a follow-up prompt in the existing SDK session", async () => {
+    const domain = createDomainFixture();
+    const userCounts: number[] = [];
+    const response = (context: { messages: readonly unknown[] }) => {
+      userCounts.push(context.messages.filter((message) => (message as { role?: unknown }).role === "user").length);
+      return fauxAssistantMessage(userCounts.length === 1 ? "first" : "second");
+    };
+    await withRuntime([response, response], async ({ runtime }) => {
+      const result = await runtime.run({
+        ...request(domain.tools, "first request"),
+        followUp: current => current.lastAssistantText === "first" ? "retry request" : undefined,
+      });
+
+      expect(result.lastAssistantText).toBe("second");
+      expect(userCounts).toEqual([1, 2]);
+    });
   });
 
   test("lets a Codemode script consume structured domain-tool results", async () => {
@@ -304,5 +327,58 @@ describe("SDK-backed agent runtime seam", () => {
       expect(result.aborted).toBe(true);
       expect(result.settled).toBe(true);
     });
+  });
+
+  test("loads knowledge tools from the pi package and writes through the injected storage", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "second-brain-agent-runtime-"));
+    const dbRoot = await mkdtemp(join(tmpdir(), "second-brain-package-"));
+    const faux = fauxProvider({
+      api: "agent-runtime-faux",
+      provider: model.provider,
+      models: [{ id: model.model, name: "Agent Runtime Deterministic", reasoning: true }],
+    });
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("storeNode", { kind: "entity", name: "Ada", type: "person" })),
+      fauxAssistantMessage("stored"),
+    ]);
+    let storage: Storage | undefined;
+    try {
+      const modelRuntime = await ModelRuntime.create({
+        authPath: join(directory, "auth.json"),
+        modelsPath: join(directory, "models.json"),
+        allowModelNetwork: false,
+        refreshOnCreate: false,
+      });
+      const fauxApiKey = faux.provider.auth.apiKey;
+      if (!fauxApiKey) throw new Error("The faux provider must expose API-key authentication.");
+      fauxApiKey.resolve = async ({ credential }) => ({ auth: { apiKey: credential?.key ?? "agent-runtime-test-key" } });
+      modelRuntime.registerNativeProvider(faux.provider);
+      storage = createEmbeddedStorage({ dbPath: join(dbRoot, "brain.surreal"), embeddingDimensions: 3, embedder: new EmbedderStub(() => [1, 0, 0]) });
+      await storage.init();
+      injectSecondBrainStorage(storage);
+      const runtime = createSdkAgentRuntime({
+        modelRuntime,
+        cwd: directory,
+        agentDir: directory,
+        extensionPaths: [join(import.meta.dir, "..", "..", "packages", "pi-second-brain")],
+      });
+      const result = await runtime.run({
+        model,
+        systemPrompt: "Use only the knowledge tools.",
+        prompt: "Store Ada as a person.",
+        toolNames: ["storeNode", "getNode"],
+      });
+
+      expect(result.settled).toBe(true);
+      const stored = result.toolResults.find(toolResult => toolResult.toolName === "storeNode");
+      expect(stored?.isError).toBeFalsy();
+      const id = (stored?.structuredContent as { id?: string } | undefined)?.id;
+      expect(id).toMatch(/^entity:/);
+      expect(await storage.getNode(id!)).toBeDefined();
+    } finally {
+      await storage?.close().catch(() => undefined);
+      await rm(directory, { recursive: true, force: true });
+      await rm(dbRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -15,7 +15,6 @@ export interface ManagedScheduler {
 export interface CompositionFactories<
   TEmbedder = unknown,
   TStorage extends ManagedStorage = ManagedStorage,
-  TKnowledge = unknown,
   TPipeline extends ManagedPipeline = ManagedPipeline,
   TScheduler extends ManagedScheduler = ManagedScheduler,
   TModelRuntime extends object = object,
@@ -23,12 +22,10 @@ export interface CompositionFactories<
   createModelRuntime(): TModelRuntime;
   createEmbedder(): TEmbedder;
   createStorage(embedder: TEmbedder): TStorage;
-  createKnowledge(storage: TStorage): TKnowledge;
-  createPipeline(dependencies: { storage: TStorage; knowledge: TKnowledge; modelRuntime: TModelRuntime }): TPipeline;
-  createScheduler(dependencies: { storage: TStorage; knowledge: TKnowledge; modelRuntime: TModelRuntime }): TScheduler;
+  createPipeline(dependencies: { storage: TStorage; modelRuntime: TModelRuntime }): TPipeline;
+  createScheduler(dependencies: { storage: TStorage; modelRuntime: TModelRuntime }): TScheduler;
   createApplication(dependencies: {
     storage: TStorage;
-    knowledge: TKnowledge;
     modelRuntime: TModelRuntime;
     pipeline: TPipeline;
     scheduler: TScheduler;
@@ -42,11 +39,10 @@ export interface ApplicationRuntime {
 export async function startApplication<
   TEmbedder,
   TStorage extends ManagedStorage,
-  TKnowledge,
   TPipeline extends ManagedPipeline,
   TScheduler extends ManagedScheduler,
   TModelRuntime extends object,
->(factories: CompositionFactories<TEmbedder, TStorage, TKnowledge, TPipeline, TScheduler, TModelRuntime>): Promise<ApplicationRuntime> {
+>(factories: CompositionFactories<TEmbedder, TStorage, TPipeline, TScheduler, TModelRuntime>): Promise<ApplicationRuntime> {
   const modelRuntime = factories.createModelRuntime();
   const embedder = factories.createEmbedder();
   const storage = factories.createStorage(embedder);
@@ -67,8 +63,7 @@ export async function startApplication<
   }
   try {
     await storage.init();
-    const knowledge = factories.createKnowledge(storage);
-    const dependencies = { storage, knowledge, modelRuntime };
+    const dependencies = { storage, modelRuntime };
     const pipeline = factories.createPipeline(dependencies);
     state.pipeline = pipeline;
     const scheduler = factories.createScheduler(dependencies);

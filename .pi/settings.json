@@ -1,0 +1,14 @@
+{
+  "packages": [
+    "../packages/pi-second-brain"
+  ],
+  "secondBrain": {
+    "dbPath": "data/pi-local.surreal",
+    "embedding": {
+      "baseUrl": "http://jetson.ordernet:8084/v1",
+      "model": "openai:harrier-oss-v1-0.6b",
+      "dimensions": 1024,
+      "apiKey": "none"
+    }
+  }
+}

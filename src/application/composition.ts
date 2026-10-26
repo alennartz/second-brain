@@ -1,11 +1,12 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { resolve } from "node:path";
 import type { Settings } from "../core/config";
 import type { Embedder } from "../embeddings/embedder";
 import type { Storage } from "../storage/storage";
 import type { NodeRecord, EdgeRecord } from "../core/types";
 import { createSdkAgentRuntime } from "../agent-runtime";
 import { createEmbeddedStorage } from "../storage/embedded";
-import { createKnowledgeGraph, type KnowledgeGraph } from "../knowledge";
+import { injectSecondBrainStorage } from "../../packages/pi-second-brain/lib/bridge.ts";
 import { createIngestWorkflow, createRecallWorkflow, createDreamWorkflow } from "../workflows/workflows";
 import { createIntakePipeline, type IntakePipeline, type WorkflowClock } from "../workflows/intake-pipeline";
 import { createDreamScheduler, type DreamScheduler } from "../workflows/dream-scheduler";
@@ -31,18 +32,16 @@ function edgeWire(edge: EdgeRecord): Record<string, unknown> {
   const { edgeType, ...fields } = edge;
   return { ...fields, table: edge.id.split(":")[0] };
 }
-const toolNames = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"] as const;
-export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, KnowledgeGraph, IntakePipeline, DreamScheduler, ModelRuntime> {
-  const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir });
-  const workflowDependencies = (knowledge: KnowledgeGraph, model: Settings["ingestModel"]) => ({ runtime, model, tools: knowledge.tools(toolNames) });
+export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, IntakePipeline, DreamScheduler, ModelRuntime> {
+  const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir, extensionPaths: [resolve(cwd, settings.piToolsPackage)] });
+  const workflowDependencies = (model: Settings["ingestModel"]) => ({ runtime, model });
   return {
     createModelRuntime: () => modelRuntime,
     createEmbedder: () => embedder,
     createStorage: () => createEmbeddedStorage({ dbPath: settings.dbPath, embeddingDimensions: settings.embeddingDimensions, embedder }),
-    createKnowledge: storage => createKnowledgeGraph(storage),
-    createPipeline({ storage, knowledge }) {
+    createPipeline({ storage }) {
       return createIntakePipeline({
-        workflow: createIngestWorkflow(workflowDependencies(knowledge, settings.ingestModel)), clock: systemClock,
+        workflow: createIngestWorkflow(workflowDependencies(settings.ingestModel)), clock: systemClock,
         settings: { chunkMaxChars: settings.intake.chunkChars, workers: settings.intake.workerConcurrency, pollMs: settings.intake.pollIntervalSeconds * 1000, leaseRenewMs: settings.intake.leaseSeconds * 1000 / 3, retryBaseMs: settings.intake.retryBaseDelaySeconds * 1000, retryCapMs: settings.intake.retryMaxDelaySeconds * 1000, shutdownGraceMs: settings.intake.shutdownGraceSeconds * 1000 },
         queue: {
           async stageIntake(request, chunks) { return { chunksStored: await storage.createIntakeChunks(crypto.randomUUID(), chunks.map(c => ({ content: c.content, chunk_index: c.chunkIndex, total_chunks: c.totalChunks, hints: c.hints, source: c.source })), request.idempotencyKey) }; },
@@ -58,17 +57,18 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         },
       });
     },
-    createScheduler({ storage, knowledge }) {
-      const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(knowledge, settings.dreamModel)), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000 } });
+    createScheduler({ storage }) {
+      const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(settings.dreamModel)), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000 } });
       return settings.dream.enabled ? scheduler : { ...scheduler, start() {} };
     },
-    createApplication({ storage, knowledge, pipeline, scheduler, dreamJobs }) {
+    createApplication({ storage, pipeline, scheduler, dreamJobs }) {
+      injectSecondBrainStorage(storage);
       const pendingDreamJobs = new Set<Promise<void>>();
       let shuttingDown = false;
-      const recall = createRecallService(createRecallWorkflow(workflowDependencies(knowledge, settings.recallModel)), {
+      const recall = createRecallService(createRecallWorkflow(workflowDependencies(settings.recallModel)), {
         getNode: async id => { const node = await storage.getNode(id); return node ? nodeWire(node) : undefined; },
         getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge) : undefined; },
-        getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at"].map(key => [key, record[key as keyof typeof record]])); },
+        getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return { ...Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at"].map(key => [key, record[key as keyof typeof record]])), unprocessed: true }; },
       });
       return {
         async enqueue(request) {

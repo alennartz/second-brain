@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { createKnowledgeGraph } from "../src/knowledge/index.ts";
+import { bindKnowledge, cancellableStorage, type KnowledgeFunctions } from "../packages/pi-second-brain/lib/graph.ts";
+import type { Storage } from "../src/storage/storage.ts";
+import { storeNodeOutput } from "../packages/pi-second-brain/lib/schemas.ts";
 import { createEmbeddedStorage } from "../src/storage/embedded.ts";
 import { EmbedderStub } from "../src/embeddings/embedder.ts";
 import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Value } from "@sinclair/typebox/value";
@@ -11,13 +14,13 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "second-brain-knowledge-"));
   const storage = createEmbeddedStorage({ dbPath: join(root, "brain.surreal"), embeddingDimensions: 3, embedder: new EmbedderStub(() => [1, 0, 0]) });
   try { await storage.init(); } catch (error) { await storage.close(); await rm(root, { recursive: true, force: true }); throw error; }
-  const graph = createKnowledgeGraph(storage);
+  const graph = bindKnowledge(storage);
   const close = async () => { try { await storage.close(); } finally { await rm(root, { recursive: true, force: true }); } };
   return { graph, storage, close };
 }
-async function run(body: (graph: ReturnType<typeof createKnowledgeGraph>) => Promise<void>) {
-  const { graph, close } = await fixture();
-  try { await body(graph); } finally { await close(); }
+async function run(body: (graph: KnowledgeFunctions, storage: Storage) => Promise<void>) {
+  const { graph, storage, close } = await fixture();
+  try { await body(graph, storage); } finally { await close(); }
 }
 const entity = (name: string) => ({ kind: "entity" as const, name, type: "person" });
 describe("KnowledgeGraph", () => {
@@ -165,29 +168,24 @@ describe("KnowledgeGraph", () => {
     expect(await g.renameEdgeType({ fromType: "met", toType: "knows" })).toMatchObject({ renamed: 1, merged: 1 });
     expect((await g.exploreGraph({ id: a.id })).edges).toHaveLength(1);
   }));
-  test("direct tools share typed structured results with Codemode", () => run(async g => {
-    const tools = g.tools(["storeNode"]);
-    expect(tools.map(t => t.name)).toEqual(["storeNode"]);
-    expect(tools[0]!.parameters).toBeDefined();
-    expect(tools[0]!.outputSchema).toBeDefined();
-    const result = await tools[0]!.execute(entity("Ada"), new AbortController().signal);
-    expect(result.structuredContent).toMatchObject({ id: expect.stringMatching(/^entity:/) });
+  test("bound knowledge functions return schema-valid structured results", () => run(async g => {
+    const result = await g.storeNode(entity("Ada"));
+    expect(Value.Check(storeNodeOutput, result)).toBe(true);
+    expect(result).toMatchObject({ id: expect.stringMatching(/^entity:/) });
   }));
-  test("validates direct tool arguments and structured results", () => run(async g => {
-    const tool = g.tools(["storeNode"])[0]!;
-    await expect(tool.execute({ kind: "entity", name: 12 }, new AbortController().signal)).rejects.toThrow();
-    const result = await tool.execute(entity("Ada"), new AbortController().signal);
-    expect(Value.Check(tool.outputSchema!, result.structuredContent)).toBe(true);
+  test("validates arguments at the library boundary", () => run(async g => {
+    await expect(g.storeNode({ kind: "entity", name: 12, type: "person" } as never)).rejects.toThrow();
+    const result = await g.storeNode(entity("Ada"));
+    expect(Value.Check(storeNodeOutput, result)).toBe(true);
   }));
-  test("every public tool exposes parameter and output schemas", () => run(async g => {
-    const names = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"] as const;
-    const tools = g.tools(names);
-    expect(tools.map(t => t.name)).toEqual([...names]);
-    for (const tool of tools) {
-      expect(tool.parameters).toBeDefined();
-      expect(tool.outputSchema).toBeDefined();
+  test("registers one extension file per knowledge tool for pi discovery", () => {
+    const names = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"];
+    for (const name of names) {
+      const kebab = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+      const file = join(import.meta.dir, "..", "packages", "pi-second-brain", "extensions", `${kebab}.ts`);
+      expect(existsSync(file)).toBe(true);
     }
-  }));
+  });
   test("rejects names and non-node IDs in graph reads", () => run(async g => {
     await expect(g.getNode({ id: "Ada" })).rejects.toThrow();
     await expect(g.exploreGraph({ id: "edge:one" })).rejects.toThrow();
@@ -197,9 +195,10 @@ describe("KnowledgeGraph", () => {
     const n = await g.storeNode(entity("Ada"));
     expect(JSON.stringify(await g.getNode({ id: n.id }))).not.toMatch(/embedding|lease_token|lease_expires/);
   }));
-  test("tool execution stops when the session signal is cancelled", () => run(async g => {
+  test("library calls stop when the session signal is cancelled", () => run(async (_g, storage) => {
     const controller = new AbortController(); controller.abort();
-    await expect(g.tools(["storeNode"])[0]!.execute(entity("Ada"), controller.signal)).rejects.toThrow();
-    expect((await g.searchMemory({ query: "Ada" })).nodes).toEqual([]);
+    const cancelled = bindKnowledge(cancellableStorage(storage, controller.signal));
+    await expect(cancelled.storeNode(entity("Ada"))).rejects.toThrow();
+    expect((await bindKnowledge(storage).searchMemory({ query: "Ada" })).nodes).toEqual([]);
   }));
 });

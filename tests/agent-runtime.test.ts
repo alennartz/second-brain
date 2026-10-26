@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { createAgentRuntime, type AgentRunRequest, type AgentRunResult, type RuntimeSession, type SessionOptions } from "../src/agent-runtime/index.ts";
 
 const result: AgentRunResult = { settled: true, aborted: false, lastAssistantText: "done", toolResults: [{ toolName: "searchMemory", structuredContent: { nodes: [] } }] };
-const request: AgentRunRequest = { model: { provider: "test", model: "model", thinkingLevel: "high" }, systemPrompt: "domain only", prompt: "find evidence", tools: [] };
+const request: AgentRunRequest = { model: { provider: "test", model: "model", thinkingLevel: "high" }, systemPrompt: "domain only", prompt: "find evidence", toolNames: [] };
 function fixture(prompt: RuntimeSession["prompt"] = async () => result) {
   const options: SessionOptions[] = [];
   const sessions: { aborted: number; disposed: number }[] = [];
@@ -27,11 +27,28 @@ describe("AgentRuntime", () => {
     expect(f.sessions).toHaveLength(2);
     expect(f.options.every(o => o.persistence === "memory")).toBe(true);
   });
-  test("uses selected model and only the explicit direct tools with Codemode", async () => {
+  test("sends follow-up prompts through the same session", async () => {
+    const prompts: string[] = [];
+    let promptCount = 0;
+    const f = fixture(async (text) => {
+      prompts.push(text);
+      promptCount++;
+      return promptCount === 1 ? { ...result, lastAssistantText: "first" } : { ...result, lastAssistantText: "second" };
+    });
+    const output = await f.runtime.run({
+      ...request,
+      followUp: current => current.lastAssistantText === "first" ? "retry" : undefined,
+    });
+    expect(output.lastAssistantText).toBe("second");
+    expect(prompts).toEqual(["find evidence", "retry"]);
+    expect(f.sessions).toHaveLength(1);
+    expect(f.sessions[0]!.disposed).toBe(1);
+  });
+  test("uses selected model and only the explicit custom tools with Codemode", async () => {
     const f = fixture();
     const tool = { name: "searchMemory", description: "search", parameters: Type.Object({}), outputSchema: Type.Object({}), execute: async () => result.toolResults[0]! };
-    await f.runtime.run({ ...request, tools: [tool] });
-    expect(f.options[0]).toMatchObject({ model: request.model, systemPrompt: request.systemPrompt, tools: [tool], builtInTools: [], resources: [], codemode: { mode: "on", models: false } });
+    await f.runtime.run({ ...request, customTools: [tool] });
+    expect(f.options[0]).toMatchObject({ model: request.model, systemPrompt: request.systemPrompt, toolNames: [], customTools: [tool], builtInTools: [], resources: [], codemode: { mode: "on", models: false } });
   });
   test("disposes the session after normal settlement", async () => {
     const f = fixture();

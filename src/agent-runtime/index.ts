@@ -1,5 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
-import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ModelRuntime, type ToolAnnotations } from "@earendil-works/pi-coding-agent";
 import { Value } from "@sinclair/typebox/value";
 import type { ThinkingLevel, WorkflowModelRef } from "../core/config";
 
@@ -8,7 +8,11 @@ export type StructuredToolResult = { toolName: string; structuredContent: unknow
 export type AgentEvent = { type: string; [key: string]: unknown };
 export type AgentTool = {
   name: string;
+  label?: string;
   description: string;
+  promptSnippet?: string;
+  promptGuidelines?: readonly string[];
+  annotations?: ToolAnnotations;
   parameters: TSchema;
   outputSchema?: TSchema;
   execute(input: unknown, signal: AbortSignal): Promise<StructuredToolResult>;
@@ -17,9 +21,11 @@ export type AgentRunRequest = {
   model: WorkflowModelRef;
   systemPrompt: string;
   prompt: string;
-  tools: readonly AgentTool[];
+  toolNames: readonly string[];
+  customTools?: readonly AgentTool[];
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
+  followUp?: (result: AgentRunResult) => string | undefined;
 };
 export type AgentRunResult = {
   settled: boolean;
@@ -33,12 +39,14 @@ export type SdkAgentRuntimeOptions = {
   modelRuntime: ModelRuntime;
   cwd: string;
   agentDir: string;
+  extensionPaths?: readonly string[];
 };
 
 export type SessionOptions = {
   model: WorkflowModelRef;
   systemPrompt: string;
-  tools: readonly AgentTool[];
+  toolNames: readonly string[];
+  customTools: readonly AgentTool[];
   persistence: "memory";
   builtInTools: readonly never[];
   resources: readonly never[];
@@ -56,9 +64,17 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
     if (!model) throw new Error(`Unknown model: ${request.model.provider}/${request.model.model}`);
     const results: StructuredToolResult[] = [];
     const termination = { requested: false };
+    const customNames = new Set(request.customTools?.map(tool => tool.name) ?? []);
+    const activeTools = ["codemode", ...request.toolNames, ...(request.customTools?.map(tool => tool.name) ?? [])];
+    const settingsManager = SettingsManager.inMemory({
+      compaction: { enabled: false },
+      retry: { enabled: false },
+      defaultTools: activeTools,
+    });
     const resourceLoader = new DefaultResourceLoader({
-      cwd: options.cwd, agentDir: options.agentDir,
-      noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+      cwd: options.cwd, agentDir: options.agentDir, settingsManager,
+      additionalExtensionPaths: [...(options.extensionPaths ?? [])],
+      noSkills: true, noPromptTemplates: true, noThemes: true,
       extensionFactories: [createCodemodeExtension({ mode: "on", models: false })],
       agentsFilesOverride: () => ({ agentsFiles: [] }),
       systemPromptOverride: () => request.systemPrompt,
@@ -66,11 +82,14 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
     await resourceLoader.reload();
     const { session } = await createAgentSession({
       cwd: options.cwd, agentDir: options.agentDir, model, thinkingLevel: request.model.thinkingLevel,
-      modelRuntime: options.modelRuntime, resourceLoader,
+      modelRuntime: options.modelRuntime, resourceLoader, settingsManager,
       sessionManager: SessionManager.inMemory(options.cwd),
-      settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false }, defaultTools: ["codemode", ...request.tools.map(tool => tool.name)] }),
-      tools: ["codemode", ...request.tools.map(tool => tool.name)], customTools: request.tools.map(tool => ({
-        name: tool.name, label: tool.name, description: tool.description, parameters: tool.parameters,
+      tools: activeTools,
+      customTools: (request.customTools ?? []).map(tool => ({
+        name: tool.name, label: tool.label ?? tool.name, description: tool.description, parameters: tool.parameters,
+        ...(tool.promptSnippet ? { promptSnippet: tool.promptSnippet } : {}),
+        ...(tool.promptGuidelines ? { promptGuidelines: [...tool.promptGuidelines] } : {}),
+        ...(tool.annotations ? { annotations: tool.annotations } : {}),
         ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
         async execute(_id, input, signal) {
           try {
@@ -91,13 +110,16 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
     });
     try {
       await session.bindExtensions({});
-      session.setActiveToolsByName(["codemode", ...request.tools.map(tool => tool.name)]);
+      session.setActiveToolsByName(activeTools);
     } catch (error) { session.dispose(); throw error; }
     return {
       async prompt(text, execution) {
         const unsubscribe = session.subscribe(event => {
           execution.onEvent?.(event as unknown as AgentEvent);
-          if (event.type === "tool_execution_end" && event.isError && !results.some(result => result.toolName === event.toolName && result.isError)) results.push({ toolName: event.toolName, structuredContent: event.result, isError: true });
+          if (event.type === "tool_execution_end" && event.toolName !== "codemode" && !customNames.has(event.toolName)) {
+            const result = event.result as { structuredContent?: unknown } | undefined;
+            results.push({ toolName: event.toolName, structuredContent: result?.structuredContent ?? result, isError: event.isError });
+          }
         });
         try {
           await session.prompt(text);
@@ -116,13 +138,19 @@ export function createAgentRuntime(factory?: SessionFactory): AgentRuntime {
   return { async run(request) {
     const signal = request.signal ?? new AbortController().signal;
     if (signal.aborted) return { settled: true, aborted: true, toolResults: [] };
-    const session = await factory({ model: request.model, systemPrompt: request.systemPrompt, tools: request.tools, persistence: "memory", builtInTools: [], resources: [], codemode: { mode: "on", models: false } });
+    const session = await factory({ model: request.model, systemPrompt: request.systemPrompt, toolNames: request.toolNames, customTools: [...(request.customTools ?? [])], persistence: "memory", builtInTools: [], resources: [], codemode: { mode: "on", models: false } });
     const cancellation = { pending: Promise.resolve() };
     const abort = () => { cancellation.pending = session.abort(); };
     signal.addEventListener("abort", abort, { once: true });
     try {
       if (signal.aborted) { abort(); return { settled: true, aborted: true, toolResults: [] }; }
-      return await session.prompt(request.prompt, { signal, onEvent: request.onEvent });
+      let result = await session.prompt(request.prompt, { signal, onEvent: request.onEvent });
+      while (request.followUp && !signal.aborted && !result.aborted) {
+        const followUp = request.followUp(result);
+        if (followUp === undefined) break;
+        result = await session.prompt(followUp, { signal, onEvent: request.onEvent });
+      }
+      return result;
     } finally {
       signal.removeEventListener("abort", abort);
       try { await cancellation.pending; } finally { await session.dispose(); }

@@ -6,7 +6,6 @@ function fixture(failure?: "init" | "pipeline-start" | "pipeline-stop") {
   const events: string[] = [];
   const modelRuntime = {};
   const embedder = {};
-  const knowledge = {};
   const application = {} as HttpApplication;
   const storage = {
     init: async () => { events.push("storage:init"); if (failure === "init") throw new Error("init failed"); },
@@ -25,20 +24,19 @@ function fixture(failure?: "init" | "pipeline-start" | "pipeline-stop") {
     createModelRuntime: () => { events.push("model:create"); return modelRuntime; },
     createEmbedder: () => { events.push("embedder:create"); return embedder; },
     createStorage: value => { expect(value).toBe(embedder); return storage; },
-    createKnowledge: value => { expect(value).toBe(storage); return knowledge; },
     createPipeline: dependencies => { received.pipeline = dependencies; return pipeline; },
     createScheduler: dependencies => { received.scheduler = dependencies; return scheduler; },
     createApplication: dependencies => { received.application = dependencies; return application; },
   };
-  return { factories, events, received, application, storage, pipeline, scheduler, modelRuntime, knowledge };
+  return { factories, events, received, application, storage, pipeline, scheduler, modelRuntime };
 }
 
 describe("application composition", () => {
-  test("startup shares one storage, knowledge module, and model runtime across workers and HTTP", async () => {
+  test("startup shares one storage and one model runtime across workers and HTTP", async () => {
     const f = fixture();
     const runtime = await startApplication(f.factories);
     expect(runtime.application).toBe(f.application);
-    const dependencies = { storage: f.storage, knowledge: f.knowledge, modelRuntime: f.modelRuntime };
+    const dependencies = { storage: f.storage, modelRuntime: f.modelRuntime };
     expect(f.received.pipeline).toEqual(dependencies);
     expect(f.received.scheduler).toEqual(dependencies);
     expect(f.received.application).toEqual({ ...dependencies, pipeline: f.pipeline, scheduler: f.scheduler, dreamJobs: expect.any(Map) });

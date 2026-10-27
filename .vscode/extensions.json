@@ -1,8 +1,7 @@
 {
   "recommendations": [
-    "ms-python.python",
-    "ms-python.debugpy",
-    "charliermarsh.ruff",
-    "detachhead.basedpyright"
+    "oven.bun-vscode",
+    "golang.go",
+    "Dart-Code.flutter"
   ]
 }

@@ -2,7 +2,7 @@ services:
   server:
     build: .
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file: .env
     environment:
       BRAIN_DB_PATH: /data/brain.surreal
@@ -13,11 +13,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+      start_period: 15s
 
   server-test:
     build: .
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     env_file: .env
     environment:
       BRAIN_DB_PATH: /data/brain-test.surreal
@@ -28,14 +29,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+      start_period: 15s
     profiles:
       - test
 
   server-mobile:
     build: .
     ports:
-      - "${MOBILE_SERVER_BIND_ADDRESS:?MOBILE_SERVER_BIND_ADDRESS is required; pass --env-file .env.mobile.local}:8200:8000"
-    env_file: "${MOBILE_ENV_FILE:-.env.mobile.local}"
+      - "${MOBILE_SERVER_BIND_ADDRESS:-127.0.0.1}:8200:8000"
+    env_file: "${MOBILE_ENV_FILE:-.env.mobile.example}"
     environment:
       BRAIN_DB_PATH: /data/brain.surreal
     volumes:
@@ -45,6 +47,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 3
+      start_period: 15s
     profiles:
       - mobile
 

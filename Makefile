@@ -103,38 +103,26 @@ docker-build: ## Build the Docker image
 
 .PHONY: docker-up
 docker-up: ## Start the production server in Docker
+	@test -f .env || { echo "copy .env.example to .env and configure it" >&2; exit 1; }
+	@bash -c 'source deploy/common.sh; validate_application_environment .env'
 	docker compose up -d server
+	@echo "Waiting for the Docker server to be healthy..."
+	@for attempt in $$(seq 1 60); do \
+		if curl -sf --max-time 2 http://127.0.0.1:8000/health > /dev/null 2>&1; then \
+			echo "server is ready on :8000"; \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "server did not become healthy" >&2; \
+	docker compose ps server >&2 || true; \
+	docker compose logs --no-color server >&2 || true; \
+	exit 1
 
 .PHONY: docker-down
-docker-down: ## Stop all Docker services
-	docker compose down
-
-# --- Benchmark runner ---
-
-.PHONY: bench-start
-bench-start: ## Start a supervised benchmark: make bench-start NAME=run-id NOTES="..."
-	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
-	experiments/benchctl.sh start "$(NAME)" "$(NOTES)"
-
-.PHONY: bench-resume
-bench-resume: ## Resume a stopped or failed benchmark: make bench-resume NAME=run-id
-	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
-	experiments/benchctl.sh resume "$(NAME)"
-
-.PHONY: bench-status
-bench-status: ## Show benchmark service and live progress
-	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
-	experiments/benchctl.sh status "$(NAME)"
-
-.PHONY: bench-stop
-bench-stop: ## Interrupt benchmark safely: make bench-stop NAME=run-id
-	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
-	experiments/benchctl.sh stop "$(NAME)"
-
-.PHONY: bench-log
-bench-log: ## Follow benchmark log: make bench-log NAME=run-id
-	@test -n "$(NAME)" || { echo "set NAME=..." >&2; exit 2; }
-	experiments/benchctl.sh log "$(NAME)"
+docker-down: ## Stop the production server in Docker
+	docker compose stop server
+	docker compose rm --force server
 
 # --- Systemd user deployment (machine-specific config lives in deploy/deploy.env, gitignored) ---
 
@@ -179,14 +167,28 @@ deploy-logs: ## Follow logs of the deployed service
 
 .PHONY: e2e-up
 e2e-up: ## Start the test server for e2e tests
+	@test -f .env || { echo "copy .env.example to .env and configure it" >&2; exit 1; }
+	@bash -c 'source deploy/common.sh; validate_application_environment .env'
 	docker compose --profile test up -d server-test
 	@echo "Waiting for server-test to be healthy..."
-	@until curl -sf http://localhost:8001/health > /dev/null 2>&1; do sleep 1; done
-	@echo "server-test is ready on :8001"
+	@for attempt in $$(seq 1 60); do \
+		if curl -sf --max-time 2 http://127.0.0.1:8001/health > /dev/null 2>&1; then \
+			echo "server-test is ready on :8001"; \
+			exit 0; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "server-test did not become healthy" >&2; \
+	docker compose --profile test ps server-test >&2 || true; \
+	docker compose --profile test logs --no-color server-test >&2 || true; \
+	docker compose --profile test stop server-test >/dev/null 2>&1 || true; \
+	docker compose --profile test rm --force server-test >/dev/null 2>&1 || true; \
+	exit 1
 
 .PHONY: e2e-down
 e2e-down: ## Stop the e2e test server
-	docker compose --profile test down
+	docker compose --profile test stop server-test
+	docker compose --profile test rm --force server-test
 
 .PHONY: e2e
 e2e: e2e-up ## Run e2e tests (starts server, runs tests, tears down)

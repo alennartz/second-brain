@@ -87,7 +87,7 @@ make mobile-server-down
 
 The service is named `server-mobile`, binds only to
 `MOBILE_SERVER_BIND_ADDRESS:8200`, uses real models, and stores data in the
-separate `mobile-brain-data` volume at `/data/brain.db`.
+separate `mobile-brain-data` volume at `/data/brain.surreal`.
 The server has no authentication layer. Use it only on a trusted private LAN.
 Real model calls can incur provider costs. `mobile-server-down` stops only this
 service and preserves its data. It does not stop the normal `server` service or
@@ -155,8 +155,10 @@ requirement.
 - A missing or malformed local value fails before Docker builds or device
   changes. `MOBILE_SERVER_URL` must use the isolated port `8200`, and the
   Compose profile uses the same environment file as the scripts.
-- Direct Compose commands must pass `--env-file .env.mobile.local`. Compose
-  requires `MOBILE_SERVER_BIND_ADDRESS` and refuses an empty wildcard binding.
+- Direct Compose commands should pass `--env-file .env.mobile.local`. The
+  Compose file uses loopback when `MOBILE_SERVER_BIND_ADDRESS` is unset. The
+  mobile scripts require an explicit trusted LAN address before they start the
+  phone-facing service.
 - Device commands fail before selecting an arbitrary phone.
 
 Container checks are automated and device-independent. Phone installation and

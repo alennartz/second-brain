@@ -24,6 +24,13 @@ HttpBrainGateway gatewayFor(
 }
 
 void main() {
+  test('defaults recall and intake requests to a five-minute timeout', () {
+    final gateway = gatewayFor((_) async => jsonResponse({'status': 'ok'}));
+
+    expect(gateway.requestTimeout, const Duration(minutes: 5));
+    expect(gateway.stageIntakeTimeout, const Duration(minutes: 5));
+  });
+
   final operations = <String, Future<void> Function(BrainGateway)>{
     'health': (gateway) => gateway.checkHealth(),
     'intake': (gateway) async { await gateway.stageIntake('Thought', idempotencyKey: 'key'); },

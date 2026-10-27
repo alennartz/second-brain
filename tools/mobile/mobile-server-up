@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/common.sh"
 mobile_load_config
 mobile_require_server_url
 mobile_require_server_bind_address
+mobile_require_bun_server_config
 mobile_require_compose
 
 mobile_log "starting isolated server-mobile on ${MOBILE_SERVER_BIND_ADDRESS}:8200"
@@ -16,7 +17,7 @@ mobile_compose up -d --build server-mobile
 container_id=$(mobile_compose ps -aq server-mobile | head -n 1)
 [[ -n "$container_id" ]] || mobile_error "server-mobile did not create a container"
 health_status=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 90); do
     health_status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container_id" 2>/dev/null || true)
     case "$health_status" in
         healthy)
@@ -24,6 +25,7 @@ for _ in $(seq 1 30); do
             ;;
         unhealthy|exited|dead|missing)
             mobile_error "server-mobile health state is $health_status"
+            mobile_compose logs --no-color server-mobile >&2 || true
             exit 1
             ;;
     esac
@@ -32,6 +34,7 @@ done
 if [[ "$health_status" != healthy ]]; then
     mobile_error "server-mobile did not become healthy (state: ${health_status:-unknown})"
     mobile_compose ps server-mobile >&2 || true
+    mobile_compose logs --no-color server-mobile >&2 || true
     exit 1
 fi
 mobile_log "server-mobile Compose health is healthy"

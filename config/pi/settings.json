@@ -1,0 +1,13 @@
+{
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
+  "defaultTools": ["codemode"],
+  "codemode": {
+    "mode": "on"
+  },
+  "compaction": {
+    "enabled": false
+  },
+  "retry": {
+    "enabled": false
+  }
+}

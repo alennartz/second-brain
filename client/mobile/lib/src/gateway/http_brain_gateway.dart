@@ -13,10 +13,10 @@ final class HttpBrainGateway implements BrainGateway {
     required this.baseUrl,
     required this.client,
     this.healthTimeout = const Duration(seconds: 5),
-    this.requestTimeout = const Duration(seconds: 30),
+    this.requestTimeout = const Duration(minutes: 5),
     Duration? stageIntakeTimeout,
   }) : stageIntakeTimeout = stageIntakeTimeout ??
-        (requestTimeout == const Duration(seconds: 30)
+        (requestTimeout == const Duration(minutes: 5)
             ? const Duration(minutes: 5)
             : requestTimeout);
 

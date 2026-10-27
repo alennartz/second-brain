@@ -1,7 +1,8 @@
 # Second Brain local systemd deployment template.
 # Rendered by deploy/install.sh. The container is reachable only on loopback.
 # Placeholders: {{NAME}}, {{IMAGE}}, {{PORT}}, {{ENV_FILE}}, {{DATA_DIR}},
-# {{USER_UID}}, {{USER_GID}}, {{DOCKER_STOP_TIMEOUT}}, and {{SYSTEMD_STOP_TIMEOUT}}.
+# {{DOCKER}}, {{DB_PATH}}, {{USER_UID}}, {{USER_GID}}, {{DOCKER_STOP_TIMEOUT}},
+# and {{SYSTEMD_STOP_TIMEOUT}}.
 
 [Unit]
 Description=Second Brain server ({{IMAGE}})
@@ -14,17 +15,18 @@ Restart=on-failure
 RestartSec=5
 
 # Let systemd own the container lifecycle under a fixed local name.
-ExecStartPre=-/usr/bin/docker rm -f {{NAME}}
-ExecStart=/usr/bin/docker run --name {{NAME}} \
+ExecStartPre=-{{DOCKER}} rm -f {{NAME}}
+ExecStart={{DOCKER}} run --name {{NAME}} \
   --pull never \
   --user {{USER_UID}}:{{USER_GID}} \
   --stop-timeout {{DOCKER_STOP_TIMEOUT}} \
   --env-file "{{ENV_FILE}}" \
+  --env BRAIN_DB_PATH={{DB_PATH}} \
   -p 127.0.0.1:{{PORT}}:8000 \
   -v "{{DATA_DIR}}:/data" \
   {{IMAGE}}
-ExecStop=/usr/bin/docker stop --time {{DOCKER_STOP_TIMEOUT}} {{NAME}}
-ExecStopPost=-/usr/bin/docker rm {{NAME}}
+ExecStop={{DOCKER}} stop --time {{DOCKER_STOP_TIMEOUT}} {{NAME}}
+ExecStopPost=-{{DOCKER}} rm {{NAME}}
 TimeoutStopSec={{SYSTEMD_STOP_TIMEOUT}}s
 
 # Harden the unit itself; the container isolates the rest.

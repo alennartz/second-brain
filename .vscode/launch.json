@@ -3,35 +3,24 @@
   "configurations": [
     {
       "name": "Dev Server",
-      "type": "debugpy",
+      "type": "node",
       "request": "launch",
-      "module": "uvicorn",
-      "args": ["second_brain.app:app", "--reload"],
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--inspect-brk", "run", "src/main.ts"],
       "envFile": "${workspaceFolder}/.env",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
     },
     {
-      "name": "Debug Current File",
-      "type": "debugpy",
+      "name": "Bun Test File",
+      "type": "node",
       "request": "launch",
-      "program": "${file}",
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Debug Tests",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "pytest",
-      "args": ["-v"],
-      "cwd": "${workspaceFolder}"
-    },
-    {
-      "name": "Debug Current Test File",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "pytest",
-      "args": ["-v", "${file}"],
-      "cwd": "${workspaceFolder}"
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["--inspect-brk", "test", "${file}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }

@@ -15,6 +15,7 @@ status.
 |---|---|
 | `deploy.env.example` | Documented machine configuration |
 | `deploy.env` | Gitignored machine configuration |
+| `common.sh` | Shared Bun environment validation and service readiness checks |
 | `install.sh` | Validate configuration, render units, and install the service and timer |
 | `update.sh` | Build the local image, create a pre-update archive, install, and restart |
 | `backup.sh` | Create daily or pre-update archives, or restore one selected archive |
@@ -32,7 +33,8 @@ Install and configure:
 - A checkout with the current Dockerfile.
 
 The installer does not use `sudo`, pull an image, or contact a registry. Build the
-configured image locally before the first install.
+configured image locally before the first install. It validates the Bun workflow
+model settings and waits for `GET /health` before it reports success.
 
 ## Configuration
 
@@ -52,9 +54,10 @@ Set these values:
 - `BRAIN_DEPLOY_BACKUP_DIR`: the sibling archive directory.
 - `BRAIN_DEPLOY_DB_NAME`: `brain.db`, the active database directory.
 
-Set `BRAIN_DB_PATH=/data/brain.db` in the application environment file. The
-file contains provider credentials. `install.sh` sets its mode to `0600` before
-it enables any unit.
+The application environment file must contain the three Bun workflow model
+settings and provider credentials. The rendered service injects
+`BRAIN_DB_PATH=/data/${BRAIN_DEPLOY_DB_NAME}`. `install.sh` sets the file mode to
+`0600` before it enables any unit.
 
 ## First installation
 
@@ -72,11 +75,15 @@ archive, tags the candidate, renders the current units, and restarts the service
 A build or archive failure leaves the running service and configured image tag
 untouched.
 
-The main unit uses:
+The image includes dedicated Pi model and settings files from `config/pi` and
+uses them through `/opt/pi/agent`. It does not depend on the host's
+`~/.pi/agent` directory. The main unit uses:
 
 - `127.0.0.1:${BRAIN_DEPLOY_PORT}:8000` as its only published binding;
 - `--pull never` and the configured local image;
 - `${BRAIN_DEPLOY_DATA_DIR}:/data` as its persistent mount;
+- `BRAIN_DB_PATH=/data/${BRAIN_DEPLOY_DB_NAME}`, injected by the unit so the
+  application always uses the archived active database;
 - the current host UID:GID, so the host archive command can read database files;
 - Docker and systemd stop timeouts longer than the application intake shutdown
   grace; and
@@ -226,7 +233,9 @@ backup timer, then reloads the user manager.
 
 ## Verification
 
-Follow [the local production manual test journey](../docs/manual-tests/local-production-server.md).
+Follow [the local production manual test journey](../docs/manual-tests/local-production-server.md). The checked-in
+`docs/local-production.md` is a historical pre-rewrite snapshot and does not
+certify the current Bun deployment.
 It checks health, loopback listeners, image identity, the `/data` mount, restart
 persistence, journal lifecycle, lingering, timer scheduling, and archive
 recovery. The latest live results and known limits are recorded in

@@ -7,7 +7,7 @@ SurrealDB database.
 
 ## Quickstart
 
-**Prerequisites:** Bun 1.4+, Docker for container workflows, Go 1.22+ for the
+**Prerequisites:** Bun 1.4+, Docker for container workflows, Go 1.25+ for the
 terminal client, and Flutter tooling for Android builds.
 
 ```bash
@@ -21,13 +21,15 @@ cp .env.example .env
 # Start the Bun server with hot reload
 make dev
 
-# In another terminal, build and launch the TUI client
+# In another terminal, build the supported CLI client
 make build-client
-./client/brain
+./client/brain ingest "A first memory"
 ```
 
 The server initializes a fresh latest-schema `surrealkv://` database at
-`BRAIN_DB_PATH`. It does not migrate database files from the former server.
+`BRAIN_DB_PATH`. It does not migrate database files from the former server. The
+Docker image carries its dedicated Pi model and settings files under
+`config/pi`; it does not depend on the host's `~/.pi/agent` directory.
 Before cutover, build the Bun image, then archive and reset the active database
 with the procedure in [`deploy/README.md`](deploy/README.md). To start over later,
 stop the server and remove its database directory.
@@ -64,8 +66,9 @@ curl -X POST http://localhost:8000/recall \
 
 ## CLI client
 
-The Go client supports one-shot ingest, recall, and graph commands and an
-interactive TUI.
+The Go client supports one-shot ingest, recall, and graph commands. The legacy
+interactive TUI targets conversation routes that the Bun server does not expose
+and is not part of the supported client workflow.
 
 ```bash
 brain ingest "Kubernetes pods are the smallest deployable units"
@@ -121,6 +124,12 @@ All settings use environment variables. Workflow model references use
 | `BRAIN_INTAKE_LEASE_SECONDS` | `300` | Lease duration |
 | `BRAIN_INTAKE_RETRY_BASE_DELAY_SECONDS` | `5` | Initial retry delay |
 | `BRAIN_INTAKE_RETRY_MAX_DELAY_SECONDS` | `3600` | Retry delay cap |
+| `BRAIN_INTAKE_POLL_INTERVAL_SECONDS` | `1` | Queue polling interval |
+| `BRAIN_INTAKE_SHUTDOWN_GRACE_SECONDS` | `60` | Worker shutdown grace period |
+| `BRAIN_DREAM_IDLE_TIMEOUT_MINUTES` | `10` | Idle time before a dream cycle |
+| `BRAIN_DREAM_DELAY_MULTIPLIER` | `1.5` | Dream backoff multiplier |
+| `BRAIN_DREAM_MAX_DELAY_MINUTES` | `720` | Maximum dream backoff |
+| `BRAIN_DREAM_BATCH_SIZE` | `25` | Nodes per dream cycle |
 
 Pi reads standard provider credentials. For OpenAI, set `OPENAI_API_KEY`.
 Embeddings use the official OpenAI TypeScript client. Set `OPENAI_BASE_URL` for
@@ -132,7 +141,8 @@ The HNSW indexes store their configured dimension.
 ## Local production deployment
 
 The local production service builds the Bun image, mounts `/data`, and listens
-on loopback. Set `BRAIN_DB_PATH=/data/brain.db` in the deployment environment.
+on loopback. The rendered service sets `BRAIN_DB_PATH` to the configured active
+database under `/data`.
 
 ```bash
 cp deploy/deploy.env.example deploy/deploy.env
@@ -154,13 +164,13 @@ make dev                # Bun server with hot reload
 make test               # Bun tests
 make typecheck          # TypeScript typecheck
 make check              # Bun test and typecheck
-make build-client       # Go TUI binary
+make build-client       # Go CLI binary
 make test-client        # Go tests
 make mobile-image       # Pinned Flutter toolchain image
 make mobile-check       # Containerized Flutter checks
 make docker-build       # Build the Bun image
 make docker-up          # Start the production server
-make docker-down        # Stop Docker services
+make docker-down        # Stop the production Docker server
 make clean              # Remove build artifacts
 ```
 

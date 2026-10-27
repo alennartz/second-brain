@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../gateway/brain_gateway.dart';
 import '../gateway/errors.dart';
 import '../persistence/settings_store.dart';
+import '../widgets/app_logo.dart';
 
 /// The Capture composer and its durable retry state.
 final class CaptureScreen extends StatefulWidget {
@@ -73,6 +74,10 @@ final class _CaptureScreenState extends State<CaptureScreen> {
     return Column(
       children: [
         AppBar(
+          leading: const Padding(
+            padding: EdgeInsets.all(8),
+            child: AppLogo(size: 40),
+          ),
           title: const Text('Capture'),
           actions: [
             IconButton(

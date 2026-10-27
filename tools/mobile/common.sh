@@ -62,6 +62,14 @@ mobile_require_env_file() {
     [[ -f "$MOBILE_ENV_FILE" ]] || mobile_error "missing $MOBILE_ENV_FILE; copy .env.mobile.example and fill local values"
 }
 
+mobile_require_bun_server_config() {
+    local key value
+    for key in BRAIN_INGEST_MODEL BRAIN_RECALL_MODEL BRAIN_DREAM_MODEL; do
+        value=$(mobile_config_value "$key" || true)
+        [[ -n "$value" ]] || { mobile_error "$key is required in $MOBILE_ENV_FILE"; return 1; }
+    done
+}
+
 # Read one simple dotenv value without evaluating the file. Values may be
 # unquoted or surrounded by matching single or double quotes.
 mobile_config_value() {

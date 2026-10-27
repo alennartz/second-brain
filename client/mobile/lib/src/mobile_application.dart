@@ -9,6 +9,7 @@ import 'screens/ask_screen.dart';
 import 'screens/capture_screen.dart';
 import 'screens/recall_result_screen.dart';
 import 'screens/server_settings_screen.dart';
+import 'widgets/app_logo.dart';
 
 /// Public application boundary with injected transport, storage, and keys.
 final class MobileApplication extends StatelessWidget {
@@ -96,7 +97,16 @@ final class _ApplicationBootstrapState extends State<_ApplicationBootstrap> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppLogo(size: 144),
+              SizedBox(height: 20),
+              CircularProgressIndicator(),
+            ],
+          ),
+        ),
       );
     }
     if (_startupError != null) {
@@ -317,7 +327,14 @@ final class _StartupError extends StatelessWidget {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(message, textAlign: TextAlign.center),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AppLogo(size: 144),
+              const SizedBox(height: 20),
+              Text(message, textAlign: TextAlign.center),
+            ],
+          ),
         ),
       ),
     );

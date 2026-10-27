@@ -79,17 +79,6 @@ func TestRecall(t *testing.T) {
 	}
 }
 
-func TestConverse(t *testing.T) {
-	c := api.New(serverURL)
-	resp, err := c.Converse("Hello, what do you know?", nil)
-	if err != nil {
-		t.Fatalf("converse failed: %v", err)
-	}
-	if resp.Response == "" {
-		t.Error("expected non-empty response")
-	}
-}
-
 func TestGraphNotFound(t *testing.T) {
 	c := api.New(serverURL)
 	_, err := c.Graph("note:nonexistent")

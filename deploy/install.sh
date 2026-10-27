@@ -8,6 +8,8 @@ set -euo pipefail
 DEPLOY_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 CHECKOUT_DIR="$(cd -- "$DEPLOY_DIR/.." && pwd -P)"
 ENV_FILE="$DEPLOY_DIR/deploy.env"
+# shellcheck source=common.sh
+source "$DEPLOY_DIR/common.sh"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "error: $ENV_FILE not found" >&2
@@ -34,6 +36,17 @@ for variable in "${required_values[@]}"; do
   fi
 done
 
+if [[ ! "$BRAIN_DEPLOY_PORT" =~ ^[1-9][0-9]*$ ]] || (( BRAIN_DEPLOY_PORT > 65535 )); then
+  echo "error: BRAIN_DEPLOY_PORT must be a valid TCP port" >&2
+  exit 1
+fi
+if [[ "$BRAIN_DEPLOY_DB_NAME" == /* || "$BRAIN_DEPLOY_DB_NAME" == */* ||
+  "$BRAIN_DEPLOY_DB_NAME" == "." || "$BRAIN_DEPLOY_DB_NAME" == ".." ||
+  "$BRAIN_DEPLOY_DB_NAME" == *".."* ]]; then
+  echo "error: BRAIN_DEPLOY_DB_NAME must be a single directory name" >&2
+  exit 1
+fi
+
 if [[ "$BRAIN_IMAGE" == *":latest" ]]; then
   echo "error: refusing to deploy :latest — use the configured local tag" >&2
   exit 1
@@ -43,8 +56,14 @@ if [[ ! -f "$BRAIN_DEPLOY_ENV_FILE" ]]; then
   echo "error: application environment file does not exist: $BRAIN_DEPLOY_ENV_FILE" >&2
   exit 1
 fi
+validate_application_environment "$BRAIN_DEPLOY_ENV_FILE"
 
-if ! docker image inspect "$BRAIN_IMAGE" >/dev/null 2>&1; then
+DOCKER_BIN="$(command -v docker || true)"
+if [[ -z "$DOCKER_BIN" || ! -x "$DOCKER_BIN" ]]; then
+  echo "error: Docker executable was not found in PATH" >&2
+  exit 1
+fi
+if ! "$DOCKER_BIN" image inspect "$BRAIN_IMAGE" >/dev/null 2>&1; then
   echo "error: local Docker image is not available: $BRAIN_IMAGE" >&2
   echo "build it locally before installing the service" >&2
   exit 1
@@ -109,6 +128,8 @@ escape_sed_replacement() {
 name_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_NAME")"
 image_replacement="$(escape_sed_replacement "$BRAIN_IMAGE")"
 port_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_PORT")"
+docker_replacement="$(escape_sed_replacement "$DOCKER_BIN")"
+db_path_replacement="$(escape_sed_replacement "/data/$BRAIN_DEPLOY_DB_NAME")"
 env_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_ENV_FILE")"
 data_replacement="$(escape_sed_replacement "$BRAIN_DEPLOY_DATA_DIR")"
 backup_script_replacement="$(escape_sed_replacement "$DEPLOY_DIR/backup.sh")"
@@ -121,6 +142,8 @@ render_template() {
     -e "s|{{NAME}}|$name_replacement|g" \
     -e "s|{{IMAGE}}|$image_replacement|g" \
     -e "s|{{PORT}}|$port_replacement|g" \
+    -e "s|{{DOCKER}}|$docker_replacement|g" \
+    -e "s|{{DB_PATH}}|$db_path_replacement|g" \
     -e "s|{{ENV_FILE}}|$env_replacement|g" \
     -e "s|{{DATA_DIR}}|$data_replacement|g" \
     -e "s|{{USER_UID}}|$uid_replacement|g" \
@@ -151,5 +174,6 @@ cd -- "$CHECKOUT_DIR"
 systemctl --user daemon-reload
 systemctl --user enable --now "${BRAIN_DEPLOY_NAME}.service"
 systemctl --user enable --now "${BRAIN_DEPLOY_NAME}-backup.timer"
+wait_for_service_health "${BRAIN_DEPLOY_NAME}.service" "$BRAIN_DEPLOY_PORT"
 
 echo "deployed $BRAIN_IMAGE as user service ${BRAIN_DEPLOY_NAME}.service on 127.0.0.1:$BRAIN_DEPLOY_PORT"

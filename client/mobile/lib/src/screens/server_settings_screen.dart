@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../gateway/brain_gateway.dart';
 import '../gateway/errors.dart';
 import '../persistence/settings_store.dart';
+import '../widgets/app_logo.dart';
 
 /// A callback emitted after a URL is saved and its health check completes.
 typedef ServerConfigurationSaved = void Function(
@@ -62,7 +63,14 @@ final class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
           if (!widget.isSetup)
             AppBar(
               automaticallyImplyLeading: true,
-              title: const Text('Settings'),
+              title: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  AppLogo(size: 40),
+                  SizedBox(width: 8),
+                  Text('Settings'),
+                ],
+              ),
             ),
           Expanded(
             child: SingleChildScrollView(
@@ -93,7 +101,7 @@ final class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.isSetup) ...[
-          const Icon(Icons.hub_outlined, size: 56),
+          const AppLogo(size: 144),
           const SizedBox(height: 20),
         ],
         Text(title, style: Theme.of(context).textTheme.headlineSmall),

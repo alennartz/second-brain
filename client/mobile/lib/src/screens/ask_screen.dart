@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../gateway/brain_gateway.dart';
+import '../widgets/app_logo.dart';
 
 /// The one-shot Ask composer. The controller remains alive while its result route is open.
 final class AskScreen extends StatefulWidget {
@@ -40,6 +41,10 @@ final class _AskScreenState extends State<AskScreen> {
     return Column(
       children: [
         AppBar(
+          leading: const Padding(
+            padding: EdgeInsets.all(8),
+            child: AppLogo(size: 40),
+          ),
           title: const Text('Ask'),
           actions: [
             IconButton(

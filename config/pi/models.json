@@ -1,0 +1,61 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "local-sglang": {
+      "name": "Local SGLang (Gemma 4)",
+      "baseUrl": "http://jetson.ordernet:8082/v1",
+      "api": "openai-completions",
+      "apiKey": "local",
+      "models": [
+        {
+          "id": "gemma4-26b-a4b",
+          "name": "Gemma 4 26B-A4B MoE (local SGLang)",
+          "reasoning": true,
+          "input": ["text"],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 32768,
+          "maxTokens": 8192,
+          "promptCache": {
+            "short": 600,
+            "long": 3600
+          },
+          "samplingParams": {
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "top_k": 64
+          },
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": true,
+            "supportsReasoningEffort": false,
+            "supportsUsageInStreaming": true,
+            "supportsFinishReason": true,
+            "maxTokensField": "max_tokens",
+            "requiresToolResultName": false,
+            "requiresAssistantAfterToolResult": false,
+            "requiresThinkingAsText": false,
+            "requiresReasoningContentOnAssistantMessages": false,
+            "thinkingFormat": "chat-template",
+            "chatTemplateKwargs": {
+              "enable_thinking": {
+                "$var": "thinking.enabled"
+              },
+              "preserve_thinking": true
+            },
+            "supportsOpenAIGrammarTools": false,
+            "supportsStrictMode": false,
+            "supportsMidConvoSystemMessages": false,
+            "supportsMidConvoToolAdditions": false,
+            "supportsLongCacheRetention": false,
+            "sendSessionAffinityHeaders": false
+          }
+        }
+      ]
+    }
+  }
+}

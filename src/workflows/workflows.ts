@@ -24,10 +24,10 @@ export type IngestOutcome = { clean: boolean; aborted: boolean; errors: readonly
 export interface IngestWorkflow {
   run(batch: IngestBatch, signal?: AbortSignal): Promise<IngestOutcome>;
 }
-const ingestNames = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode"];
-const readNames = ["searchMemory", "getNode", "exploreGraph"];
+const ingestNames = ["memory_search", "memory_get_node", "memory_explore", "memory_store_node", "memory_store_edge", "memory_update_node"];
+const readNames = ["memory_search", "memory_get_node", "memory_explore"];
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
-const ingestMutationTools = new Set(["storeNode", "storeEdge", "updateNode"]);
+const ingestMutationTools = new Set(["memory_store_node", "memory_store_edge", "memory_update_node"]);
 function resultErrors(result: Awaited<ReturnType<WorkflowRuntime["run"]>>, mutationOnly = false) {
   const toolErrors = result.toolResults.filter(t => t.isError && (!mutationOnly || ingestMutationTools.has(t.toolName)));
   return [...toolErrors.map(t => JSON.stringify(t.structuredContent)), ...(!result.settled ? ["Run did not settle"] : [])];
@@ -46,20 +46,18 @@ export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
 
 export type RecallAnswer = {
   answer: string;
-  hasEvidence: boolean;
-  nodeIds: readonly NodeId[];
-  edgeIds: readonly EdgeId[];
-  unprocessedIds: readonly NodeId[];
+  nodeIds?: readonly NodeId[];
+  edgeIds?: readonly EdgeId[];
+  unprocessedIds?: readonly NodeId[];
 };
 export interface RecallWorkflow {
   run(question: string, signal?: AbortSignal, hints?: readonly string[]): Promise<RecallAnswer>;
 }
 const answerSchema = Type.Object({
   answer: Type.String({ minLength: 1, description: "Final answer text for the user." }),
-  hasEvidence: Type.Boolean({ description: "True only when at least one citation ID is present." }),
-  nodeIds: Type.Array(Type.String(), { description: "Cited note or entity IDs from this session's tool results." }),
-  edgeIds: Type.Array(Type.String(), { description: "Cited edge IDs from this session's tool results." }),
-  unprocessedIds: Type.Array(Type.String(), { description: "Cited raw evidence chunk IDs from this session's tool results." }),
+  nodeIds: Type.Optional(Type.Array(Type.String(), { description: "Cited note or entity IDs returned by this session's read-tool results." })),
+  edgeIds: Type.Optional(Type.Array(Type.String(), { description: "Cited edge IDs returned by this session's read-tool results." })),
+  unprocessedIds: Type.Optional(Type.Array(Type.String(), { description: "Cited raw evidence chunk IDs returned by this session's read-tool results." })),
 });
 export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
   return { async run(question, signal, hints = []) {
@@ -80,17 +78,27 @@ export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
       collect((event.result as { structuredContent?: unknown } | undefined)?.structuredContent);
     };
     tools.push({ name: "answerRecall", label: "Answer Recall",
-      description: "Submit the final validated answer directly. Use only citation IDs returned by the read tools. Set hasEvidence to false when all citation arrays are empty.",
-      promptSnippet: "Submit the final recall answer with validated citation IDs.",
+      description: "Submit the final answer and any citation IDs. The workflow validates each citation against this session's read-tool results.",
+      promptSnippet: "Submit the final recall answer with optional citation IDs.",
+      promptGuidelines: [
+        "After reading evidence, call answerRecall to submit the final answer.",
+        "Use only IDs returned by memory_search, memory_get_node, or memory_explore in answerRecall citation arrays.",
+        "When no evidence exists, omit citation arrays from answerRecall.",
+      ],
       parameters: answerSchema, outputSchema: answerSchema, execute: async (args, executionSignal) => {
       signal?.throwIfAborted(); executionSignal.throwIfAborted();
       if (!Value.Check(answerSchema, args)) throw new InvalidInputError("Invalid recall answer");
       const answer = args as RecallAnswer;
-      if (answer.nodeIds.some(id => !nodes.has(id)) || answer.edgeIds.some(id => !edges.has(id)) || answer.unprocessedIds.some(id => !raw.has(id))) throw new InvalidInputError("Unknown citation");
-      const count = answer.nodeIds.length + answer.edgeIds.length + answer.unprocessedIds.length;
-      if (answer.hasEvidence !== (count > 0)) throw new InvalidInputError("Evidence flag does not match citations");
-      state.answer = answer;
-      return { toolName: "answerRecall", structuredContent: answer, stop: true };
+      const nodeIds = answer.nodeIds ?? [], edgeIds = answer.edgeIds ?? [], unprocessedIds = answer.unprocessedIds ?? [];
+      if (nodeIds.some(id => !nodes.has(id)) || edgeIds.some(id => !edges.has(id)) || unprocessedIds.some(id => !raw.has(id))) throw new InvalidInputError("Unknown citation");
+      const normalized: RecallAnswer = {
+        answer: answer.answer,
+        ...(nodeIds.length ? { nodeIds } : {}),
+        ...(edgeIds.length ? { edgeIds } : {}),
+        ...(unprocessedIds.length ? { unprocessedIds } : {}),
+      };
+      state.answer = normalized;
+      return { toolName: "answerRecall", structuredContent: normalized, stop: true };
     } });
     const followUpState = { requested: false };
     const result = await d.runtime.run({
@@ -133,7 +141,7 @@ export function createDreamWorkflow(d: WorkflowDependencies): DreamWorkflow {
     } catch (error) { return { aborted: !!signal?.aborted, errors: [errorText(error)] }; }
   }
   return {
-    deduplicate: (ids, signal) => run(ids, signal, dedupPrompt, ["findSimilar", "getNode", "exploreGraph", "mergeNodes", "mergeEdges", "updateNode", "removeEdge", "renameEdgeType"]),
-    connect: (ids, signal) => run(ids, signal, connectPrompt, ["findSimilar", "findUnlinkedCooccurrences", "getNode", "exploreGraph", "storeEdge", "updateNode"]),
+    deduplicate: (ids, signal) => run(ids, signal, dedupPrompt, ["memory_find_similar", "memory_get_node", "memory_explore", "memory_merge_nodes", "memory_merge_edges", "memory_update_node", "memory_remove_edge", "memory_rename_edge_type"]),
+    connect: (ids, signal) => run(ids, signal, connectPrompt, ["memory_find_similar", "memory_suggest_edges", "memory_get_node", "memory_explore", "memory_store_edge", "memory_update_node"]),
   };
 }

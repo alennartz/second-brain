@@ -179,9 +179,9 @@ describe("KnowledgeGraph", () => {
     expect(Value.Check(storeNodeOutput, result)).toBe(true);
   }));
   test("registers one extension file per knowledge tool for pi discovery", () => {
-    const names = ["searchMemory", "getNode", "exploreGraph", "storeNode", "storeEdge", "updateNode", "findSimilar", "findUnlinkedCooccurrences", "mergeNodes", "mergeEdges", "removeEdge", "renameEdgeType"];
+    const names = ["memory_search", "memory_get_node", "memory_explore", "memory_store_node", "memory_store_edge", "memory_update_node", "memory_find_similar", "memory_suggest_edges", "memory_merge_nodes", "memory_merge_edges", "memory_remove_edge", "memory_rename_edge_type"];
     for (const name of names) {
-      const kebab = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+      const kebab = name.replace(/_/g, "-");
       const file = join(import.meta.dir, "..", "packages", "pi-second-brain", "extensions", `${kebab}.ts`);
       expect(existsSync(file)).toBe(true);
     }

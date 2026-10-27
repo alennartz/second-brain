@@ -338,7 +338,7 @@ describe("SDK-backed agent runtime seam", () => {
       models: [{ id: model.model, name: "Agent Runtime Deterministic", reasoning: true }],
     });
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("storeNode", { kind: "entity", name: "Ada", type: "person" })),
+      fauxAssistantMessage(fauxToolCall("memory_store_node", { kind: "entity", name: "Ada", type: "person" })),
       fauxAssistantMessage("stored"),
     ]);
     let storage: Storage | undefined;
@@ -366,11 +366,11 @@ describe("SDK-backed agent runtime seam", () => {
         model,
         systemPrompt: "Use only the knowledge tools.",
         prompt: "Store Ada as a person.",
-        toolNames: ["storeNode", "getNode"],
+        toolNames: ["memory_store_node", "memory_get_node"],
       });
 
       expect(result.settled).toBe(true);
-      const stored = result.toolResults.find(toolResult => toolResult.toolName === "storeNode");
+      const stored = result.toolResults.find(toolResult => toolResult.toolName === "memory_store_node");
       expect(stored?.isError).toBeFalsy();
       const id = (stored?.structuredContent as { id?: string } | undefined)?.id;
       expect(id).toMatch(/^entity:/);

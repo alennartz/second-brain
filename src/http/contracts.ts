@@ -47,8 +47,8 @@ export interface RecallEvidenceStore {
 }
 export interface RecallAnswerSource {
   run(question: string, signal?: AbortSignal, hints?: readonly string[]): Promise<{
-    answer: string; hasEvidence: boolean;
-    nodeIds: readonly string[]; edgeIds: readonly string[]; unprocessedIds: readonly string[];
+    answer: string;
+    nodeIds?: readonly string[]; edgeIds?: readonly string[]; unprocessedIds?: readonly string[];
   }>;
 }
 export function createRecallService(_workflow: RecallAnswerSource, _storage: RecallEvidenceStore): {
@@ -56,7 +56,8 @@ export function createRecallService(_workflow: RecallAnswerSource, _storage: Rec
 } {
   return { async recall(request) {
     const result = await _workflow.run(request.question, undefined, request.hints);
-    if (!result.hasEvidence) return { answer: result.answer, context: null };
+    const nodeIds = result.nodeIds ?? [], edgeIds = result.edgeIds ?? [], unprocessedIds = result.unprocessedIds ?? [];
+    if (!nodeIds.length && !edgeIds.length && !unprocessedIds.length) return { answer: result.answer, context: null };
     async function resolve(ids: readonly string[], read: (id: string) => Promise<Record<string, unknown> | undefined>) {
       const records = await Promise.all(ids.map(id => read(id)));
       return {
@@ -65,9 +66,9 @@ export function createRecallService(_workflow: RecallAnswerSource, _storage: Rec
       };
     }
     const [nodes, edges, unprocessed] = await Promise.all([
-      resolve(result.nodeIds, id => _storage.getNode(id)),
-      resolve(result.edgeIds, id => _storage.getEdge(id)),
-      resolve(result.unprocessedIds, id => _storage.getUnprocessed(id)),
+      resolve(nodeIds, id => _storage.getNode(id)),
+      resolve(edgeIds, id => _storage.getEdge(id)),
+      resolve(unprocessedIds, id => _storage.getUnprocessed(id)),
     ]);
     if (nodes.missing || edges.missing || unprocessed.missing) return { answer: result.answer, context: null };
     return { answer: result.answer, context: { nodes: nodes.records, edges: edges.records, unprocessed: unprocessed.records } };

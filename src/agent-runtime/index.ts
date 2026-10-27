@@ -1,5 +1,5 @@
 import type { TSchema } from "@sinclair/typebox";
-import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ModelRuntime, type ToolAnnotations } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory, type ModelRuntime, type ToolAnnotations } from "@earendil-works/pi-coding-agent";
 import { Value } from "@sinclair/typebox/value";
 import type { ThinkingLevel, WorkflowModelRef } from "../core/config";
 
@@ -58,6 +58,23 @@ export interface RuntimeSession {
   dispose(): Promise<void>;
 }
 export type SessionFactory = (options: SessionOptions) => Promise<RuntimeSession>;
+function removePiDocsSection(prompt: string): string {
+  const start = prompt.indexOf("\n<docs>");
+  if (start < 0) return prompt;
+  const endTag = "</docs>";
+  const end = prompt.indexOf(endTag, start);
+  return end < 0 ? prompt : `${prompt.slice(0, start)}${prompt.slice(end + endTag.length)}`;
+}
+function createWorkflowPromptExtension(systemPrompt: string): ExtensionFactory {
+  return pi => {
+    pi.on("before_agent_start", event => {
+      const toolsStart = event.systemPrompt.indexOf("<tools>");
+      if (toolsStart < 0) return { systemPrompt };
+      const generatedSections = removePiDocsSection(event.systemPrompt.slice(toolsStart));
+      return { systemPrompt: `${systemPrompt}\n\n${generatedSections}` };
+    });
+  };
+}
 export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRuntime {
   return createAgentRuntime(async request => {
     const model = options.modelRuntime.getModel(request.model.provider, request.model.model);
@@ -65,6 +82,7 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
     const results: StructuredToolResult[] = [];
     const termination = { requested: false };
     const customNames = new Set(request.customTools?.map(tool => tool.name) ?? []);
+    const customToolCallIds = new Set<string>();
     const activeTools = ["codemode", ...request.toolNames, ...(request.customTools?.map(tool => tool.name) ?? [])];
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
@@ -75,9 +93,9 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
       cwd: options.cwd, agentDir: options.agentDir, settingsManager,
       additionalExtensionPaths: [...(options.extensionPaths ?? [])],
       noSkills: true, noPromptTemplates: true, noThemes: true,
-      extensionFactories: [createCodemodeExtension({ mode: "on", models: false })],
+      extensionFactories: [createCodemodeExtension({ mode: "on", models: false }), createWorkflowPromptExtension(request.systemPrompt)],
       agentsFilesOverride: () => ({ agentsFiles: [] }),
-      systemPromptOverride: () => request.systemPrompt,
+      systemPromptOverride: () => undefined,
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({
@@ -91,16 +109,18 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
         ...(tool.promptGuidelines ? { promptGuidelines: [...tool.promptGuidelines] } : {}),
         ...(tool.annotations ? { annotations: tool.annotations } : {}),
         ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
-        async execute(_id, input, signal) {
+        async execute(toolCallId, input, signal) {
           try {
             if (signal?.aborted) throw new Error("Tool execution aborted");
             if (!Value.Check(tool.parameters, input)) throw new Error("Invalid tool parameters");
             const result = await tool.execute(input, signal ?? new AbortController().signal);
             if (!result.isError && tool.outputSchema && !Value.Check(tool.outputSchema, result.structuredContent)) throw new Error("Invalid tool output");
+            customToolCallIds.add(toolCallId);
             results.push(result);
             if (result.stop) { termination.requested = true; queueMicrotask(() => { void session.abort(); }); }
             return { content: [{ type: "text" as const, text: JSON.stringify(result.structuredContent) }], details: result, structuredContent: result.structuredContent as never, isError: result.isError };
           } catch (error) {
+            customToolCallIds.add(toolCallId);
             const result = { toolName: tool.name, structuredContent: { error: String(error) }, isError: true };
             results.push(result);
             throw error;
@@ -116,7 +136,7 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
       async prompt(text, execution) {
         const unsubscribe = session.subscribe(event => {
           execution.onEvent?.(event as unknown as AgentEvent);
-          if (event.type === "tool_execution_end" && event.toolName !== "codemode" && !customNames.has(event.toolName)) {
+          if (event.type === "tool_execution_end" && event.toolName !== "codemode" && (!customNames.has(event.toolName) || !customToolCallIds.has(event.toolCallId))) {
             const result = event.result as { structuredContent?: unknown } | undefined;
             results.push({ toolName: event.toolName, structuredContent: result?.structuredContent ?? result, isError: event.isError });
           }

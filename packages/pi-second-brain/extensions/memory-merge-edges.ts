@@ -2,23 +2,22 @@ import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Value } from "@sinclair/typebox/value";
 import { registerBridgeSettings, scopedKnowledge } from "../lib/bridge.ts";
 import { prepareToolArguments } from "../lib/graph.ts";
-import { searchMemoryInput, searchMemoryOutput } from "../lib/schemas.ts";
+import { mergeEdgesInput, mergeEdgesOutput } from "../lib/schemas.ts";
 
 export default function (pi: ExtensionAPI) {
   registerBridgeSettings(pi);
   pi.registerTool(defineTool({
-    name: "searchMemory",
-    label: "Search Memory",
-    description: "Hybrid lexical and vector search over stored notes, entities, and unprocessed intake evidence. Returns nodes and unprocessed arrays. limit defaults to 10, maximum 100.",
-    promptSnippet: "Search stored notes, entities, and raw evidence by text query.",
-    parameters: searchMemoryInput,
-    outputSchema: searchMemoryOutput,
-    annotations: { readOnlyHint: true },
+    name: "memory_merge_edges",
+    label: "Merge Edges",
+    description: "Merge duplicate edges between the same ordered node pair into one survivor edge, combining their context. Losers are deleted in one transaction. Returns survivor and removedIds.",
+    promptSnippet: "Collapse duplicate edges between the same node pair into one.",
+    parameters: mergeEdgesInput,
+    outputSchema: mergeEdgesOutput,
     prepareArguments: prepareToolArguments,
     async execute(_toolCallId, params, signal) {
       const knowledge = await scopedKnowledge(signal);
-      const structuredContent = await knowledge.searchMemory(params);
-      if (!Value.Check(searchMemoryOutput, structuredContent)) throw new Error("Invalid searchMemory output");
+      const structuredContent = await knowledge.mergeEdges(params);
+      if (!Value.Check(mergeEdgesOutput, structuredContent)) throw new Error("Invalid memory_merge_edges output");
       return { content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }], structuredContent: structuredContent as never, details: structuredContent };
     },
   }));

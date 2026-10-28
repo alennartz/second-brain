@@ -25,12 +25,12 @@ export const systemClock: WorkflowClock = {
   },
 };
 function nodeWire(node: NodeRecord): Record<string, unknown> {
-  const { kind, dreamAge, createdAt, updatedAt, ...fields } = node;
-  return { ...fields, ...(dreamAge === undefined ? {} : { dream_age: dreamAge }), ...(createdAt === undefined ? {} : { created_at: createdAt }), ...(updatedAt === undefined ? {} : { updated_at: updatedAt }) };
+  const { kind, dreamAge, createdAt, updatedAt, freshnessAt, ...fields } = node;
+  return { ...fields, ...(dreamAge === undefined ? {} : { dream_age: dreamAge }), ...(createdAt === undefined ? {} : { created_at: createdAt }), ...(updatedAt === undefined ? {} : { updated_at: updatedAt }), ...(freshnessAt === undefined ? {} : { freshness_at: freshnessAt }) };
 }
 function edgeWire(edge: EdgeRecord): Record<string, unknown> {
-  const { edgeType, ...fields } = edge;
-  return { ...fields, table: edge.id.split(":")[0] };
+  const { edgeType, freshnessAt, ...fields } = edge;
+  return { ...fields, ...(freshnessAt === undefined ? {} : { freshness_at: freshnessAt }), table: edge.id.split(":")[0] };
 }
 export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, IntakePipeline, DreamScheduler, ModelRuntime> {
   const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir, extensionPaths: [resolve(cwd, settings.piToolsPackage)] });
@@ -44,10 +44,10 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         workflow: createIngestWorkflow(workflowDependencies(settings.ingestModel)), clock: systemClock,
         settings: { chunkMaxChars: settings.intake.chunkChars, workers: settings.intake.workerConcurrency, pollMs: settings.intake.pollIntervalSeconds * 1000, leaseRenewMs: settings.intake.leaseSeconds * 1000 / 3, retryBaseMs: settings.intake.retryBaseDelaySeconds * 1000, retryCapMs: settings.intake.retryMaxDelaySeconds * 1000, shutdownGraceMs: settings.intake.shutdownGraceSeconds * 1000 },
         queue: {
-          async stageIntake(request, chunks) { return { chunksStored: await storage.createIntakeChunks(crypto.randomUUID(), chunks.map(c => ({ content: c.content, chunk_index: c.chunkIndex, total_chunks: c.totalChunks, hints: c.hints, source: c.source })), request.idempotencyKey) }; },
+          async stageIntake(request, chunks) { return { chunksStored: await storage.createIntakeChunks(crypto.randomUUID(), chunks.map(c => ({ content: c.content, chunk_index: c.chunkIndex, total_chunks: c.totalChunks, hints: c.hints, source: c.source, captured_at: c.capturedAt })), request.idempotencyKey) }; },
           async claimIntakeBatch() {
             const batch = await storage.claimIntakeBatch(`worker-${process.pid}`, settings.intake.processingBatchChars, settings.intake.leaseSeconds);
-            return batch ? { intakeId: batch.intake_id, leaseToken: batch.lease_token, attemptCount: Math.max(...batch.chunks.map(c => c.attempt_count)), chunks: batch.chunks.map(c => ({ id: c.id, chunkIndex: c.chunk_index, content: c.content, hints: c.hints })) } : undefined;
+            return batch ? { intakeId: batch.intake_id, leaseToken: batch.lease_token, attemptCount: Math.max(...batch.chunks.map(c => c.attempt_count)), chunks: batch.chunks.map(c => ({ id: c.id, chunkIndex: c.chunk_index, content: c.content, hints: c.hints, capturedAt: c.captured_at ?? c.created_at ?? new Date(systemClock.now()).toISOString() })) } : undefined;
           },
           renewIntakeBatch: token => storage.renewIntakeBatch(token, settings.intake.leaseSeconds),
           deleteIntakeBatch: token => storage.deleteIntakeBatch(token),
@@ -68,13 +68,13 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
       const recall = createRecallService(createRecallWorkflow(workflowDependencies(settings.recallModel)), {
         getNode: async id => { const node = await storage.getNode(id); return node ? nodeWire(node) : undefined; },
         getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge) : undefined; },
-        getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return { ...Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at"].map(key => [key, record[key as keyof typeof record]])), unprocessed: true }; },
+        getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return { ...Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at", "captured_at"].map(key => [key, record[key as keyof typeof record]])), unprocessed: true }; },
       });
       return {
         async enqueue(request) {
           if (!request.text.trim() || request.text.length > settings.intake.maxRequestChars) throw new HttpApplicationError("invalid", "Invalid intake text length");
           try {
-            const result = await pipeline.enqueue({ text: request.text, hints: request.hints, source: request.source, idempotencyKey: request.idempotency_key });
+            const result = await pipeline.enqueue({ text: request.text, hints: request.hints, source: request.source, capturedAt: request.captured_at, idempotencyKey: request.idempotency_key });
             scheduler.touchActivity(); return { chunks_stored: result.chunksStored };
           } catch (error) { throw new HttpApplicationError(String(error).toLowerCase().includes("idempotency") ? "conflict" : "unavailable", String(error)); }
         },

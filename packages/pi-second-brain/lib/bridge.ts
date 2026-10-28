@@ -1,6 +1,7 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Storage } from "../../../src/storage/storage.ts";
 import { parseSecondBrainConfig, resolveSecret, type SecondBrainConfig } from "./config.ts";
-import { bindKnowledge, cancellableStorage, type KnowledgeFunctions } from "./graph.ts";
+import { bindKnowledge, cancellableStorage, type KnowledgeContext, type KnowledgeFunctions } from "./graph.ts";
 
 type BridgeState = {
   storage?: Storage;
@@ -8,11 +9,17 @@ type BridgeState = {
   settings?: () => unknown;
   selfCreated?: Storage;
   init?: Promise<Storage>;
+  context?: AsyncLocalStorage<KnowledgeContext>;
 };
 
 function state(): BridgeState {
   const holder = globalThis as { __secondBrain?: BridgeState };
-  return holder.__secondBrain ??= {};
+  const bridge = holder.__secondBrain ??= {};
+  return bridge;
+}
+function contextStore(): AsyncLocalStorage<KnowledgeContext> {
+  const bridge = state();
+  return bridge.context ??= new AsyncLocalStorage<KnowledgeContext>();
 }
 
 export function injectSecondBrainStorage(storage: Storage): void {
@@ -25,6 +32,10 @@ export function injectSecondBrainConfig(config: SecondBrainConfig): void {
 
 export function registerBridgeSettings(source: { getSettings(): unknown }): void {
   state().settings = () => source.getSettings();
+}
+
+export function withKnowledgeContext<T>(context: KnowledgeContext, operation: () => Promise<T>): Promise<T> {
+  return contextStore().run(context, operation);
 }
 
 async function initStorage(config: SecondBrainConfig): Promise<Storage> {
@@ -57,7 +68,7 @@ export async function scopedKnowledge(signal: AbortSignal | undefined): Promise<
   scope.throwIfAborted();
   const storage = await resolveStorage();
   scope.throwIfAborted();
-  return bindKnowledge(cancellableStorage(storage, scope));
+  return bindKnowledge(cancellableStorage(storage, scope), contextStore().getStore());
 }
 
 export async function closeBridgedStorage(): Promise<void> {

@@ -30,8 +30,8 @@ function dependencies(): IntakePipelineDependencies {
 }
 const batch = {
   intakeId: "capture", leaseToken: "lease", chunks: [
-    { id: "intake_chunk:a", chunkIndex: 0, content: "First.", hints: ["topic"] },
-    { id: "intake_chunk:b", chunkIndex: 1, content: "Second.", hints: [] },
+    { id: "intake_chunk:a", chunkIndex: 0, content: "First.", hints: ["topic"], capturedAt: "2026-01-01T00:00:00Z" },
+    { id: "intake_chunk:b", chunkIndex: 1, content: "Second.", hints: [], capturedAt: "2026-01-01T00:00:00Z" },
   ],
 };
 
@@ -44,7 +44,7 @@ describe("intake pipeline staging", () => {
     deps.queue.stageIntake = async (_request, chunks) => { drafts = chunks; await stored.promise; return { chunksStored: chunks.length }; };
     const pipeline = createIntakePipeline(deps);
     let returned = false;
-    const pending = pipeline.enqueue({ text, hints: ["topic"], source: "api" }).then(value => { returned = true; return value; });
+    const pending = pipeline.enqueue({ text, hints: ["topic"], source: "api", capturedAt: "2026-01-01T00:00:00Z" }).then(value => { returned = true; return value; });
     await Promise.resolve();
     expect(returned).toBe(false);
     stored.resolve();
@@ -55,27 +55,28 @@ describe("intake pipeline staging", () => {
     expect(drafts.map(chunk => chunk.content).join("")).toBe(text.trim());
     expect(drafts.map(chunk => chunk.chunkIndex)).toEqual(drafts.map((_chunk, index) => index));
     expect(drafts.every(chunk => chunk.totalChunks === drafts.length && chunk.hints[0] === "topic")).toBe(true);
+    expect(drafts.every(chunk => chunk.capturedAt === "2026-01-01T00:00:00Z")).toBe(true);
   });
   test("rejects blank text without staging evidence", async () => {
     const deps = dependencies();
     let calls = 0;
     deps.queue.stageIntake = async () => { calls++; return { chunksStored: 0 }; };
     const pipeline = createIntakePipeline(deps);
-    await expect(pipeline.enqueue({ text: " \n\t" })).rejects.toThrow();
+    await expect(pipeline.enqueue({ text: " \n\t", capturedAt: "2026-01-01T00:00:00Z" })).rejects.toThrow();
     expect(calls).toBe(0);
   });
   test("propagates staging failures without reporting an acknowledgement", async () => {
     const deps = dependencies();
     deps.queue.stageIntake = async () => { throw new Error("embedding failed"); };
     const pipeline = createIntakePipeline(deps);
-    await expect(pipeline.enqueue({ text: "Capture." })).rejects.toThrow("embedding failed");
+    await expect(pipeline.enqueue({ text: "Capture.", capturedAt: "2026-01-01T00:00:00Z" })).rejects.toThrow("embedding failed");
   });
   test("passes the idempotency key to atomic queue staging", async () => {
     const deps = dependencies();
     let key: string | undefined;
     deps.queue.stageIntake = async request => { key = request.idempotencyKey; return { chunksStored: 1 }; };
     const pipeline = createIntakePipeline(deps);
-    expect(await pipeline.enqueue({ text: "Capture.", idempotencyKey: "mobile-retry" })).toEqual({ chunksStored: 1 });
+    expect(await pipeline.enqueue({ text: "Capture.", capturedAt: "2026-01-01T00:00:00Z", idempotencyKey: "mobile-retry" })).toEqual({ chunksStored: 1 });
     expect(key).toBe("mobile-retry");
   });
 });

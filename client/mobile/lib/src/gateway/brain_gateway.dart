@@ -9,6 +9,7 @@ abstract interface class BrainGateway {
   Future<IngestReceipt> stageIntake(
     String text, {
     required String idempotencyKey,
+    required String capturedAt,
   });
 
   /// Recalls an answer and its grouped evidence for [question].

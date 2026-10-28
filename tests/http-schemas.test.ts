@@ -3,11 +3,13 @@ import { Value } from "@sinclair/typebox/value";
 import { createHttpSchemas } from "../src/http/schemas";
 
 describe("shared HTTP TypeBox schema boundaries", () => {
-  test("intake bodies accept optional hints and source and reject non-string text", () => {
+  test("intake bodies require a valid capture time and keep hints and source optional", () => {
     const schemas = createHttpSchemas();
-    expect(Value.Check(schemas.ingestBody, { text: "memory" })).toBe(true);
-    expect(Value.Check(schemas.ingestBody, { text: "memory", hints: [], source: "mobile" })).toBe(true);
-    expect(Value.Check(schemas.ingestBody, { text: 1 })).toBe(false);
+    expect(Value.Check(schemas.ingestBody, { text: "memory", captured_at: "2026-01-01T00:00:00Z" })).toBe(true);
+    expect(Value.Check(schemas.ingestBody, { text: "memory", hints: [], source: "mobile", captured_at: "2026-01-01T00:00:00+02:00" })).toBe(true);
+    expect(Value.Check(schemas.ingestBody, { text: "memory" })).toBe(false);
+    expect(Value.Check(schemas.ingestBody, { text: "memory", captured_at: "not-a-time" })).toBe(false);
+    expect(Value.Check(schemas.ingestBody, { text: 1, captured_at: "2026-01-01T00:00:00Z" })).toBe(false);
     expect(Value.Check(schemas.ingestBody, {})).toBe(false);
   });
   test("idempotency headers accept optional string keys only", () => {

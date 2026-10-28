@@ -21,17 +21,19 @@ import type {
  * all calls or rolls them back when the callback rejects.
  */
 export type UnlinkedCooccurrenceCandidate = { fromId: NodeId; toId: NodeId; sharedNoteIds: readonly NodeId[] };
+export type MutationContext = { freshnessAt?: Timestamp };
+export type EdgeUpdateFields = { context?: string; edge_type?: string; in?: NodeId; out?: NodeId; freshnessAt?: Timestamp };
 
 export interface StorageTransaction {
-  createNode(input: NewNode): Promise<NodeRecord>;
+  createNode(input: NewNode, context?: MutationContext): Promise<NodeRecord>;
   getNode(id: NodeId): Promise<NodeRecord | undefined>;
-  updateNodeFields(id: NodeId, fields: NodeFields): Promise<NodeRecord | undefined>;
+  updateNodeFields(id: NodeId, fields: NodeFields, context?: MutationContext): Promise<NodeRecord | undefined>;
   deleteNode(id: NodeId): Promise<void>;
 
-  createEdge(input: NewEdge): Promise<EdgeRecord>;
+  createEdge(input: NewEdge, context?: MutationContext): Promise<EdgeRecord>;
   getEdge(id: EdgeId): Promise<EdgeRecord | undefined>;
   deleteEdge(id: EdgeId): Promise<void>;
-  updateEdgeFields(id: EdgeId, fields: { context?: string; edge_type?: string; in?: NodeId; out?: NodeId }): Promise<EdgeRecord | undefined>;
+  updateEdgeFields(id: EdgeId, fields: EdgeUpdateFields): Promise<EdgeRecord | undefined>;
   getIncomingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   getOutgoingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   getEdgesByType(edgeType: string): Promise<readonly EdgeRecord[]>;
@@ -51,15 +53,15 @@ export interface Storage {
   init(): Promise<void>;
   close(): Promise<void>;
 
-  createNode(input: NewNode): Promise<NodeRecord>;
+  createNode(input: NewNode, context?: MutationContext): Promise<NodeRecord>;
   getNode(id: NodeId): Promise<NodeRecord | undefined>;
-  updateNodeFields(id: NodeId, fields: NodeFields): Promise<NodeRecord | undefined>;
+  updateNodeFields(id: NodeId, fields: NodeFields, context?: MutationContext): Promise<NodeRecord | undefined>;
   deleteNode(id: NodeId): Promise<void>;
 
-  createEdge(input: NewEdge): Promise<EdgeRecord>;
+  createEdge(input: NewEdge, context?: MutationContext): Promise<EdgeRecord>;
   getEdge(id: EdgeId): Promise<EdgeRecord | undefined>;
   deleteEdge(id: EdgeId): Promise<void>;
-  updateEdgeFields(id: EdgeId, fields: { context?: string; edge_type?: string; in?: NodeId; out?: NodeId }): Promise<EdgeRecord | undefined>;
+  updateEdgeFields(id: EdgeId, fields: EdgeUpdateFields): Promise<EdgeRecord | undefined>;
   getIncomingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   getOutgoingEdges(id: NodeId): Promise<readonly EdgeRecord[]>;
   findEdges(from: NodeId, edgeType: string, to: NodeId): Promise<readonly EdgeRecord[]>;
@@ -97,7 +99,7 @@ export class StorageStub implements Storage {
   async countNodes(): Promise<number> { throw new Error("not implemented"); }
   async selectDreamBatch(_kind: "entity" | "all", _limit: number): Promise<readonly NodeRecord[]> { throw new Error("not implemented"); }
   async incrementDreamAge(_nodeIds: readonly NodeId[]): Promise<void> { throw new Error("not implemented"); }
-  async updateEdgeFields(_id: EdgeId, _fields: { context?: string; edge_type?: string; in?: NodeId; out?: NodeId }): Promise<EdgeRecord | undefined> { throw new Error("not implemented"); }
+  async updateEdgeFields(_id: EdgeId, _fields: EdgeUpdateFields): Promise<EdgeRecord | undefined> { throw new Error("not implemented"); }
   async getEdgesByType(_edgeType: string): Promise<readonly EdgeRecord[]> {
     throw new Error("not implemented");
   }
@@ -120,7 +122,7 @@ export class StorageStub implements Storage {
     throw new Error("not implemented");
   }
 
-  async createNode(_input: NewNode): Promise<NodeRecord> {
+  async createNode(_input: NewNode, _context?: MutationContext): Promise<NodeRecord> {
     throw new Error("not implemented");
   }
 
@@ -131,6 +133,7 @@ export class StorageStub implements Storage {
   async updateNodeFields(
     _id: NodeId,
     _fields: NodeFields,
+    _context?: MutationContext,
   ): Promise<NodeRecord | undefined> {
     throw new Error("not implemented");
   }
@@ -139,7 +142,7 @@ export class StorageStub implements Storage {
     throw new Error("not implemented");
   }
 
-  async createEdge(_input: NewEdge): Promise<EdgeRecord> {
+  async createEdge(_input: NewEdge, _context?: MutationContext): Promise<EdgeRecord> {
     throw new Error("not implemented");
   }
 

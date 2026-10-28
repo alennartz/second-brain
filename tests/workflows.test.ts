@@ -12,8 +12,8 @@ const settled = { settled: true, aborted: false, toolResults: [] };
 const batch = {
   intakeId: "capture", leaseToken: "lease",
   chunks: [
-    { id: "intake_chunk:a", chunkIndex: 0, content: "First paragraph.", hints: ["topic"] },
-    { id: "intake_chunk:b", chunkIndex: 1, content: "Second paragraph.", hints: [] },
+    { id: "intake_chunk:a", chunkIndex: 0, content: "First paragraph.", hints: ["topic"], capturedAt: "2026-01-01T00:00:00Z" },
+    { id: "intake_chunk:b", chunkIndex: 1, content: "Second paragraph.", hints: [], capturedAt: "2026-01-01T00:00:00Z" },
   ],
 };
 const sorted = (names: readonly string[]) => [...names].sort();
@@ -28,6 +28,8 @@ describe("ingest workflow", () => {
     expect(requests[0]!.customTools ?? []).toEqual([]);
     expect(requests[0]!.model).toEqual(model);
     expect(requests[0]!.prompt).toContain("topic");
+    expect(requests[0]!.prompt).toContain("capturedAt");
+    expect(requests[0]!.prompt).toContain("2026-01-01T00:00:00Z");
     expect(requests[0]!.prompt.indexOf("First paragraph.")).toBeLessThan(requests[0]!.prompt.indexOf("Second paragraph."));
   });
   test("reports tool errors as an unclean batch", async () => {

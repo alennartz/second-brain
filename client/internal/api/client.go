@@ -49,7 +49,11 @@ func (c *Client) Ingest(text string, hints []string) (*types.IngestResponse, err
 
 // IngestWithTimeout is Ingest bounded by an explicit request timeout.
 func (c *Client) IngestWithTimeout(text string, hints []string, timeout time.Duration) (*types.IngestResponse, error) {
-	req := types.IngestRequest{Text: text, Hints: hints}
+	req := types.IngestRequest{
+		Text:       text,
+		Hints:      hints,
+		CapturedAt: time.Now().Format(time.RFC3339Nano),
+	}
 	var resp types.IngestResponse
 	if err := c.post("/ingest", req, &resp, timeout); err != nil {
 		return nil, err

@@ -24,7 +24,7 @@ export function createHttpServer(application: HttpApplication, schemas = createH
   });
   server.get("/health", () => ({ status: "ok" as const }), { response: schemas.healthResponse });
   server.post("/ingest", ({ body, headers }) => callApplication(() => application.enqueue({
-    text: body.text, hints: body.hints ?? [], source: body.source ?? "api",
+    text: body.text, hints: body.hints ?? [], source: body.source ?? "api", captured_at: body.captured_at,
     ...(headers["idempotency-key"] === undefined ? {} : { idempotency_key: headers["idempotency-key"] }),
   })), { body: schemas.ingestBody, headers: schemas.ingestHeaders, response: { 200: schemas.ingestResponse } });
   server.get("/ingest/pipeline", () => callApplication(() => application.pipelineSnapshot()), { response: schemas.pipelineResponse });

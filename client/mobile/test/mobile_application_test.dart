@@ -31,11 +31,12 @@ final class FakeBrain implements BrainGateway {
     if (failHealth) throw const NetworkException('Unavailable');
   }
   @override
-  Future<IngestReceipt> stageIntake(String text, {required String idempotencyKey}) async {
-    captures.add(PendingCapture(text: text, idempotencyKey: idempotencyKey));
+  Future<IngestReceipt> stageIntake(String text, {required String idempotencyKey, required String capturedAt}) async {
+    captures.add(PendingCapture(text: text, idempotencyKey: idempotencyKey, capturedAt: capturedAt));
     if (storage != null) {
       expect(storage!.pending!.text, text);
       expect(storage!.pending!.idempotencyKey, idempotencyKey);
+      expect(storage!.pending!.capturedAt, capturedAt);
     }
     if (failCapture) throw const NetworkException('Unavailable');
     return const IngestReceipt(chunksStored: 2);

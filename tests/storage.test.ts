@@ -236,6 +236,7 @@ describe("Storage graph boundary", () => {
         expect.objectContaining({
           intake_id: "capture-search",
           content: "Ada queued evidence",
+          captured_at: expect.any(String),
         }),
       );
       expect(JSON.stringify(result.unprocessed)).not.toMatch(
@@ -266,6 +267,7 @@ describe("Storage intake boundary", () => {
       content: "Ada wrote the first program.",
       source: "api",
       hints: ["history"],
+      captured_at: "2026-01-01T00:00:00+02:00",
     },
     {
       chunk_index: 1,
@@ -273,6 +275,7 @@ describe("Storage intake boundary", () => {
       content: "Grace reviewed the second program.",
       source: "api",
       hints: ["history"],
+      captured_at: "2026-01-01T00:00:00+02:00",
     },
   ] as const;
 
@@ -287,6 +290,7 @@ describe("Storage intake boundary", () => {
       expect(batch?.chunks.map((chunk) => chunk.chunk_index)).toEqual([0, 1]);
       expect(batch?.chunks.every((chunk) => chunk.state === "leased")).toBe(true);
       expect(batch?.chunks.every((chunk) => chunk.lease_token === batch.lease_token)).toBe(true);
+      expect(batch?.chunks.map(chunk => chunk.captured_at)).toEqual(["2026-01-01T00:00:00+02:00", "2026-01-01T00:00:00+02:00"]);
 
       expect(await storage.renewIntakeBatch(batch!.lease_token, 300)).toBe(2);
       expect((await storage.intakeQueueSnapshot()).leased).toBe(2);
@@ -358,6 +362,10 @@ describe("Storage intake boundary", () => {
       await expect(
         storage.createIntakeChunks("capture-2", [changed], "mobile-retry"),
       ).rejects.toThrow();
+      const changedCapture = { ...chunks[0]!, captured_at: "2026-01-02T00:00:00Z" };
+      await expect(
+        storage.createIntakeChunks("capture-2", [changedCapture], "mobile-retry"),
+      ).rejects.toThrow();
       expect(await storage.searchIntakeChunks("Ada", 10)).toHaveLength(1);
     });
   });
@@ -370,7 +378,7 @@ describe("Storage intake boundary", () => {
         ).rejects.toThrow("batch embedding failed");
         expect(await storage.searchIntakeChunks("program", 10)).toEqual([]);
         expect((await storage.intakeQueueSnapshot()).ready).toBe(0);
-        expect(await storage.createIntakeChunks("capture-recovery", [{ chunk_index: 0, total_chunks: 1, content: "Recovery", source: "api", hints: [] }], "failed-batch")).toBe(1);
+        expect(await storage.createIntakeChunks("capture-recovery", [{ chunk_index: 0, total_chunks: 1, content: "Recovery", source: "api", hints: [], captured_at: "2026-01-01T00:00:00Z" }], "failed-batch")).toBe(1);
       },
       (text) => {
         if (text.includes("Grace")) throw new Error("batch embedding failed");

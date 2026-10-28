@@ -1,4 +1,5 @@
 import { Value } from "@sinclair/typebox/value";
+import { maxTimestamp } from "../../../src/core/timestamps.ts";
 import type { TSchema } from "@sinclair/typebox";
 import {
   exploreGraphInput, findSimilarInput, findUnlinkedCooccurrencesInput, getNodeInput, mergeEdgesInput, mergeNodesInput,
@@ -6,7 +7,7 @@ import {
   type StoreNodeInput,
 } from "./schemas.ts";
 import type { EdgeId, EdgeRecord, NodeFields, NodeId, NodeRecord } from "../../../src/core/types.ts";
-import type { Storage, StorageTransaction } from "../../../src/storage/storage.ts";
+import type { MutationContext, Storage, StorageTransaction } from "../../../src/storage/storage.ts";
 
 export type EditableNodeField = "name" | "type" | "description" | "content" | "source" | "summary";
 export type StoreEdgeInput = { fromId: NodeId; edgeType: string; toId: NodeId; context?: string };
@@ -19,6 +20,8 @@ export type RemovedEdgeResult = { id: EdgeId; removed: boolean };
 export type RenameEdgeTypeResult = { renamed: number; merged: number };
 export type GraphResult = { nodes: readonly NodeRecord[]; edges: readonly EdgeRecord[] };
 export type Cooccurrence = { fromId: NodeId; toId: NodeId; sharedNoteIds: readonly NodeId[] };
+
+export type KnowledgeContext = MutationContext;
 
 export type KnowledgeFunctions = {
   storeNode(input: StoreNodeInput): Promise<NodeRecord>;
@@ -44,8 +47,8 @@ function bounded(value: number | undefined, fallback: number, max = 100): number
   return value;
 }
 function projectNode(node: NodeRecord): NodeRecord {
-  const { id, table, kind, content, source, summary, name, type, description, dreamAge, createdAt, updatedAt } = node;
-  return Object.fromEntries(Object.entries({ id, table, kind, content, source, summary, name, type, description, dreamAge, createdAt, updatedAt }).filter(([, v]) => v !== undefined)) as unknown as NodeRecord;
+  const { id, table, kind, content, source, summary, name, type, description, dreamAge, createdAt, updatedAt, freshnessAt } = node;
+  return Object.fromEntries(Object.entries({ id, table, kind, content, source, summary, name, type, description, dreamAge, createdAt, updatedAt, freshnessAt }).filter(([, v]) => v !== undefined)) as unknown as NodeRecord;
 }
 function validateFields(node: NodeRecord, fields: NodeFields): void {
   const kind = node.id.split(":")[0];
@@ -70,13 +73,13 @@ async function requireEdge(tx: StorageTransaction, id: EdgeId): Promise<EdgeReco
   return edge;
 }
 
-export async function storeNode(storage: Storage, input: StoreNodeInput): Promise<NodeRecord> {
+export async function storeNode(storage: Storage, input: StoreNodeInput, context?: KnowledgeContext): Promise<NodeRecord> {
   assertValid(storeNodeInput, "storeNode", input);
   validateFields({ id: input.kind + ":new" }, Object.fromEntries(Object.entries(input).filter(([key]) => key !== "kind")));
-  return projectNode(await storage.withTransaction(tx => tx.createNode(input)));
+  return projectNode(await storage.withTransaction(tx => tx.createNode(input, context)));
 }
 
-export async function storeEdge(storage: Storage, input: StoreEdgeInput): Promise<EdgeWriteResult> {
+export async function storeEdge(storage: Storage, input: StoreEdgeInput, context?: KnowledgeContext): Promise<EdgeWriteResult> {
   assertValid(storeEdgeInput, "storeEdge", input);
   return storage.withTransaction(async tx => {
     await requireNode(tx, input.fromId);
@@ -84,11 +87,11 @@ export async function storeEdge(storage: Storage, input: StoreEdgeInput): Promis
     if (input.fromId === input.toId) return { status: "skipped", reason: "self-edge" };
     const existing = await tx.findEdges(input.fromId, input.edgeType, input.toId);
     if (existing.length) return { status: "skipped", reason: "duplicate", edge: existing[0] };
-    return { status: "created", edge: await tx.createEdge(input) };
+    return { status: "created", edge: await tx.createEdge(input, context) };
   });
 }
 
-export async function updateNode(storage: Storage, input: { id: NodeId; field: EditableNodeField; oldText: string; newText: string }): Promise<NodeRecord> {
+export async function updateNode(storage: Storage, input: { id: NodeId; field: EditableNodeField; oldText: string; newText: string }, context?: KnowledgeContext): Promise<NodeRecord> {
   assertValid(updateNodeInput, "updateNode", input);
   return storage.withTransaction(async tx => {
     const node = await requireNode(tx, input.id);
@@ -96,7 +99,7 @@ export async function updateNode(storage: Storage, input: { id: NodeId; field: E
     if (typeof text !== "string" || text.split(input.oldText).length !== 2) throw new Error("Exact edit requires one match");
     const fields = { [input.field]: text.replace(input.oldText, () => input.newText) };
     validateFields(node, fields);
-    return projectNode((await tx.updateNodeFields(input.id, fields))!);
+    return projectNode((await tx.updateNodeFields(input.id, fields, context))!);
   });
 }
 
@@ -113,7 +116,7 @@ export async function searchMemory(storage: Storage, input: { query: string; lim
   const result = await storage.searchCandidates(input.query.trim(), limit);
   return {
     nodes: result.nodes.slice(0, limit).map(projectNode),
-    unprocessed: result.unprocessed.slice(0, limit).map(({ id, intake_id, chunk_index, total_chunks, content, source, hints, created_at }) => ({ id, intake_id, chunk_index, total_chunks, content, source, hints, ...(created_at ? { created_at } : {}) })),
+    unprocessed: result.unprocessed.slice(0, limit).map(({ id, intake_id, chunk_index, total_chunks, content, source, hints, created_at, captured_at }) => ({ id, intake_id, chunk_index, total_chunks, content, source, hints, ...(created_at ? { created_at } : {}), ...(captured_at ? { captured_at } : {}) })),
   };
 }
 
@@ -159,24 +162,24 @@ export async function mergeNodes(storage: Storage, input: { survivorId: NodeId; 
   if (input.loserIds.includes(input.survivorId)) throw new Error("Survivor cannot be a loser");
   return storage.withTransaction(async tx => {
     const survivor = await requireNode(tx, input.survivorId);
-    for (const id of input.loserIds) {
-      await requireNode(tx, id);
-      if (id.split(":")[0] !== survivor.id.split(":")[0]) throw new Error("Cannot merge different node kinds");
-    }
+    const losers = await Promise.all(input.loserIds.map(id => requireNode(tx, id)));
+    for (const loser of losers) if (loser.id.split(":")[0] !== survivor.id.split(":")[0]) throw new Error("Cannot merge different node kinds");
     validateFields(survivor, input.survivorFields ?? {});
+    const freshnessAt = maxTimestamp([survivor.freshnessAt, ...losers.map(node => node.freshnessAt)]);
     const allEdges = new Map<string, EdgeRecord>();
     for (const id of [input.survivorId, ...input.loserIds]) for (const edge of [...await tx.getIncomingEdges(id), ...await tx.getOutgoingEdges(id)]) allEdges.set(edge.id, edge);
-    const losers = new Set(input.loserIds);
+    const loserIds = new Set(input.loserIds);
     const relationships = new Map<string, EdgeRecord>();
     for (const edge of allEdges.values()) {
-      const from = losers.has(edge.from) ? input.survivorId : edge.from;
-      const to = losers.has(edge.to) ? input.survivorId : edge.to;
+      const from = loserIds.has(edge.from) ? input.survivorId : edge.from;
+      const to = loserIds.has(edge.to) ? input.survivorId : edge.to;
       if (from === to) { await tx.deleteEdge(edge.id); continue; }
       const key = JSON.stringify([from, edge.edgeType, to]);
       const previous = relationships.get(key);
       if (previous) {
         const context = [...new Set([previous.context, edge.context].filter(Boolean))].join("\n");
-        if (context) { await tx.updateEdgeFields(previous.id, { context }); relationships.set(key, { ...previous, context }); }
+        const edgeFreshness = maxTimestamp([previous.freshnessAt, edge.freshnessAt]);
+        if (context || edgeFreshness) { await tx.updateEdgeFields(previous.id, { ...(context ? { context } : {}), ...(edgeFreshness ? { freshnessAt: edgeFreshness } : {}) }); relationships.set(key, { ...previous, ...(context ? { context } : {}), ...(edgeFreshness ? { freshnessAt: edgeFreshness } : {}) }); }
         await tx.deleteEdge(edge.id);
         continue;
       }
@@ -184,7 +187,7 @@ export async function mergeNodes(storage: Storage, input: { survivorId: NodeId; 
       if (from !== edge.from || to !== edge.to) retained = (await tx.updateEdgeFields(edge.id, { in: from, out: to }))!;
       relationships.set(key, retained);
     }
-    const updated = Object.keys(input.survivorFields ?? {}).length ? (await tx.updateNodeFields(survivor.id, input.survivorFields!))! : survivor;
+    const updated = Object.keys(input.survivorFields ?? {}).length || freshnessAt !== survivor.freshnessAt ? (await tx.updateNodeFields(survivor.id, input.survivorFields ?? {}, freshnessAt ? { freshnessAt } : undefined))! : survivor;
     for (const id of input.loserIds) await tx.deleteNode(id);
     return { survivor: projectNode(updated), removedIds: input.loserIds };
   });
@@ -198,7 +201,8 @@ export async function mergeEdges(storage: Storage, input: { survivorId: EdgeId; 
     const losers = await Promise.all(input.loserIds.map(id => requireEdge(tx, id)));
     if (losers.some(edge => edge.from !== survivor.from || edge.to !== survivor.to)) throw new Error("Edges require the same ordered pair");
     const context = input.context ?? [...new Set([survivor.context, ...losers.map(e => e.context)].filter(Boolean))].join("\n");
-    const updated = context ? (await tx.updateEdgeFields(survivor.id, { context }))! : survivor;
+    const freshnessAt = maxTimestamp([survivor.freshnessAt, ...losers.map(edge => edge.freshnessAt)]);
+    const updated = context || freshnessAt ? (await tx.updateEdgeFields(survivor.id, { ...(context ? { context } : {}), ...(freshnessAt ? { freshnessAt } : {}) }))! : survivor;
     for (const edge of losers) await tx.deleteEdge(edge.id);
     return { survivor: updated, removedIds: input.loserIds };
   });
@@ -225,7 +229,8 @@ export async function renameEdgeType(storage: Storage, input: { fromType: string
       if (collisions.length) {
         const survivor = collisions[0]!;
         const context = [...new Set([survivor.context, edge.context].filter(Boolean))].join("\n");
-        if (context) await tx.updateEdgeFields(survivor.id, { context });
+        const freshnessAt = maxTimestamp([survivor.freshnessAt, edge.freshnessAt]);
+        if (context || freshnessAt) await tx.updateEdgeFields(survivor.id, { ...(context ? { context } : {}), ...(freshnessAt ? { freshnessAt } : {}) });
         await tx.deleteEdge(edge.id);
         merged++;
       } else await tx.updateEdgeFields(edge.id, { edge_type: input.toType });
@@ -271,11 +276,11 @@ export function cancellableStorage(storage: Storage, signal: AbortSignal): Stora
   });
 }
 
-export function bindKnowledge(storage: Storage): KnowledgeFunctions {
+export function bindKnowledge(storage: Storage, context?: KnowledgeContext): KnowledgeFunctions {
   return {
-    storeNode: input => storeNode(storage, input),
-    storeEdge: input => storeEdge(storage, input),
-    updateNode: input => updateNode(storage, input),
+    storeNode: input => storeNode(storage, input, context),
+    storeEdge: input => storeEdge(storage, input, context),
+    updateNode: input => updateNode(storage, input, context),
     searchMemory: input => searchMemory(storage, input),
     getNode: input => getNode(storage, input),
     exploreGraph: input => exploreGraph(storage, input),

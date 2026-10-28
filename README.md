@@ -49,7 +49,8 @@ The server exposes the non-conversation API:
 - `GET /graph/{record_id}`
 
 `POST /ingest` stages searchable chunks before it returns. The background
-pipeline later organizes those chunks. Use `POST /recall` with a JSON body
+pipeline later organizes those chunks. Each intake request must include the
+client capture time in `captured_at`. Use `POST /recall` with a JSON body
 containing `question` and optional `hints`. Conversation and MCP routes are
 intentionally absent.
 
@@ -58,7 +59,7 @@ curl http://localhost:8000/health
 curl -X POST http://localhost:8000/ingest \
   -H 'content-type: application/json' \
   -H 'Idempotency-Key: capture-1' \
-  -d '{"text":"Kubernetes pods are deployable units","hints":["kubernetes"]}'
+  -d '{"text":"Kubernetes pods are deployable units","hints":["kubernetes"],"captured_at":"2026-01-01T12:00:00-05:00"}'
 curl -X POST http://localhost:8000/recall \
   -H 'content-type: application/json' \
   -d '{"question":"What do I know about Kubernetes?"}'

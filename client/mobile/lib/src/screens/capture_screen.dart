@@ -7,6 +7,17 @@ import '../gateway/errors.dart';
 import '../persistence/settings_store.dart';
 import '../widgets/app_logo.dart';
 
+/// Returns the local capture time with its numeric UTC offset.
+String captureTimeNow() {
+  final now = DateTime.now();
+  final offset = now.timeZoneOffset;
+  final sign = offset.isNegative ? '-' : '+';
+  final minutes = offset.inMinutes.abs();
+  final hoursText = (minutes ~/ 60).toString().padLeft(2, '0');
+  final minutesText = (minutes % 60).toString().padLeft(2, '0');
+  return '${now.toIso8601String()}$sign$hoursText:$minutesText';
+}
+
 /// The Capture composer and its durable retry state.
 final class CaptureScreen extends StatefulWidget {
   const CaptureScreen({
@@ -16,6 +27,7 @@ final class CaptureScreen extends StatefulWidget {
     required this.createIdempotencyKey,
     required this.onOpenSettings,
     this.initialDraft,
+    this.createCaptureTime,
     this.healthNotice,
     this.onCaptureSucceeded,
   });
@@ -25,6 +37,7 @@ final class CaptureScreen extends StatefulWidget {
   final String Function() createIdempotencyKey;
   final VoidCallback onOpenSettings;
   final PendingCapture? initialDraft;
+  final String Function()? createCaptureTime;
   final String? healthNotice;
   final VoidCallback? onCaptureSucceeded;
 
@@ -37,6 +50,7 @@ enum _CapturePhase { idle, sending, failed }
 final class _CaptureScreenState extends State<CaptureScreen> {
   late final TextEditingController _controller;
   String? _currentKey;
+  String? _currentCaptureTime;
   String _lastObservedText = '';
   String _lastPersistedText = '';
   String? _failureMessage;
@@ -51,6 +65,7 @@ final class _CaptureScreenState extends State<CaptureScreen> {
     super.initState();
     final draft = widget.initialDraft;
     _currentKey = draft?.idempotencyKey;
+    _currentCaptureTime = draft?.capturedAt;
     _lastObservedText = draft?.text ?? '';
     _lastPersistedText = draft?.text ?? '';
     _controller = TextEditingController(text: draft?.text ?? '')
@@ -178,6 +193,7 @@ final class _CaptureScreenState extends State<CaptureScreen> {
 
     final key = widget.createIdempotencyKey();
     _currentKey = key;
+    _currentCaptureTime = null;
     _lastPersistedText = text;
     unawaited(
       _queueDraft(PendingCapture(text: text, idempotencyKey: key))
@@ -192,8 +208,9 @@ final class _CaptureScreenState extends State<CaptureScreen> {
 
     final key = _currentKey ?? widget.createIdempotencyKey();
     _currentKey = key;
+    _currentCaptureTime ??= widget.createCaptureTime?.call() ?? captureTimeNow();
     _lastPersistedText = text;
-    final draft = PendingCapture(text: text, idempotencyKey: key);
+    final draft = PendingCapture(text: text, idempotencyKey: key, capturedAt: _currentCaptureTime);
     setState(() {
       _phase = _CapturePhase.sending;
       _failureMessage = null;
@@ -206,6 +223,7 @@ final class _CaptureScreenState extends State<CaptureScreen> {
       final receipt = await widget.gateway.stageIntake(
         text,
         idempotencyKey: key,
+        capturedAt: _currentCaptureTime!,
       );
       await _queueDraft(null);
       if (!mounted) return;
@@ -216,6 +234,7 @@ final class _CaptureScreenState extends State<CaptureScreen> {
       _lastObservedText = '';
       _lastPersistedText = '';
       _currentKey = null;
+      _currentCaptureTime = null;
       setState(() {
         _phase = _CapturePhase.idle;
         _acknowledgement =

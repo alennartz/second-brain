@@ -1,4 +1,4 @@
-export type IntakeBody = { text: string; hints?: string[]; source?: string };
+export type IntakeBody = { text: string; hints?: string[]; source?: string; captured_at: string };
 export type RecallBody = { question: string; hints?: string[] };
 export type Context = {
   nodes: Record<string, unknown>[];

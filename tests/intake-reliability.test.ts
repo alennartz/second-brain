@@ -13,7 +13,7 @@ function fixture() {
     while (!predicate()) { const next = notify; await next.promise; }
   };
   const wake = () => { const previous = notify; notify = deferred<void>(); previous.resolve(); };
-  const batch = { intakeId: "capture", leaseToken: "owned", chunks: [{ id: "intake_chunk:a", chunkIndex: 0, content: "Capture", hints: [] }] };
+  const batch = { intakeId: "capture", leaseToken: "owned", chunks: [{ id: "intake_chunk:a", chunkIndex: 0, content: "Capture", hints: [], capturedAt: "2026-01-01T00:00:00Z" }] };
   let claims = 0;
   const deps: IntakePipelineDependencies = {
     queue: {

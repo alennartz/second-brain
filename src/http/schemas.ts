@@ -1,5 +1,6 @@
 import { Type, type TUnsafe } from "@sinclair/typebox";
 import type { DreamJob, GraphResponse, IntakeBody, PipelineSnapshot, RecallBody, RecallResponse } from "./contracts";
+import { timestampPattern } from "../core/timestamps";
 
 export interface HttpSchemas {
   ingestBody: TUnsafe<IntakeBody>;
@@ -25,7 +26,7 @@ export function createHttpSchemas(): HttpSchemas {
   const nullableTime = Type.Union([Type.String(), Type.Null()]);
   const identity = (name: string) => Type.Object({ [name]: Type.String({ minLength: 1 }) });
   return {
-    ingestBody: Type.Object({ text: Type.String(), hints: Type.Optional(Type.Array(Type.String())), source: Type.Optional(Type.String()) }),
+    ingestBody: Type.Object({ text: Type.String(), hints: Type.Optional(Type.Array(Type.String())), source: Type.Optional(Type.String()), captured_at: Type.String({ pattern: timestampPattern }) }),
     ingestHeaders: Type.Object({ "idempotency-key": Type.Optional(Type.String()) }),
     ingestResponse: Type.Object({ chunks_stored: count }),
     recallBody: Type.Object({ question: Type.String(), hints: Type.Optional(Type.Array(Type.String())) }),

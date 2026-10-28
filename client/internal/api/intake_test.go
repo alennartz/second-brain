@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"second-brain-client/internal/api"
 	"second-brain-client/internal/types"
@@ -15,6 +16,7 @@ import (
 
 func TestIngestReturnsStoredChunkCountWithoutPolling(t *testing.T) {
 	var requests atomic.Int32
+	started := time.Now()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Method != http.MethodPost || r.URL.Path != "/ingest" {
@@ -28,6 +30,12 @@ func TestIngestReturnsStoredChunkCountWithoutPolling(t *testing.T) {
 		}
 		if request.Text != "Original source text" || len(request.Hints) != 1 || request.Hints[0] != "entity:topic" {
 			t.Errorf("unexpected intake request: %+v", request)
+		}
+		capturedAt, err := time.Parse(time.RFC3339Nano, request.CapturedAt)
+		if err != nil {
+			t.Errorf("captured_at is not RFC3339: %q: %v", request.CapturedAt, err)
+		} else if capturedAt.Before(started) || capturedAt.After(time.Now().Add(time.Second)) {
+			t.Errorf("captured_at %s is outside the request window", capturedAt)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"chunks_stored":7}`)

@@ -9,16 +9,18 @@ type Node struct {
 	Type        string `json:"type,omitempty"`
 	Description string `json:"description,omitempty"`
 	Summary     string `json:"summary,omitempty"`
+	FreshnessAt string `json:"freshness_at,omitempty"`
 }
 
 // Edge represents a relationship between two nodes.
 // SurrealDB RELATE creates edges with "in" (target) and "out" (source) fields.
 type Edge struct {
-	ID      string `json:"id"`
-	Table   string `json:"table"`
-	In      string `json:"in"`
-	Out     string `json:"out"`
-	Context string `json:"context,omitempty"`
+	ID          string `json:"id"`
+	Table       string `json:"table"`
+	In          string `json:"in"`
+	Out         string `json:"out"`
+	Context     string `json:"context,omitempty"`
+	FreshnessAt string `json:"freshness_at,omitempty"`
 }
 
 // UnprocessedChunk is source evidence that has not entered the knowledge graph.
@@ -31,6 +33,7 @@ type UnprocessedChunk struct {
 	Content     string   `json:"content"`
 	Source      string   `json:"source,omitempty"`
 	Hints       []string `json:"hints,omitempty"`
+	CapturedAt  string   `json:"captured_at,omitempty"`
 	Unprocessed bool     `json:"unprocessed"`
 }
 
@@ -57,8 +60,9 @@ type Exchange struct {
 
 // IngestRequest is the payload for POST /ingest.
 type IngestRequest struct {
-	Text  string   `json:"text"`
-	Hints []string `json:"hints,omitempty"`
+	Text       string   `json:"text"`
+	Hints      []string `json:"hints,omitempty"`
+	CapturedAt string   `json:"captured_at"`
 }
 
 // RecallRequest is the payload for POST /recall.

@@ -2,7 +2,8 @@ import { Surreal, RecordId, StringRecordId } from "surrealdb";
 import { createNodeEngines } from "@surrealdb/node";
 import { createHash, randomUUID } from "node:crypto";
 import type { Embedder } from "../embeddings/embedder.ts";
-import type { Storage, StorageTransaction } from "./storage.ts";
+import type { EdgeUpdateFields, MutationContext, Storage, StorageTransaction } from "./storage.ts";
+import { assertTimestamp, maxTimestamp } from "../core/timestamps.ts";
 import { InvalidInputError, type NewNode, type NodeFields, type NewEdge, type IntakeChunkDraft, type NodeRecord, type IntakeChunkRecord } from "../core/types.ts";
 import { schema, vectorSchema } from "./schema.ts";
 export interface EmbeddedStorageOptions { dbPath: string; embeddingDimensions: number; embedder: Embedder; clock?: () => Date }
@@ -10,15 +11,15 @@ type Row = Record<string, any>;
 function table(value: string): string { if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(value)) throw new InvalidInputError("Invalid table"); return value; }
 function rid(value: string): StringRecordId { const split = value.indexOf(":"); if (split < 1 || !value.slice(split + 1)) throw new InvalidInputError("Invalid record ID"); table(value.slice(0, split)); return new StringRecordId(value); }
 function plain(value: any): any { if (value == null) return null; if (value instanceof RecordId) return value.toString(); if (value instanceof Date) return value.toISOString(); if (Array.isArray(value)) return value.map(plain); if (typeof value === "object") { if (typeof value.toISOString === "function") return value.toISOString(); return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,plain(v)])); } return value; }
-function node(row: Row): NodeRecord { const { embedding, dream_age, created_at, updated_at, ...rest } = row; return { ...rest, table: row.id.split(":")[0], kind: row.id.split(":")[0], dreamAge: dream_age ?? 0, ...(created_at ? { createdAt: created_at } : {}), ...(updated_at ? { updatedAt: updated_at } : {}) } as NodeRecord; }
-function edge(row: Row): any { return { id: row.id, from: row.in, to: row.out, edgeType: row.id.split(":")[0], ...(row.context != null ? { context: row.context } : {}) }; }
+function node(row: Row): NodeRecord { const { embedding, dream_age, created_at, updated_at, freshness_at, ...rest } = row; return { ...rest, table: row.id.split(":")[0], kind: row.id.split(":")[0], dreamAge: dream_age ?? 0, ...(created_at ? { createdAt: created_at } : {}), ...(updated_at ? { updatedAt: updated_at } : {}), ...(freshness_at ? { freshnessAt: freshness_at } : {}) } as NodeRecord; }
+function edge(row: Row): any { return { id: row.id, from: row.in, to: row.out, edgeType: row.id.split(":")[0], ...(row.context != null ? { context: row.context } : {}), ...(row.freshness_at != null ? { freshnessAt: row.freshness_at } : {}) }; }
 type EmbeddableNode = { kind?: string; id?: string; content?: string; description?: string; name?: string };
 function embeddingText(value: EmbeddableNode): string {
  const kind = value.kind ?? value.id?.split(":")[0];
  return kind === "note" ? value.content ?? "" : value.description || value.name || "";
 }
-function chunk(row: Row): IntakeChunkRecord {  const { embedding, worker_id, paused, ...rest } = row; return { ...rest, state: paused ? "paused" : row.state, next_attempt_at: row.next_attempt_at ?? null, lease_token: row.lease_token ?? null, lease_expires_at: row.lease_expires_at ?? null, last_error: row.last_error ?? null, idempotency_key: row.idempotency_key ?? null } as IntakeChunkRecord; }
-const evidence = (r: Row) => Object.fromEntries(["id","intake_id","chunk_index","total_chunks","content","source","hints","created_at"].filter(k => r[k] != null).map(k => [k,r[k]]));
+function chunk(row: Row): IntakeChunkRecord {  const { embedding, worker_id, paused, ...rest } = row; return { ...rest, state: paused ? "paused" : row.state, next_attempt_at: row.next_attempt_at ?? null, lease_token: row.lease_token ?? null, lease_expires_at: row.lease_expires_at ?? null, last_error: row.last_error ?? null, idempotency_key: row.idempotency_key ?? null, captured_at: row.captured_at ?? row.created_at ?? null } as IntakeChunkRecord; }
+const evidence = (r: Row) => Object.fromEntries(["id","intake_id","chunk_index","total_chunks","content","source","hints","created_at","captured_at"].filter(k => r[k] != null).map(k => [k,r[k]]));
 function cosine(a: number[], b: number[]): number { const dot = a.reduce((sum,v,i) => sum + v * (b[i] ?? 0),0); return dot / (Math.hypot(...a) * Math.hypot(...b) || 1); }
 export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage {
  const db = new Surreal({ engines: createNodeEngines() });
@@ -37,22 +38,27 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
   const remove = async (id: string) => { await query("DELETE $id", { id: rid(id) }); };
   const allEdges = async () => { const info: any = plain((await driver.query("INFO FOR DB"))[0]); const names = Object.keys(info.tables ?? {}).filter(k => !["note","entity","intake_chunk","intake_key"].includes(k)); return (await Promise.all(names.map(rows))).flat().filter(r => r.in && r.out); };
   const create = async (name: string, fields: Row) => (await query(`CREATE ${table(name)} CONTENT $fields RETURN AFTER`, { fields }))[0]!;
-  const createNode = async (input: NewNode) => { const { kind, ...fields } = input; const timestamp = new Date(now()); return node(await create(kind, { ...fields, ...(kind === "note" ? { source: input.source ?? "api" } : {}), embedding: [...await options.embedder.embed(embeddingText(input))], dream_age: 0, created_at: timestamp, updated_at: timestamp })); };
-  const updateNodeFields = async (id: string, fields: NodeFields) => {
+  const createNode = async (input: NewNode, context?: MutationContext) => { const { kind, ...fields } = input; const timestamp = new Date(now()); return node(await create(kind, { ...fields, ...(kind === "note" ? { source: input.source ?? "api" } : {}), embedding: [...await options.embedder.embed(embeddingText(input))], dream_age: 0, created_at: timestamp, updated_at: timestamp, freshness_at: context?.freshnessAt ?? timestamp.toISOString() })); };
+  const updateNodeFields = async (id: string, fields: NodeFields, context?: MutationContext) => {
    const old = await get(id); if (!old) return undefined;
    const data: Row = { ...fields };
    if (fields.dreamAge !== undefined) { data.dream_age = fields.dreamAge; delete data.dreamAge; }
    if (fields.content !== undefined || fields.description !== undefined || fields.name !== undefined) data.embedding = [...await options.embedder.embed(embeddingText({ ...old, ...fields }))];
+   const freshness = maxTimestamp([old.freshness_at, context?.freshnessAt]);
+   if (freshness) data.freshness_at = freshness;
    data.updated_at = new Date(now());
    return node(await merge(id, data));
   };
   const createIntakeChunks = async (intakeId: string, drafts: readonly IntakeChunkDraft[], key?: string) => {
-   const fingerprint = createHash("sha256").update(JSON.stringify(drafts.map(d => ({ content: d.content, source: d.source ?? "api", hints: d.hints ?? [] })))).digest("hex");
+   const fallbackCapture = now();
+   const normalized = drafts.map(d => ({ ...d, captured_at: d.captured_at ?? fallbackCapture }));
+   normalized.forEach(d => assertTimestamp(d.captured_at));
+   const fingerprint = createHash("sha256").update(JSON.stringify(normalized.map(d => ({ content: d.content, source: d.source ?? "api", hints: d.hints ?? [], captured_at: d.captured_at })))).digest("hex");
    if (key) { const prior = (await query("SELECT * FROM $id", { id: new RecordId("intake_key", key) }))[0]; if (prior) { if (prior.fingerprint !== fingerprint) throw new Error("Idempotency content conflict"); return 0; } }
-   const vectors = await options.embedder.embedBatch(drafts.map(d => d.content));
-   for (const [i,d] of drafts.entries()) await create("intake_chunk", { ...d, source: d.source ?? "api", hints: [...(d.hints ?? [])], intake_id: intakeId, embedding: [...vectors[i]!], state: "ready", attempt_count: 0, paused: false, idempotency_key: key, created_at: new Date(now()), updated_at: new Date(now()) });
-   if (key) await query("CREATE $id CONTENT $fields", { id: new RecordId("intake_key", key), fields: { intake_id: intakeId, fingerprint, chunk_count: drafts.length } });
-   return drafts.length;
+   const vectors = await options.embedder.embedBatch(normalized.map(d => d.content));
+   for (const [i,d] of normalized.entries()) await create("intake_chunk", { ...d, source: d.source ?? "api", hints: [...(d.hints ?? [])], intake_id: intakeId, embedding: [...vectors[i]!], state: "ready", attempt_count: 0, paused: false, idempotency_key: key, created_at: new Date(now()), updated_at: new Date(now()) });
+   if (key) await query("CREATE $id CONTENT $fields", { id: new RecordId("intake_key", key), fields: { intake_id: intakeId, fingerprint, chunk_count: normalized.length } });
+   return normalized.length;
   };
   const owned = async (token: string) => (await rows("intake_chunk")).filter(r => r.lease_token === token && r.state === "leased" && r.lease_expires_at > now());
   const cleanup = async () => { const remaining = await rows("intake_chunk"); for (const key of await rows("intake_key")) if (!remaining.some(r => r.intake_id === key.intake_id)) await remove(key.id); };
@@ -72,14 +78,29 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
   return {
    createNode, updateNodeFields, createIntakeChunks,
    async getNode(id: string) { const r = await get(id); return r ? node(r) : undefined; }, deleteNode: remove,
-   async createEdge(input: NewEdge) { table(input.edgeType); return edge((await query(`RELATE $from->${input.edgeType}->$to CONTENT $fields RETURN AFTER`, { from: rid(input.fromId), to: rid(input.toId), fields: { ...(input.context !== undefined ? {context: input.context} : {}) } }))[0]!); },
+   async createEdge(input: NewEdge, context?: MutationContext) {
+    table(input.edgeType);
+    const endpoints = await Promise.all([get(input.fromId), get(input.toId)]);
+    const freshness = context?.freshnessAt ?? maxTimestamp(endpoints.map(endpoint => endpoint?.freshness_at)) ?? now();
+    const fields = { ...(input.context !== undefined ? { context: input.context } : {}), freshness_at: freshness };
+    return edge((await query(`RELATE $from->${input.edgeType}->$to CONTENT $fields RETURN AFTER`, { from: rid(input.fromId), to: rid(input.toId), fields }))[0]!);
+   },
    async getEdge(id: string) { const r = await get(id); return r ? edge(r) : undefined; }, deleteEdge: remove,
-   async updateEdgeFields(id: string, fields: Row) { const old = await get(id); if (!old) return undefined; const targetType = fields.edgeType ?? fields.edge_type ?? id.split(":")[0]; const from = fields.fromId ?? fields.in ?? old.in; const to = fields.toId ?? fields.out ?? old.out; table(targetType); rid(from); rid(to);
+   async updateEdgeFields(id: string, fields: EdgeUpdateFields & Row) {
+    const old = await get(id); if (!old) return undefined;
+    const targetType = fields.edgeType ?? fields.edge_type ?? id.split(":")[0];
+    const from = fields.fromId ?? fields.in ?? old.in;
+    const to = fields.toId ?? fields.out ?? old.out;
+    table(targetType); rid(from); rid(to);
+    const endpoints = await Promise.all([get(from), get(to)]);
+    const freshness = maxTimestamp([old.freshness_at, fields.freshnessAt, ...endpoints.map(endpoint => endpoint?.freshness_at)]) ?? now();
+    const content = { ...(fields.context !== undefined ? { context: fields.context } : old.context !== undefined ? { context: old.context } : {}), freshness_at: freshness };
     if (targetType !== id.split(":")[0] || from !== old.in || to !== old.out) {
-     const created = (await query(`RELATE $from->${table(targetType)}->$to CONTENT $fields RETURN AFTER`, { from: rid(from), to: rid(to), fields: { ...(fields.context !== undefined ? { context: fields.context } : old.context !== undefined ? { context: old.context } : {}) } }))[0]!;
+     const created = (await query(`RELATE $from->${table(targetType)}->$to CONTENT $fields RETURN AFTER`, { from: rid(from), to: rid(to), fields: content }))[0]!;
      await remove(id); return edge(created);
     }
-    const data: Row = { ...(fields.context !== undefined ? { context: fields.context } : {}) }; return edge(await merge(id,data)); },
+    return edge(await merge(id, content));
+   },
    async getIncomingEdges(id: string) { rid(id); return (await allEdges()).filter(r => r.out === id).map(edge); },
    async getOutgoingEdges(id: string) { rid(id); return (await allEdges()).filter(r => r.in === id).map(edge); },
    async getEdgesByType(type: string) { return (await rows(type)).filter(r => r.in && r.out).map(edge); },
@@ -109,10 +130,21 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
  };
  const transact = async <T>(callback: (tx: StorageTransaction) => Promise<T>): Promise<T> => { const tx = await db.beginTransaction(); try { const result = await callback(scope(tx)); await tx.commit(); return result; } catch (error) { await tx.cancel(); throw error; } };
  const base = scope(db);
+ const queryDb = async (sql: string, vars: Row = {}): Promise<Row[]> => plain((await db.query(sql, vars))[0] ?? []);
+ const rowsDb = async (name: string): Promise<Row[]> => queryDb(`SELECT * FROM ${table(name)}`);
+ const mergeDb = async (id: string, fields: Row) => queryDb("UPDATE $id MERGE $fields RETURN AFTER", { id: rid(id), fields });
+ const backfillLegacy = async () => {
+  for (const name of ["note", "entity"]) for (const row of await rowsDb(name)) if (!row.freshness_at && row.created_at) await mergeDb(row.id, { freshness_at: row.created_at });
+  for (const row of await rowsDb("intake_chunk")) if (!row.captured_at && row.created_at) await mergeDb(row.id, { captured_at: row.created_at });
+  for (const name of ["references", "relates_to", "derived_from"]) for (const row of await rowsDb(name)) if (row.in && row.out && !row.freshness_at) {
+   const endpoints = await Promise.all([queryDb("SELECT * FROM $id", { id: rid(row.in) }), queryDb("SELECT * FROM $id", { id: rid(row.out) })]);
+   await mergeDb(row.id, { freshness_at: maxTimestamp(endpoints.map(rows => rows[0]?.freshness_at)) ?? now() });
+  }
+ };
  const mutations = new Set(["createNode","updateNodeFields","deleteNode","createEdge","updateEdgeFields","deleteEdge","createIntakeChunks","claimIntakeBatch","renewIntakeBatch","deleteIntakeBatch","releaseIntakeBatch","setIntakePaused","deleteIntake","incrementDreamAge"]);
  const api: any = Object.fromEntries(Object.entries(base).map(([name,method]) => [name, mutations.has(name) ? (...args: any[]) => transact(tx => (tx as any)[name](...args)) : method]));
  api.withTransaction = transact;
- api.init = async () => { await db.connect(`surrealkv://${options.dbPath}`); await db.use({ namespace: "brain", database: "brain" }); try { await db.query(schema); } catch (error) { if (!(error instanceof Error) || !error.message.includes("SEARCH")) throw error; await db.query(schema.replaceAll("SEARCH ANALYZER", "FULLTEXT ANALYZER")); } await db.query(vectorSchema(options.embeddingDimensions)); };
+ api.init = async () => { await db.connect(`surrealkv://${options.dbPath}`); await db.use({ namespace: "brain", database: "brain" }); try { await db.query(schema); } catch (error) { if (!(error instanceof Error) || !error.message.includes("SEARCH")) throw error; await db.query(schema.replaceAll("SEARCH ANALYZER", "FULLTEXT ANALYZER")); } await db.query(vectorSchema(options.embeddingDimensions)); await backfillLegacy(); };
  api.close = async () => { await db.close(); };
  return api as Storage;
 }

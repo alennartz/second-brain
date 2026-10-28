@@ -35,6 +35,18 @@ describe("KnowledgeGraph", () => {
     expect(a.id).not.toBe(b.id);
     expect(await g.getNode({ id: a.id })).toEqual(a);
   }));
+  test("propagates scoped freshness to graph writes without allowing older updates to lower it", () => run(async (_g, storage) => {
+    const recent = bindKnowledge(storage, { freshnessAt: "2026-01-02T03:00:00+02:00" });
+    const older = bindKnowledge(storage, { freshnessAt: "2026-01-01T03:00:00+02:00" });
+    const from = await recent.storeNode({ kind: "note", content: "Captured source" });
+    const to = await recent.storeNode({ kind: "entity", name: "Ada", type: "person" });
+    const edge = await recent.storeEdge({ fromId: from.id, edgeType: "references", toId: to.id });
+    expect(from.freshnessAt).toBe("2026-01-02T03:00:00+02:00");
+    expect(edge.edge?.freshnessAt).toBe("2026-01-02T03:00:00+02:00");
+    const updated = await older.updateNode({ id: from.id, field: "content", oldText: "Captured", newText: "Updated" });
+    expect(updated.content).toBe("Updated source");
+    expect(updated.freshnessAt).toBe("2026-01-02T03:00:00+02:00");
+  }));
   test("creates edges between existing canonical nodes", () => run(async g => {
     const a = await g.storeNode(entity("Ada")), b = await g.storeNode(entity("Grace"));
     const result = await g.storeEdge({ fromId: a.id, edgeType: "knows", toId: b.id });

@@ -37,14 +37,14 @@ describe("non-conversation HTTP routes", () => {
   });
   test("ingest acknowledges synchronous staging and forwards the idempotency key", async () => {
     const { server, requests } = fixture();
-    const response = await server.handle(request("/ingest", { text: "memory", hints: ["work"], source: "mobile" }, { "Idempotency-Key": "capture-1" }));
+    const response = await server.handle(request("/ingest", { text: "memory", hints: ["work"], source: "mobile", captured_at: "2026-01-01T00:00:00+02:00" }, { "Idempotency-Key": "capture-1" }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ chunks_stored: 2 });
-    expect(requests).toEqual([{ text: "memory", hints: ["work"], source: "mobile", idempotency_key: "capture-1" }]);
+    expect(requests).toEqual([{ text: "memory", hints: ["work"], source: "mobile", captured_at: "2026-01-01T00:00:00+02:00", idempotency_key: "capture-1" }]);
   });
   test("ingest retries preserve the same key and staging acknowledgement", async () => {
     const { server, requests } = fixture();
-    const body = { text: "memory", hints: [], source: "mobile" };
+    const body = { text: "memory", hints: [], source: "mobile", captured_at: "2026-01-01T00:00:00Z" };
     for (let attempt = 0; attempt < 2; attempt++) {
       const response = await server.handle(request("/ingest", body, { "Idempotency-Key": "capture-1" }));
       expect(response.status).toBe(200);
@@ -57,13 +57,13 @@ describe("non-conversation HTTP routes", () => {
   });
   test("ingest supplies existing defaults when optional fields are omitted", async () => {
     const { server, requests } = fixture();
-    await server.handle(request("/ingest", { text: "memory" }));
-    expect(requests).toEqual([{ text: "memory", hints: [], source: "api" }]);
+    await server.handle(request("/ingest", { text: "memory", captured_at: "2026-01-01T00:00:00Z" }));
+    expect(requests).toEqual([{ text: "memory", hints: [], source: "api", captured_at: "2026-01-01T00:00:00Z" }]);
   });
   for (const [kind, status] of [["conflict", 409], ["invalid", 400], ["unavailable", 503]] as const) {
     test(`ingest maps ${kind} to ${status}`, async () => {
       const { server } = fixture({ enqueue: async () => { throw new HttpApplicationError(kind, "staging failed"); } });
-      const response = await server.handle(request("/ingest", { text: "memory" }));
+      const response = await server.handle(request("/ingest", { text: "memory", captured_at: "2026-01-01T00:00:00Z" }));
       expect(response.status).toBe(status);
       expect(await response.json()).toEqual({ detail: "staging failed" });
     });

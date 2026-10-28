@@ -4,6 +4,8 @@ import { ingestPrompt, recallPrompt, dedupPrompt, connectPrompt } from "./prompt
 import type { AgentEvent, AgentRuntime, AgentTool } from "../agent-runtime";
 import type { WorkflowModelRef } from "../core/config";
 import { InvalidInputError, type EdgeId, type NodeId } from "../core/types";
+import { maxTimestamp } from "../core/timestamps";
+import { withKnowledgeContext } from "../../packages/pi-second-brain/lib/bridge.ts";
 
 export type WorkflowModel = WorkflowModelRef;
 export type WorkflowTool = AgentTool;
@@ -18,7 +20,7 @@ export type IngestBatch = {
   intakeId: string;
   leaseToken: string;
   attemptCount?: number;
-  chunks: readonly { id: string; chunkIndex: number; content: string; hints: readonly string[] }[];
+  chunks: readonly { id: string; chunkIndex: number; content: string; hints: readonly string[]; capturedAt: string }[];
 };
 export type IngestOutcome = { clean: boolean; aborted: boolean; errors: readonly string[] };
 export interface IngestWorkflow {
@@ -36,7 +38,8 @@ export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
   return { async run(batch, signal) {
     try {
       if (signal?.aborted) return { clean: false, aborted: true, errors: [] };
-      const result = await d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal });
+      const freshnessAt = maxTimestamp(batch.chunks.map(chunk => chunk.capturedAt));
+      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal }));
       const errors = resultErrors(result, true);
       const aborted = result.aborted || !!signal?.aborted;
       return { clean: !aborted && !errors.length, aborted, errors };

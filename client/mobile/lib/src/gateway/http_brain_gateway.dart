@@ -53,6 +53,7 @@ final class HttpBrainGateway implements BrainGateway {
   Future<IngestReceipt> stageIntake(
     String text, {
     required String idempotencyKey,
+    required String capturedAt,
   }) async {
     final response = await _send(
       () => client.post(
@@ -65,6 +66,7 @@ final class HttpBrainGateway implements BrainGateway {
           'text': text,
           'hints': <String>[],
           'source': 'mobile',
+          'captured_at': capturedAt,
         }),
       ),
       timeout: stageIntakeTimeout,
@@ -203,6 +205,7 @@ final class HttpBrainGateway implements BrainGateway {
         type: _optionalString(node, 'type', 'graph node'),
         description: _optionalString(node, 'description', 'graph node'),
         summary: _optionalString(node, 'summary', 'graph node'),
+        freshnessAt: _optionalString(node, 'freshness_at', 'graph node'),
       );
     }).toList(growable: false);
   }
@@ -221,6 +224,7 @@ final class HttpBrainGateway implements BrainGateway {
         from: _requiredString(edge, 'from', 'graph edge'),
         to: _requiredString(edge, 'to', 'graph edge'),
         context: _optionalString(edge, 'context', 'graph edge'),
+        freshnessAt: _optionalString(edge, 'freshness_at', 'graph edge'),
       );
     }).toList(growable: false);
   }
@@ -256,6 +260,7 @@ final class HttpBrainGateway implements BrainGateway {
         source: _requiredString(chunk, 'source', 'unprocessed chunk'),
         hints: List<String>.unmodifiable(hints.cast<String>()),
         isUnprocessed: unprocessed,
+        capturedAt: _optionalString(chunk, 'captured_at', 'unprocessed chunk'),
       );
     }).toList(growable: false);
   }

@@ -33,7 +33,7 @@ void main() {
 
   final operations = <String, Future<void> Function(BrainGateway)>{
     'health': (gateway) => gateway.checkHealth(),
-    'intake': (gateway) async { await gateway.stageIntake('Thought', idempotencyKey: 'key'); },
+    'intake': (gateway) async { await gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00'); },
     'recall': (gateway) async { await gateway.recall('Question'); },
   };
   for (final operation in operations.entries) {
@@ -70,7 +70,7 @@ void main() {
   for (final body in [null, [], {}, {'chunks_stored': 'two'}, {'chunks_stored': 1.5}]) {
     test('intake rejects invalid receipt $body', () async {
       final gateway = gatewayFor((_) async => jsonResponse(body));
-      await expectLater(gateway.stageIntake('Thought', idempotencyKey: 'key'), throwsA(isA<MalformedResponseException>()));
+      await expectLater(gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00'), throwsA(isA<MalformedResponseException>()));
     });
   }
   for (final body in [null, [], {}, {'answer': 42, 'context': null}, {'answer': 'Answer', 'context': 'invalid'}]) {
@@ -147,6 +147,7 @@ void main() {
     final receipt = await gateway.stageIntake(
       'A thought from the phone',
       idempotencyKey: 'capture-key-1',
+      capturedAt: '2026-01-01T00:00:00+02:00',
     );
 
     expect(receipt.chunksStored, 2);
@@ -157,6 +158,7 @@ void main() {
       'text': 'A thought from the phone',
       'hints': <String>[],
       'source': 'mobile',
+      'captured_at': '2026-01-01T00:00:00+02:00',
     });
   });
 
@@ -169,7 +171,7 @@ void main() {
     );
 
     await expectLater(
-      gateway.stageIntake('duplicate', idempotencyKey: 'capture-key-1'),
+      gateway.stageIntake('duplicate', idempotencyKey: 'capture-key-1', capturedAt: '2026-01-01T00:00:00+02:00'),
       throwsA(
         isA<HttpStatusException>().having(
           (error) => error.statusCode,

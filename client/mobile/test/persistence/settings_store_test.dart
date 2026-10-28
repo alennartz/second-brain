@@ -37,10 +37,11 @@ void main() {
     expect(await store.loadBaseUrl(), isNull);
   });
 
-  test('persists a pending Capture draft with its idempotency key', () async {
+  test('persists a pending Capture draft with its idempotency key and capture time', () async {
     const draft = PendingCapture(
       text: 'Keep this thought when the server is down',
       idempotencyKey: 'capture-key-2',
+      capturedAt: '2026-01-01T00:00:00+02:00',
     );
 
     await store.savePendingCapture(draft);
@@ -49,6 +50,7 @@ void main() {
     expect(loaded, isNotNull);
     expect(loaded!.text, draft.text);
     expect(loaded.idempotencyKey, draft.idempotencyKey);
+    expect(loaded.capturedAt, draft.capturedAt);
   });
 
   test('returns no pending Capture draft when none is stored', () async {

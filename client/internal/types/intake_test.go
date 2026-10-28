@@ -18,6 +18,33 @@ func TestIngestResponseDecodesStoredChunkCount(t *testing.T) {
 	}
 }
 
+func TestCaptureAndFreshnessFieldsDecodeFromResponses(t *testing.T) {
+	raw := `{
+		"answer":"Recent evidence.",
+		"context":{
+			"nodes":[{"id":"note:recent","table":"note","freshness_at":"2026-01-02T03:04:05+02:00"}],
+			"edges":[{"id":"references:recent","table":"references","in":"entity:topic","out":"note:recent","freshness_at":"2026-01-02T03:04:05+02:00"}],
+			"unprocessed":[{"id":"intake_chunk:recent","intake_id":"intake-1","chunk_index":0,"total_chunks":1,"content":"Recent source","captured_at":"2026-01-02T03:04:05+02:00","unprocessed":true}]
+		}
+	}`
+	var response types.RecallResponse
+	if err := json.Unmarshal([]byte(raw), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Context == nil {
+		t.Fatal("expected context")
+	}
+	if got := response.Context.Nodes[0].FreshnessAt; got != "2026-01-02T03:04:05+02:00" {
+		t.Fatalf("got node freshness_at %q", got)
+	}
+	if got := response.Context.Edges[0].FreshnessAt; got != "2026-01-02T03:04:05+02:00" {
+		t.Fatalf("got edge freshness_at %q", got)
+	}
+	if got := response.Context.Unprocessed[0].CapturedAt; got != "2026-01-02T03:04:05+02:00" {
+		t.Fatalf("got chunk captured_at %q", got)
+	}
+}
+
 func TestRecallContextKeepsUnprocessedEvidenceOutsideGraphArrays(t *testing.T) {
 	raw := `{
 		"answer":"The intake contains a pending fact.",

@@ -20,7 +20,7 @@ import {
   type StructuredToolResult,
   type WorkflowModelRef,
 } from "../../src/agent-runtime/index.ts";
-import { injectSecondBrainStorage } from "../../packages/pi-second-brain/lib/bridge.ts";
+import { injectSecondBrainStorage, withKnowledgeContext } from "../../packages/pi-second-brain/lib/bridge.ts";
 import { createEmbeddedStorage } from "../../src/storage/embedded.ts";
 import type { Storage } from "../../src/storage/storage.ts";
 import { EmbedderStub } from "../../src/embeddings/embedder.ts";
@@ -362,19 +362,19 @@ describe("SDK-backed agent runtime seam", () => {
         agentDir: directory,
         extensionPaths: [join(import.meta.dir, "..", "..", "packages", "pi-second-brain")],
       });
-      const result = await runtime.run({
+      const result = await withKnowledgeContext({ freshnessAt: "2026-01-02T03:00:00+02:00" }, () => runtime.run({
         model,
         systemPrompt: "Use only the knowledge tools.",
         prompt: "Store Ada as a person.",
         toolNames: ["memory_store_node", "memory_get_node"],
-      });
+      }));
 
       expect(result.settled).toBe(true);
       const stored = result.toolResults.find(toolResult => toolResult.toolName === "memory_store_node");
       expect(stored?.isError).toBeFalsy();
       const id = (stored?.structuredContent as { id?: string } | undefined)?.id;
       expect(id).toMatch(/^entity:/);
-      expect(await storage.getNode(id!)).toBeDefined();
+      expect(await storage.getNode(id!)).toMatchObject({ freshnessAt: "2026-01-02T03:00:00+02:00" });
     } finally {
       await storage?.close().catch(() => undefined);
       await rm(directory, { recursive: true, force: true });

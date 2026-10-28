@@ -15,6 +15,7 @@ final class GraphNode {
     this.type,
     this.description,
     this.summary,
+    this.freshnessAt,
   });
 
   final String id;
@@ -24,6 +25,7 @@ final class GraphNode {
   final String? type;
   final String? description;
   final String? summary;
+  final String? freshnessAt;
 }
 
 /// A directed edge attached to a graph evidence node.
@@ -34,6 +36,7 @@ final class LinkedEdge {
     required this.from,
     required this.to,
     this.context,
+    this.freshnessAt,
   });
 
   final String id;
@@ -41,6 +44,7 @@ final class LinkedEdge {
   final String from;
   final String to;
   final String? context;
+  final String? freshnessAt;
 }
 
 /// A source chunk that the server has not organized into the graph.
@@ -54,6 +58,7 @@ final class IntakeChunk {
     required this.source,
     required this.hints,
     required this.isUnprocessed,
+    this.capturedAt,
   });
 
   final String id;
@@ -64,6 +69,7 @@ final class IntakeChunk {
   final String source;
   final List<String> hints;
   final bool isUnprocessed;
+  final String? capturedAt;
 }
 
 /// Evidence for one organized graph node and its attached connections.

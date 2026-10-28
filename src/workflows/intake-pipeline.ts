@@ -1,10 +1,12 @@
 import type { IngestBatch, IngestWorkflow } from "./workflows";
 import type { IntakeQueueSnapshot } from "../core/types";
+import { assertTimestamp } from "../core/timestamps";
 
 export type IntakeRequest = {
   text: string;
   hints?: readonly string[];
   source?: string;
+  capturedAt: string;
   idempotencyKey?: string;
 };
 export type EnqueueResult = { chunksStored: number };
@@ -14,6 +16,7 @@ export type IntakeDraft = {
   totalChunks: number;
   hints: readonly string[];
   source: string;
+  capturedAt: string;
 };
 export type PipelineSnapshot = IntakeQueueSnapshot;
 export interface IntakeQueue {
@@ -199,8 +202,9 @@ export function createIntakePipeline(d: IntakePipelineDependencies): IntakePipel
   return {
     async enqueue(request) {
       if (!request.text.trim()) throw new Error("Intake text must not be blank");
+      assertTimestamp(request.capturedAt);
       const contents = splitSource(request.text, d.settings.chunkMaxChars);
-      const drafts = contents.map((content, chunkIndex) => ({ content, chunkIndex, totalChunks: contents.length, hints: request.hints ?? [], source: request.source ?? "api" }));
+      const drafts = contents.map((content, chunkIndex) => ({ content, chunkIndex, totalChunks: contents.length, hints: request.hints ?? [], source: request.source ?? "api", capturedAt: request.capturedAt }));
       const result = await d.queue.stageIntake(request, drafts); d.onActivity?.(); return result;
     },
     async start() {

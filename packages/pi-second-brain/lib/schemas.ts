@@ -28,6 +28,7 @@ export const nodeSchema = Type.Object({
   dreamAge: Type.Optional(Type.Number()),
   createdAt: Type.Optional(Type.String()),
   updatedAt: Type.Optional(Type.String()),
+  freshnessAt: Type.Optional(Type.String()),
 });
 
 export const edgeSchema = Type.Object({
@@ -39,6 +40,7 @@ export const edgeSchema = Type.Object({
   context: Type.Optional(Type.String()),
   createdAt: Type.Optional(Type.String()),
   updatedAt: Type.Optional(Type.String()),
+  freshnessAt: Type.Optional(Type.String()),
 });
 
 const graph = Type.Object({ nodes: Type.Array(nodeSchema), edges: Type.Array(edgeSchema) });
@@ -51,6 +53,7 @@ const raw = Type.Object({
   source: Type.String(),
   hints: Type.Array(Type.String()),
   created_at: Type.Optional(Type.String()),
+  captured_at: Type.Optional(Type.String()),
 });
 
 export const storeNodeInput = Type.Union([

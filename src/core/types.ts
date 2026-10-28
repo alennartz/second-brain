@@ -43,6 +43,7 @@ export interface NodeRecord extends NodeFields {
   kind?: NodeKind;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+  freshnessAt?: Timestamp;
 }
 
 export interface NewEdge {
@@ -62,6 +63,7 @@ export interface EdgeRecord {
   context?: string;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+  freshnessAt?: Timestamp;
 }
 
 export interface RankedSearchCandidates {
@@ -84,6 +86,7 @@ export interface UnprocessedEvidence {
   source: string;
   hints: readonly string[];
   created_at?: Timestamp;
+  captured_at?: Timestamp;
 }
 
 export interface MemorySearchResult {
@@ -97,6 +100,7 @@ export interface IntakeChunkDraft {
   content: string;
   source?: string;
   hints?: readonly string[];
+  captured_at?: Timestamp;
 }
 
 export type IntakeChunkState = "ready" | "leased" | "retry_wait" | "paused";
@@ -118,6 +122,7 @@ export interface IntakeChunkRecord {
   idempotency_key: string | null;
   created_at: Timestamp | null;
   updated_at: Timestamp | null;
+  captured_at: Timestamp | null;
 }
 
 export interface ClaimedBatch {

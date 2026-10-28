@@ -4,10 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// One failed or edited Capture draft retained for explicit retry.
 final class PendingCapture {
-  const PendingCapture({required this.text, required this.idempotencyKey});
+  const PendingCapture({required this.text, required this.idempotencyKey, this.capturedAt});
 
   final String text;
   final String idempotencyKey;
+  final String? capturedAt;
 }
 
 /// Durable settings and pending Capture storage owned by the application shell.
@@ -52,8 +53,13 @@ final class SharedPreferencesSettingsStore implements SettingsStore {
       if (decoded is! Map<String, dynamic>) return null;
       final text = decoded['text'];
       final idempotencyKey = decoded['idempotency_key'];
+      final capturedAt = decoded['captured_at'];
       if (text is! String || idempotencyKey is! String) return null;
-      return PendingCapture(text: text, idempotencyKey: idempotencyKey);
+      return PendingCapture(
+        text: text,
+        idempotencyKey: idempotencyKey,
+        capturedAt: capturedAt is String ? capturedAt : null,
+      );
     } on FormatException {
       return null;
     }
@@ -64,6 +70,7 @@ final class SharedPreferencesSettingsStore implements SettingsStore {
     final encoded = jsonEncode({
       'text': value.text,
       'idempotency_key': value.idempotencyKey,
+      if (value.capturedAt != null) 'captured_at': value.capturedAt,
     });
     await preferences.setString(_pendingCaptureKey, encoded);
   }

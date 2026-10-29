@@ -49,10 +49,17 @@ brain grows as the user explores. A clear action starts it over.
 
 Provide separate views of the same workspace: a pannable, zoomable canvas with
 compact nodes, and a detailed node and connection view. Selection and loaded
-graph data stay in sync across views. Keep visited data visible offline and
-refresh nodes when opened online. If a node no longer exists, retain its cached
-copy and indicate that it is unavailable. This gives the user a stable workspace
-without confusing cached data with the current graph.
+graph data stay in sync across views. Keep visited data visible offline. On the
+first Explore visit after each app launch, show the saved workspace immediately
+and refresh expanded nodes in the background. The user can also trigger this
+refresh manually. Dim nodes and edges confirmed missing. A failed check leaves
+the cached data in place, without marking it deleted.
+
+Show new edges from expanded nodes without expanding their destinations. An
+edge can connect to a node already on the workspace. A separate clear-deleted
+action removes confirmed-missing items locally without another server request.
+This keeps the workspace useful offline while distinguishing cached data from
+the current graph.
 
 ### Keep brains distinct
 

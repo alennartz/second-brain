@@ -84,11 +84,11 @@ Shared configuration and domain types for the TypeScript server.
 
 Owns embedded SurrealKV persistence behind plain domain and transaction interfaces.
 
-**Responsibilities:** latest schema and indexes, SDK normalization, graph records, vector and lexical search, cooccurrence resolution, atomic transactions, intake queue and dream operations
+**Responsibilities:** latest schema and indexes, SDK normalization, graph records, vector and lexical search, cooccurrence resolution, atomic transactions, permanent intake idempotency keys and replay receipts, intake queue and dream operations
 
 **Dependencies:** Core for domain types, Embeddings for vector generation
 
-**Files:** `src/storage/**`, `tests/storage.test.ts`, `tests/surrealdb-latest.test.ts`
+**Files:** `src/storage/**`, `tests/storage.test.ts`, `tests/surrealdb-latest.test.ts`, `tests/android-workflows.test.ts`
 
 ### Embeddings (`src/embeddings/`)
 
@@ -134,21 +134,21 @@ Runs ingest, recall, and dream workflows, plus intake and dream background proce
 
 Defines typed HTTP contracts and adapts Elysia routes to the application boundary.
 
-**Responsibilities:** TypeBox request and response schemas, application errors, live recall citation resolution, health, ingest, pipeline controls, recall, dream jobs and graph lookup; conversation and MCP routes are absent
+**Responsibilities:** TypeBox request and response schemas, application errors, live recall citation resolution, health, ingest, pipeline controls, recall, hybrid search, batch graph refresh, dream jobs and graph lookup; conversation and MCP routes are absent
 
 **Dependencies:** Application for route operations, Core for input errors
 
-**Files:** `src/http/**`, `tests/http-schemas.test.ts`, `tests/http.test.ts`, `tests/recall-service.test.ts`
+**Files:** `src/http/**`, `tests/http-schemas.test.ts`, `tests/http.test.ts`, `tests/recall-service.test.ts`, `tests/android-workflows.test.ts`
 
 ### Application (`src/application/`)
 
 Composes production dependencies and owns application startup, shutdown, and HTTP-facing services.
 
-**Responsibilities:** shared runtime composition, storage injection into the Pi package bridge, startup ordering, partial-start cleanup, worker shutdown, storage closure, intake and recall services, graph wire projections, in-memory dream-job lifecycle, Bun entry point
+**Responsibilities:** shared runtime composition, storage injection into the Pi package bridge, startup ordering, partial-start cleanup, worker shutdown, storage closure, intake and recall services, graph wire projections, hybrid search and ordered batch graph refresh, in-memory dream-job lifecycle, Bun entry point
 
 **Dependencies:** Core, Embeddings, Storage, Pi package bridge, Agent runtime, Workflows, HTTP contracts
 
-**Files:** `src/application/**`, `src/main.ts`, `tests/application.test.ts`
+**Files:** `src/application/**`, `src/main.ts`, `tests/application.test.ts`, `tests/android-workflows.test.ts`
 
 ## Clients
 
@@ -160,8 +160,13 @@ supported by the Bun server.
 
 ### Flutter mobile client (`client/mobile/`)
 
-Capture and one-shot Ask use the same HTTP API. Settings and failed Capture
-drafts remain local. The client is unchanged by the server rewrite.
+Provides offline-first Capture, saved Answer snapshots, named Brain profiles, and read-only Graph exploration over the HTTP API.
+
+**Responsibilities:** SQLite-backed profiles, Capture outbox, Answer snapshots, and per-Brain Graph workspaces; one-time migration from legacy settings; profile-scoped Access secrets; foreground sync across all Brain outboxes on app open and resume; cached-first Explore with search, graph refresh, and local workspace controls; Capture, Ask history, Outbox, Brains, and Graph screens
+
+**Dependencies:** HTTP for server operations, Flutter storage and secure-storage plugins for local persistence
+
+**Files:** `client/mobile/**`
 
 ## Deployment and manual tests
 

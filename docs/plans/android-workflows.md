@@ -370,4 +370,4 @@ Add Explore to the main navigation in `mobile_application.dart`. Match the mock'
 Run `make check`, the mobile analysis/test container workflow, and `make mobile-build`. Keep approved contract tests unchanged. Resolve failures in implementation, not test expectations. Update `client/mobile/lib/second_brain_mobile.dart` exports for concrete construction as needed. Do not add manual smoke journeys here. The architecture assigns those to the manual-test phase.
 
 **Verify:** Server checks, Flutter analysis, mobile tests, and Android APK build succeed with the pinned toolchain. No production constructor returns an interface stub.
-**Status:** in progress
+**Status:** done

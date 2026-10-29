@@ -312,7 +312,8 @@ describe("Storage intake boundary", () => {
       expect((await storage.intakeQueueSnapshot()).leased).toBe(0);
       expect((await storage.intakeQueueSnapshot()).retry_wait).toBe(0);
       expect(await storage.createIntakeChunks("capture-replay", chunks, "retry-1")).toBe(2);
-      expect((await storage.intakeQueueSnapshot()).ready).toBe(2);
+      expect((await storage.intakeQueueSnapshot()).ready).toBe(0);
+      expect(await storage.searchIntakeChunks("program", 10)).toEqual([]);
     });
   });
 
@@ -355,8 +356,9 @@ describe("Storage intake boundary", () => {
       const callsAfterFirst = embedder.calls.length;
       const replay = await storage.createIntakeChunks("capture-2", [chunks[0]!], "mobile-retry");
       expect(first).toBe(1);
-      expect(replay).toBe(0);
+      expect(replay).toBe(1);
       expect(embedder.calls.length).toBe(callsAfterFirst);
+      expect((await storage.intakeQueueSnapshot()).ready).toBe(1);
 
       const changed = { ...chunks[0]!, content: "Different source content." };
       await expect(

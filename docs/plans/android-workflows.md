@@ -352,7 +352,7 @@ Update `client/mobile/lib/main.dart` to open the durable store, migrate legacy v
 Update `screens/capture_screen.dart` to use the workflow composer and local-first save. Add `screens/outbox_screen.dart` and `screens/brains_screen.dart`. Adapt `screens/server_settings_screen.dart` for add and update forms. Match `docs/mocks/android-workflows/index.html`: combined outbox badge, entries grouped by brain, retry pending, edit/cancel, conflict review, and Capture edit as new. Brains lists active selection and connection history. Save profiles offline, switch without deleting local records, and accept fresh credentials on address update. Health failure must not prevent saving or using a profile.
 
 **Verify:** Existing mobile tests retain their supported contracts. The approved mock's offline Capture, edit/conflict recovery, add/update/switch, and reopen journeys work on Android.
-**Status:** in progress
+**Status:** done
 
 ### Step 11: Render Answer history and Explore
 
@@ -363,7 +363,7 @@ Add `screens/explore_screen.dart`, `screens/graph_node_detail_screen.dart`, and 
 Add Explore to the main navigation in `mobile_application.dart`. Match the mock's search-to-detail, edge following, pan/zoom, back-to-map, missing/new refresh states, and empty workspace. Return from Outbox and Brains to the originating journey.
 
 **Verify:** All Android contract tests and existing mobile tests pass. Walk through every approved Ask/history and Explore flow on Android, including offline snapshots and cached-first relaunch.
-**Status:** not started
+**Status:** in progress
 
 ### Step 12: Check the complete workflow
 

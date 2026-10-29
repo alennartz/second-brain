@@ -66,3 +66,14 @@ Run this journey later in an Android emulator or real-phone environment:
    Confirm raw search chunks do not open graph records.
 6. Add a second Brain and switch between profiles. Confirm each profile keeps
    its own Outbox, Answer history, and Explore workspace.
+
+## Known issues
+
+- The configured local model can return `Field does not belong to node kind`
+  during intake retries. Retries can create duplicate graph notes for one
+  marker before cleanup and leave pipeline work in retry or leased states.
+- Dream jobs can remain `running` when the configured provider fails to settle
+  the workflow.
+- These provider and workflow-coherence issues are outside the HTTP route and
+  intake-key changes. Re-run the deterministic contract tests when changing
+  those boundaries.

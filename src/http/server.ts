@@ -16,9 +16,13 @@ function callApplication<T>(operation: () => Promise<T>): Promise<T> {
 
 export function createHttpServer(application: HttpApplication, schemas = createHttpSchemas()): Elysia {
   const notFoundResponse = Type.Object({ detail: Type.String() });
-  const server = new Elysia().onError(({ error, set }) => {
+  const server = new Elysia().onError(({ code, error, path, set }) => {
     if (error instanceof HttpApplicationError) {
       set.status = { invalid: 400, conflict: 409, unavailable: 503, upstream: 502 }[error.kind];
+      return { detail: error.message };
+    }
+    if (code === "VALIDATION" && (path === "/search" || path === "/graph/refresh")) {
+      set.status = 400;
       return { detail: error.message };
     }
   });

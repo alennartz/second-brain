@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../persistence/settings_store.dart';
 import 'brain_gateway.dart';
 import 'errors.dart';
 import 'models.dart';
@@ -10,18 +11,27 @@ import 'models.dart';
 /// Production gateway adapter for the brain server REST API.
 final class HttpBrainGateway implements BrainGraphGateway {
   HttpBrainGateway({
-    required this.baseUrl,
+    ServerConfiguration? configuration,
+    String? baseUrl,
     required this.client,
     this.healthTimeout = const Duration(seconds: 5),
     this.requestTimeout = const Duration(minutes: 5),
     Duration? stageIntakeTimeout,
-  }) : stageIntakeTimeout = stageIntakeTimeout ??
-        (requestTimeout == const Duration(minutes: 5)
-            ? const Duration(minutes: 5)
-            : requestTimeout);
+  })  : configuration = configuration ??
+            ServerConfiguration(
+              baseUrl: baseUrl ??
+                  (throw ArgumentError.notNull('configuration or baseUrl')),
+            ),
+        stageIntakeTimeout = stageIntakeTimeout ??
+            (requestTimeout == const Duration(minutes: 5)
+                ? const Duration(minutes: 5)
+                : requestTimeout);
+
+  /// The complete server endpoint and optional Access credentials.
+  final ServerConfiguration configuration;
 
   /// A normalized absolute HTTP or HTTPS server URL.
-  final String baseUrl;
+  String get baseUrl => configuration.baseUrl;
 
   /// The HTTP transport. Tests inject a deterministic client.
   final http.Client client;
@@ -38,7 +48,7 @@ final class HttpBrainGateway implements BrainGraphGateway {
   @override
   Future<void> checkHealth() async {
     final response = await _send(
-      () => client.get(_endpoint('health')),
+      () => client.get(_endpoint('health'), headers: _requestHeaders()),
       timeout: healthTimeout,
     );
     final body = _decodeObject(response, endpoint: 'health');
@@ -58,10 +68,10 @@ final class HttpBrainGateway implements BrainGraphGateway {
     final response = await _send(
       () => client.post(
         _endpoint('ingest'),
-        headers: {
+        headers: _requestHeaders({
           'Content-Type': 'application/json',
           'Idempotency-Key': idempotencyKey,
-        },
+        }),
         body: jsonEncode({
           'text': text,
           'hints': <String>[],
@@ -82,18 +92,79 @@ final class HttpBrainGateway implements BrainGraphGateway {
   }
 
   @override
-  Future<MemorySearchResult> searchMemory(String query, {int? limit}) {
-    throw UnimplementedError('not implemented');
+  Future<MemorySearchResult> searchMemory(String query, {int? limit}) async {
+    final response = await _send(
+      () => client.post(
+        _endpoint('search'),
+        headers: _requestHeaders(const {
+          'Content-Type': 'application/json',
+        }),
+        body: jsonEncode({
+          'query': query,
+          if (limit != null) 'limit': limit,
+        }),
+      ),
+      timeout: requestTimeout,
+    );
+    final body = _decodeObject(response, endpoint: 'search');
+    return MemorySearchResult(
+      nodes: _decodeNodes(
+        body['nodes'],
+        label: 'Search response nodes',
+        requireTable: false,
+      ),
+      unprocessed: _decodeChunks(
+        body['unprocessed'],
+        label: 'Search response unprocessed',
+        requireMarker: false,
+      ),
+    );
   }
 
   @override
-  Future<GraphNodeDetail> getGraph(String recordId) {
-    throw UnimplementedError('not implemented');
+  Future<GraphNodeDetail> getGraph(String recordId) async {
+    final response = await _send(
+      () => client.get(
+        _endpoint('graph/${Uri.encodeComponent(recordId)}'),
+        headers: _requestHeaders(),
+      ),
+      timeout: requestTimeout,
+    );
+    final body = _decodeObject(response, endpoint: 'graph');
+    return GraphNodeDetail(
+      node: _decodeNode(
+        body['node'],
+        label: 'Graph response node',
+        requireTable: false,
+      ),
+      connections: _decodeConnections(
+        body['connections'],
+        label: 'Graph response connections',
+      ),
+    );
   }
 
   @override
-  Future<GraphRefreshResult> refreshGraph(List<String> recordIds) {
-    throw UnimplementedError('not implemented');
+  Future<GraphRefreshResult> refreshGraph(List<String> recordIds) async {
+    final response = await _send(
+      () => client.post(
+        _endpoint('graph/refresh'),
+        headers: _requestHeaders(const {
+          'Content-Type': 'application/json',
+        }),
+        body: jsonEncode({'ids': recordIds}),
+      ),
+      timeout: requestTimeout,
+    );
+    final body = _decodeObject(response, endpoint: 'graph refresh');
+    final rawResults = body['results'];
+    if (rawResults is! List<Object?>) {
+      throw const MalformedResponseException(
+        'Graph refresh response results must be an array',
+      );
+    }
+    final results = rawResults.map(_decodeRefreshItem).toList(growable: false);
+    return GraphRefreshResult(results: results);
   }
 
   @override
@@ -101,9 +172,9 @@ final class HttpBrainGateway implements BrainGraphGateway {
     final response = await _send(
       () => client.post(
         _endpoint('recall'),
-        headers: const {
+        headers: _requestHeaders(const {
           'Content-Type': 'application/json',
-        },
+        }),
         body: jsonEncode({
           'question': question,
           'hints': <String>[],
@@ -118,6 +189,22 @@ final class HttpBrainGateway implements BrainGraphGateway {
   Uri _endpoint(String path) {
     final normalized = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     return Uri.parse('$normalized/$path');
+  }
+
+  Map<String, String> _requestHeaders([Map<String, String>? headers]) {
+    final result = <String, String>{...?headers};
+    final accessClientId = _nonBlank(configuration.accessClientId);
+    final accessClientSecret = _nonBlank(configuration.accessClientSecret);
+    if (accessClientId == null || accessClientSecret == null) return result;
+    final scheme = Uri.tryParse(baseUrl)?.scheme;
+    if (scheme != 'https') {
+      throw const ConfigurationException(
+        'Cloudflare Access credentials require an HTTPS server URL',
+      );
+    }
+    result['CF-Access-Client-Id'] = accessClientId;
+    result['CF-Access-Client-Secret'] = accessClientSecret;
+    return result;
   }
 
   Future<http.Response> _send(
@@ -193,65 +280,140 @@ final class HttpBrainGateway implements BrainGraphGateway {
       );
     }
 
-    final nodes = _decodeNodes(rawContext['nodes']);
-    final edges = _decodeEdges(rawContext['edges']);
-    final chunks = _decodeChunks(rawContext['unprocessed']);
+    final nodes = _decodeNodes(
+      rawContext['nodes'],
+      label: 'Recall context nodes',
+      requireTable: true,
+    );
+    final edges = _decodeEdges(
+      rawContext['edges'],
+      label: 'Recall context edges',
+    );
+    final chunks = _decodeChunks(
+      rawContext['unprocessed'],
+      label: 'Recall context unprocessed',
+      requireMarker: true,
+    );
     return RecallResult(
       answer: answer,
       evidence: _projectEvidence(nodes: nodes, edges: edges, chunks: chunks),
     );
   }
 
-  List<GraphNode> _decodeNodes(Object? rawNodes) {
+  List<GraphNode> _decodeNodes(
+    Object? rawNodes, {
+    required String label,
+    required bool requireTable,
+  }) {
     if (rawNodes is! List<Object?>) {
-      throw const MalformedResponseException(
-        'Recall context nodes must be an array',
-      );
+      throw MalformedResponseException('$label must be an array');
     }
-    return rawNodes.map((rawNode) {
-      final node = _requireObject(rawNode, 'graph node');
-      final id = _requiredString(node, 'id', 'graph node');
-      final table = _requiredString(node, 'table', 'graph node');
-      return GraphNode(
-        id: id,
-        table: table,
-        content: _optionalString(node, 'content', 'graph node'),
-        name: _optionalString(node, 'name', 'graph node'),
-        type: _optionalString(node, 'type', 'graph node'),
-        description: _optionalString(node, 'description', 'graph node'),
-        summary: _optionalString(node, 'summary', 'graph node'),
-        freshnessAt: _optionalString(node, 'freshness_at', 'graph node'),
-      );
-    }).toList(growable: false);
+    return rawNodes
+        .map(
+          (rawNode) => _decodeNode(
+            rawNode,
+            label: 'Graph node',
+            requireTable: requireTable,
+          ),
+        )
+        .toList(growable: false);
   }
 
-  List<LinkedEdge> _decodeEdges(Object? rawEdges) {
+  GraphNode _decodeNode(
+    Object? rawNode, {
+    required String label,
+    required bool requireTable,
+  }) {
+    final node = _requireObject(rawNode, label);
+    final id = _requiredString(node, 'id', label);
+    final table = _decodeNodeTable(
+      node,
+      id: id,
+      label: label,
+      requireTable: requireTable,
+    );
+    return GraphNode(
+      id: id,
+      table: table,
+      content: _optionalString(node, 'content', label),
+      name: _optionalString(node, 'name', label),
+      type: _optionalString(node, 'type', label),
+      description: _optionalString(node, 'description', label),
+      summary: _optionalString(node, 'summary', label),
+      freshnessAt: _optionalString(node, 'freshness_at', label),
+    );
+  }
+
+  String _decodeNodeTable(
+    Map<String, dynamic> node, {
+    required String id,
+    required String label,
+    required bool requireTable,
+  }) {
+    if (requireTable) return _requiredString(node, 'table', label);
+    if (!node.containsKey('table')) return _tableFromRecordId(id);
+    return _requiredString(node, 'table', label);
+  }
+
+  List<LinkedEdge> _decodeEdges(
+    Object? rawEdges, {
+    required String label,
+  }) {
     if (rawEdges is! List<Object?>) {
-      throw const MalformedResponseException(
-        'Recall context edges must be an array',
-      );
+      throw MalformedResponseException('$label must be an array');
     }
-    return rawEdges.map((rawEdge) {
-      final edge = _requireObject(rawEdge, 'graph edge');
-      return LinkedEdge(
-        id: _requiredString(edge, 'id', 'graph edge'),
-        table: _requiredString(edge, 'table', 'graph edge'),
-        from: _requiredString(edge, 'from', 'graph edge'),
-        to: _requiredString(edge, 'to', 'graph edge'),
-        context: _optionalString(edge, 'context', 'graph edge'),
-        freshnessAt: _optionalString(edge, 'freshness_at', 'graph edge'),
+    return rawEdges
+        .map(
+          (rawEdge) => _decodeEdge(
+            rawEdge,
+            label: 'Graph edge',
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  LinkedEdge _decodeEdge(Object? rawEdge, {required String label}) {
+    final edge = _requireObject(rawEdge, label);
+    return LinkedEdge(
+      id: _requiredString(edge, 'id', label),
+      table: _requiredString(edge, 'table', label),
+      from: _requiredString(edge, 'from', label),
+      to: _requiredString(edge, 'to', label),
+      context: _optionalString(edge, 'context', label),
+      freshnessAt: _optionalString(edge, 'freshness_at', label),
+    );
+  }
+
+  List<GraphConnection> _decodeConnections(
+    Object? rawConnections, {
+    required String label,
+  }) {
+    if (rawConnections is! List<Object?>) {
+      throw MalformedResponseException('$label must be an array');
+    }
+    return rawConnections.map((rawConnection) {
+      final connection = _requireObject(rawConnection, 'Graph connection');
+      return GraphConnection(
+        edge: _decodeEdge(connection['edge'], label: 'Graph connection edge'),
+        node: _decodeNode(
+          connection['node'],
+          label: 'Graph connection node',
+          requireTable: false,
+        ),
       );
     }).toList(growable: false);
   }
 
-  List<IntakeChunk> _decodeChunks(Object? rawChunks) {
+  List<IntakeChunk> _decodeChunks(
+    Object? rawChunks, {
+    required String label,
+    required bool requireMarker,
+  }) {
     if (rawChunks is! List<Object?>) {
-      throw const MalformedResponseException(
-        'Recall context unprocessed must be an array',
-      );
+      throw MalformedResponseException('$label must be an array');
     }
     return rawChunks.map((rawChunk) {
-      final chunk = _requireObject(rawChunk, 'unprocessed chunk');
+      final chunk = _requireObject(rawChunk, 'Unprocessed chunk');
       final hints = chunk['hints'];
       if (hints is! List<Object?> || hints.any((hint) => hint is! String)) {
         throw const MalformedResponseException(
@@ -260,24 +422,57 @@ final class HttpBrainGateway implements BrainGraphGateway {
       }
       final chunkIndex = chunk['chunk_index'];
       final totalChunks = chunk['total_chunks'];
-      final unprocessed = chunk['unprocessed'];
-      if (chunkIndex is! int || totalChunks is! int || unprocessed is! bool) {
+      final marker = chunk['unprocessed'];
+      if (chunkIndex is! int ||
+          totalChunks is! int ||
+          (requireMarker && marker is! bool)) {
         throw const MalformedResponseException(
           'Unprocessed chunk positions and marker have invalid types',
         );
       }
       return IntakeChunk(
-        id: _requiredString(chunk, 'id', 'unprocessed chunk'),
-        intakeId: _requiredString(chunk, 'intake_id', 'unprocessed chunk'),
+        id: _requiredString(chunk, 'id', 'Unprocessed chunk'),
+        intakeId: _requiredString(chunk, 'intake_id', 'Unprocessed chunk'),
         chunkPosition: chunkIndex,
         totalChunks: totalChunks,
-        content: _requiredString(chunk, 'content', 'unprocessed chunk'),
-        source: _requiredString(chunk, 'source', 'unprocessed chunk'),
+        content: _requiredString(chunk, 'content', 'Unprocessed chunk'),
+        source: _requiredString(chunk, 'source', 'Unprocessed chunk'),
         hints: List<String>.unmodifiable(hints.cast<String>()),
-        isUnprocessed: unprocessed,
-        capturedAt: _optionalString(chunk, 'captured_at', 'unprocessed chunk'),
+        isUnprocessed: requireMarker ? marker as bool : true,
+        capturedAt: _optionalString(
+          chunk,
+          'captured_at',
+          'Unprocessed chunk',
+        ),
       );
     }).toList(growable: false);
+  }
+
+  GraphRefreshItem _decodeRefreshItem(Object? rawResult) {
+    final result = _requireObject(rawResult, 'Graph refresh result');
+    final id = _requiredString(result, 'id', 'Graph refresh result');
+    final status = _requiredString(result, 'status', 'Graph refresh result');
+    switch (status) {
+      case 'missing':
+        return GraphRefreshMissing(id: id);
+      case 'found':
+        return GraphRefreshFound(
+          id: id,
+          node: _decodeNode(
+            result['node'],
+            label: 'Graph refresh node',
+            requireTable: false,
+          ),
+          connections: _decodeConnections(
+            result['connections'],
+            label: 'Graph refresh connections',
+          ),
+        );
+      default:
+        throw const MalformedResponseException(
+          'Graph refresh result status must be found or missing',
+        );
+    }
   }
 
   List<EvidenceItem> _projectEvidence({
@@ -364,4 +559,9 @@ final class _GraphEvidenceBuilder {
 
   final GraphNode node;
   final List<LinkedEdge> links = [];
+}
+
+String? _nonBlank(String? value) {
+  final trimmed = value?.trim();
+  return trimmed == null || trimmed.isEmpty ? null : trimmed;
 }

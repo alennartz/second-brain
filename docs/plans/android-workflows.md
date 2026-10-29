@@ -258,12 +258,14 @@ The Explore controller exposes `selectNode` and `state.selectedNodeId`. Canvas a
 
 ## Steps
 
+**Pre-implementation commit:** `057a0bfe55e098a635323d2a76033b530a91649c`
+
 ### Step 1: Preserve intake receipts
 
 Change `createIntakeChunks` in `src/storage/embedded.ts` to return the stored `chunk_count` for matching fingerprints. Keep mismatched fingerprints as conflicts. Remove intake-key deletion from `cleanup` and its chunk-deletion paths. Keep accepted keys through chunk consumption, discard, and database reopening. Do not recreate chunks on replay.
 
 **Verify:** The intake-key persistence cases in `bun test tests/android-workflows.test.ts` pass. Existing storage and intake reliability tests retain their behavior.
-**Status:** not started
+**Status:** done
 
 ### Step 2: Implement graph application operations
 
@@ -272,7 +274,7 @@ In `src/application/composition.ts`, replace `search` and `refreshGraph` stubs. 
 Keep the existing routes and schemas in `src/http/server.ts` and `src/http/schemas.ts`. Ensure invalid search and refresh input returns 400 rather than Elysia's default validation status. Preserve existing error mapping for transport failures and ingest conflicts.
 
 **Verify:** All cases in `bun test tests/android-workflows.test.ts` pass. Run `make check`.
-**Status:** not started
+**Status:** done
 
 ### Step 3: Implement graph gateway decoding
 
@@ -281,7 +283,7 @@ Replace graph stubs in `client/mobile/lib/src/gateway/http_brain_gateway.dart`. 
 Search uses the separate `unprocessed` collection to set `IntakeChunk.isUnprocessed`. Do not require the recall-only wire marker for search chunks. Preserve recall validation. Node projections use the table supplied by the server, or derive it from the canonical ID when absent. Keep the approved `BrainGraphGateway` compatibility adapter in `brain_gateway.dart`.
 
 **Verify:** `flutter test test/android_gateway_test.dart test/gateway/http_brain_gateway_test.dart` passes from `client/mobile`.
-**Status:** not started
+**Status:** done
 
 ### Step 4: Open durable local storage
 
@@ -292,7 +294,7 @@ Create `client/mobile/lib/src/persistence/mobile_store.dart` behind `MobileStore
 Extend `openMobileStore` in `workflow_contract.dart` with optional `SecretStore` injection. Retain `FlutterSecureSecretStore` on Android. Create `persistence/host_secret_store.dart` for the approved durable non-mobile fallback beside the database. Keep Access credentials out of SQLite. Add lossless domain codecs in `persistence/codecs.dart` for both evidence variants, graph nodes, directed edges, workspace flags, and timestamps.
 
 **Verify:** Store opening and reopening use isolated test paths without platform-channel failures. Dependency resolution and analysis succeed in the pinned mobile toolchain container.
-**Status:** not started
+**Status:** done
 
 ### Step 5: Implement profiles and outbox
 
@@ -303,7 +305,7 @@ Profiles save offline as Never connected. Persist active selection and connectio
 Outbox entries preserve brain, text, key, capture time, and state. Edits keep the original key. Acceptance removes the entry. Conflict keeps edited content recoverable. Requeue-as-new changes the key and returns the retained text to pending. Use the existing UUID package for repository-generated identities.
 
 **Verify:** Profile and outbox cases in `flutter test test/android_repositories_test.dart` pass, including reopening.
-**Status:** not started
+**Status:** done
 
 ### Step 6: Persist snapshots, workspaces, and migration
 
@@ -312,14 +314,14 @@ Create `persistence/answer_snapshot_repository.dart` and `persistence/graph_work
 Implement migration in `mobile_store.dart`. Read legacy configuration and pending Capture through `settings_store.dart`. Convert them to `LegacyMobileData` at startup. Preserve credentials, key, and capture time. Assign migration-time capture time only when absent. Commit the profile, associated outbox entry, and migration marker together. An open without legacy data must not prevent a later supplied migration. Repeated migration must not duplicate records.
 
 **Verify:** All cases in `flutter test test/android_repositories_test.dart` pass. Legacy data survives reopen exactly once.
-**Status:** not started
+**Status:** in progress
 
 ### Step 7: Deliver foreground outboxes
 
 Implement `SyncEngine` in `client/mobile/lib/src/sync/sync_engine.dart` and wire `createSyncEngine` in `workflow_contract.dart`. Read all profiles and outbox entries, not only the active profile. Resolve each entry's gateway from its saved brain. Deliver with unchanged key and capture time. Map acceptance, 409, and transport failure to the approved repository outcomes and `SyncReport`. Skip retained conflicts until deliberate requeue.
 
 **Verify:** `flutter test test/android_sync_engine_test.dart` passes. Inactive brains receive their own captures and conflicts never resubmit automatically.
-**Status:** not started
+**Status:** in progress
 
 ### Step 8: Implement workspace transitions
 

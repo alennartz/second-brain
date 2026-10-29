@@ -11,6 +11,7 @@ import { createIngestWorkflow, createRecallWorkflow, createDreamWorkflow } from 
 import { createIntakePipeline, type IntakePipeline, type WorkflowClock } from "../workflows/intake-pipeline";
 import { createDreamScheduler, type DreamScheduler } from "../workflows/dream-scheduler";
 import { createRecallService, HttpApplicationError } from "../http/contracts";
+import { searchMemory } from "../../packages/pi-second-brain/lib/graph";
 import type { CompositionFactories } from "./runtime";
 
 export const systemClock: WorkflowClock = {
@@ -70,6 +71,13 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge) : undefined; },
         getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return { ...Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at", "captured_at"].map(key => [key, record[key as keyof typeof record]])), unprocessed: true }; },
       });
+      const readGraph = async (id: string) => {
+        const node = await storage.getNode(id); if (!node) return undefined;
+        const edges = [...await storage.getIncomingEdges(id), ...await storage.getOutgoingEdges(id)];
+        const connections = [];
+        for (const edge of edges) { const other = await storage.getNode(edge.from === id ? edge.to : edge.from); if (other) connections.push({ edge: edgeWire(edge), node: nodeWire(other) }); }
+        return { node: nodeWire(node), connections };
+      };
       return {
         async enqueue(request) {
           if (!request.text.trim() || request.text.length > settings.intake.maxRequestChars) throw new HttpApplicationError("invalid", "Invalid intake text length");
@@ -112,15 +120,21 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         },
         getDreamJob: async id => dreamJobs.get(id),
         recall: async request => { scheduler.touchActivity(); return recall.recall(request); },
-        async getGraph(id) {
-          const node = await storage.getNode(id); if (!node) return undefined;
-          const edges = [...await storage.getIncomingEdges(id), ...await storage.getOutgoingEdges(id)];
-          const connections = [];
-          for (const edge of edges) { const other = await storage.getNode(edge.from === id ? edge.to : edge.from); if (other) connections.push({ edge: edgeWire(edge), node: nodeWire(other) }); }
-          return { node: nodeWire(node), connections };
+        getGraph: readGraph,
+        async search(request) {
+          const result = await searchMemory(storage, request);
+          return {
+            nodes: result.nodes.map(node => ({ ...node } as Record<string, unknown>)),
+            unprocessed: result.unprocessed.map(chunk => ({ ...chunk } as Record<string, unknown>)),
+          };
         },
-        async search() { throw new Error("not implemented"); },
-        async refreshGraph() { throw new Error("not implemented"); },
+        async refreshGraph(ids) {
+          const results = await Promise.all(ids.map(async id => {
+            const graph = await readGraph(id);
+            return graph ? { id, status: "found" as const, ...graph } : { id, status: "missing" as const };
+          }));
+          return { results };
+        },
       };
     },
   };

@@ -1,28 +1,13 @@
 import 'gateway/brain_gateway.dart';
 import 'gateway/models.dart';
 import 'persistence/models.dart';
+import 'persistence/mobile_store.dart';
 import 'persistence/repositories.dart';
 import 'explore/explore_controller.dart';
 import 'sync/sync_engine.dart';
 
-/// Legacy values migrate once into one brain and retain their capture identity.
-final class LegacyMobileData {
-  const LegacyMobileData({required this.profile, this.pending});
-  final BrainProfileDraft profile;
-  final OutboxEntry? pending;
-}
-
-/// Durable repositories. Reopening the same path preserves all records.
-abstract interface class MobileStore {
-  BrainProfileRepository get profiles;
-  CaptureOutboxRepository get outbox;
-  AnswerSnapshotRepository get answers;
-  GraphWorkspaceRepository get workspaces;
-  Future<void> close();
-}
-
-Future<MobileStore> openMobileStore(String path, {LegacyMobileData? legacy}) =>
-    throw UnimplementedError('not implemented');
+export 'persistence/mobile_store.dart'
+    show LegacyMobileData, MobileStore, openMobileStore;
 
 SyncEngine createSyncEngine(MobileStore store) =>
     throw UnimplementedError('not implemented');

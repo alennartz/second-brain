@@ -10,7 +10,13 @@ abstract interface class BrainProfileRepository {
   Future<void> add(BrainProfileDraft draft);
 
   /// Replaces the address and clears Access credentials.
-  Future<void> updateAddress(String id, String url);
+  ///
+  /// A supplied credential pair replaces the old pair after it is cleared.
+  Future<void> updateAddress(
+    String id,
+    String url, {
+    ({String clientId, String clientSecret})? credentials,
+  });
 
   Future<void> markConnected(String id);
 
@@ -72,7 +78,11 @@ final class BrainProfileRepositoryStub implements BrainProfileRepository {
       throw UnimplementedError('not implemented');
 
   @override
-  Future<void> updateAddress(String id, String url) =>
+  Future<void> updateAddress(
+    String id,
+    String url, {
+    ({String clientId, String clientSecret})? credentials,
+  }) =>
       throw UnimplementedError('not implemented');
 
   @override

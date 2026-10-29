@@ -88,7 +88,9 @@ background pipeline leases contiguous eligible chunks, renews ownership, and
 runs the ingest workflow. Ingest can search existing knowledge, create singular
 nodes and edges, and make exact field edits. Each mutation commits before the
 agent continues. The pipeline acknowledges a batch only after a clean run and
-releases failed or canceled work for retry.
+releases failed or canceled work for retry. Known node-field validation failures
+pause the intake before release so a deterministic model error cannot replay
+successful writes indefinitely.
 
 ### Recall
 
@@ -104,7 +106,8 @@ Dream has two request-scoped sessions: deduplication and connection discovery.
 Deduplication can merge nodes and edges, make exact edits, remove edges, and
 rename edge types. Connection discovery can find shared-note co-occurrences and
 create edges. The scheduler runs deduplication first, cancels on new activity,
-and limits repeated idle cycles through convergence tracking.
+limits repeated idle cycles through convergence tracking, and fails a cycle
+that exceeds its configured timeout.
 
 ## Search and Embeddings
 

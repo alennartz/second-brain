@@ -57,8 +57,8 @@ const raw = Type.Object({
 });
 
 export const storeNodeInput = Type.Union([
-  Type.Object({ kind: Type.Literal("entity", { description: "Node kind selector." }), name: Type.String({ minLength: 1, description: "Entity name." }), type: Type.String({ minLength: 1, description: "Entity category." }), description: Type.Optional(Type.String({ description: "Optional entity description." })) }),
-  Type.Object({ kind: Type.Literal("note", { description: "Node kind selector." }), content: Type.String({ minLength: 1, description: "Note text." }), source: Type.Optional(Type.String({ description: "Optional note origin." })), summary: Type.Optional(Type.String({ description: "Optional note digest." })) }),
+  Type.Object({ kind: Type.Literal("entity", { description: "Node kind selector." }), name: Type.String({ minLength: 1, description: "Entity name." }), type: Type.String({ minLength: 1, description: "Entity category." }), description: Type.Optional(Type.String({ description: "Optional entity description." })) }, { additionalProperties: false }),
+  Type.Object({ kind: Type.Literal("note", { description: "Node kind selector." }), content: Type.String({ minLength: 1, description: "Note text." }), source: Type.Optional(Type.String({ description: "Optional note origin." })), summary: Type.Optional(Type.String({ description: "Optional note digest." })) }, { additionalProperties: false }),
 ]);
 export type StoreNodeInput = Static<typeof storeNodeInput>;
 export const storeNodeOutput = nodeSchema;
@@ -71,7 +71,14 @@ export const storeEdgeOutput = Type.Union([
 
 export const updateNodeInput = Type.Object({
   id: nodeId,
-  field: Type.Union(["name", "type", "description", "content", "source", "summary"].map(value => Type.Literal(value)), { description: "Node field to edit." }),
+  field: Type.Union([
+    Type.Literal("name", { description: "Entity name. Use only for entity nodes." }),
+    Type.Literal("type", { description: "Entity category. Use only for entity nodes." }),
+    Type.Literal("description", { description: "Entity description. Use only for entity nodes." }),
+    Type.Literal("content", { description: "Note text. Use only for note nodes." }),
+    Type.Literal("source", { description: "Note origin. Use only for note nodes." }),
+    Type.Literal("summary", { description: "Note digest. Use only for note nodes." }),
+  ], { description: "Node field to edit. Read the node first and choose a field allowed by its kind." }),
   oldText: Type.String({ minLength: 1, description: "Existing text to replace; must match exactly once." }),
   newText: Type.String({ description: "Replacement text." }),
 });

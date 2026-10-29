@@ -28,6 +28,7 @@ export interface IntakeSettings {
 export interface DreamSettings {
   enabled: boolean;
   idleTimeoutMinutes: number;
+  cycleTimeoutMinutes: number;
   delayMultiplier: number;
   maxDelayMinutes: number;
   batchSize: number;
@@ -84,6 +85,6 @@ export function parseSettings(environment: SettingsEnvironment): Settings {
       shutdownGraceSeconds: number("INTAKE_SHUTDOWN_GRACE_SECONDS", 60),
     },
     dream: { enabled: ["true", "1"].includes(enabled.toLowerCase()), idleTimeoutMinutes: number("DREAM_IDLE_TIMEOUT_MINUTES", 10),
-      delayMultiplier: number("DREAM_DELAY_MULTIPLIER", 1.5), maxDelayMinutes: number("DREAM_MAX_DELAY_MINUTES", 720), batchSize: number("DREAM_BATCH_SIZE", 25, true) },
+      cycleTimeoutMinutes: number("DREAM_CYCLE_TIMEOUT_MINUTES", 10), delayMultiplier: number("DREAM_DELAY_MULTIPLIER", 1.5), maxDelayMinutes: number("DREAM_MAX_DELAY_MINUTES", 720), batchSize: number("DREAM_BATCH_SIZE", 25, true) },
   };
 }

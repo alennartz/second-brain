@@ -63,6 +63,19 @@ describe("dream scheduler cycle", () => {
     expect(result.connection).toBe("failed");
     expect(result.errors).toContain("edge write failed");
   });
+  test("times out a workflow that does not settle", async () => {
+    const deps = dependencies();
+    deps.settings.cycleTimeoutMs = 5;
+    let signal: AbortSignal | undefined;
+    deps.workflow.deduplicate = async (_ids, suppliedSignal) => {
+      signal = suppliedSignal;
+      return new Promise(() => {});
+    };
+    const result = await createDreamScheduler(deps).runCycle();
+    expect(result.deduplication).toBe("failed");
+    expect(result.errors[0]).toContain("timed out");
+    expect(signal?.aborted).toBe(true);
+  });
   test("activity cancels the active phase and prevents the next phase", async () => {
     const deps = dependencies();
     let connects = 0;

@@ -48,6 +48,7 @@ describe("configuration contracts", () => {
       BRAIN_EMBEDDING_MODEL: "openai:text-embedding-3-small",
       BRAIN_EMBEDDING_DIMENSIONS: "1536",
       BRAIN_DB_PATH: "data/brain.db",
+      BRAIN_DREAM_CYCLE_TIMEOUT_MINUTES: "7",
     };
     const settings: Settings = parseSettings(environment);
 
@@ -59,7 +60,7 @@ describe("configuration contracts", () => {
       embeddingDimensions: 1536,
       dbPath: "data/brain.db",
       intake: expect.any(Object),
-      dream: expect.any(Object),
+      dream: { cycleTimeoutMinutes: 7 },
     });
   });
 });

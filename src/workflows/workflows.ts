@@ -22,7 +22,7 @@ export type IngestBatch = {
   attemptCount?: number;
   chunks: readonly { id: string; chunkIndex: number; content: string; hints: readonly string[]; capturedAt: string }[];
 };
-export type IngestOutcome = { clean: boolean; aborted: boolean; errors: readonly string[] };
+export type IngestOutcome = { clean: boolean; aborted: boolean; errors: readonly string[]; retryable?: boolean };
 export interface IngestWorkflow {
   run(batch: IngestBatch, signal?: AbortSignal): Promise<IngestOutcome>;
 }
@@ -32,7 +32,13 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 const ingestMutationTools = new Set(["memory_store_node", "memory_store_edge", "memory_update_node"]);
 function resultErrors(result: Awaited<ReturnType<WorkflowRuntime["run"]>>, mutationOnly = false) {
   const toolErrors = result.toolResults.filter(t => t.isError && (!mutationOnly || ingestMutationTools.has(t.toolName)));
-  return [...toolErrors.map(t => JSON.stringify(t.structuredContent)), ...(!result.settled ? ["Run did not settle"] : [])];
+  return [...toolErrors.map(t => JSON.stringify(t.structuredContent) ?? "Tool execution failed"), ...(!result.settled ? ["Run did not settle"] : [])];
+}
+function isNonRetryableIngestError(error: string): boolean {
+  return /Field does not belong to node kind|Required node field is blank|Exact edit requires one match|Invalid tool parameters|Invalid storeNode input/.test(error);
+}
+function nonRetryableOutcome(errors: readonly string[]): Pick<IngestOutcome, "retryable"> {
+  return errors.some(isNonRetryableIngestError) ? { retryable: false } : {};
 }
 export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
   return { async run(batch, signal) {
@@ -42,8 +48,11 @@ export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
       const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal }));
       const errors = resultErrors(result, true);
       const aborted = result.aborted || !!signal?.aborted;
-      return { clean: !aborted && !errors.length, aborted, errors };
-    } catch (error) { return { clean: false, aborted: !!signal?.aborted, errors: [errorText(error)] }; }
+      return { clean: !aborted && !errors.length, aborted, errors, ...nonRetryableOutcome(errors) };
+    } catch (error) {
+      const errors = [errorText(error)];
+      return { clean: false, aborted: !!signal?.aborted, errors, ...nonRetryableOutcome(errors) };
+    }
   } };
 }
 

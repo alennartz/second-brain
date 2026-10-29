@@ -53,7 +53,7 @@ function projectNode(node: NodeRecord): NodeRecord {
 function validateFields(node: NodeRecord, fields: NodeFields): void {
   const kind = node.id.split(":")[0];
   const allowed = kind === "note" ? ["content", "source", "summary"] : ["name", "type", "description"];
-  if (Object.keys(fields).some(key => !allowed.includes(key))) throw new Error("Field does not belong to node kind");
+  if (Object.keys(fields).some(key => !allowed.includes(key))) throw new Error(`Field does not belong to node kind: ${kind} nodes accept ${allowed.join(", ")}`);
   const result = { ...node, ...fields };
   for (const field of kind === "note" ? ["content"] : ["name", "type"]) {
     if (typeof result[field as keyof NodeRecord] !== "string" || !(result[field as keyof NodeRecord] as string).trim()) throw new Error("Required node field is blank");

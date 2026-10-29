@@ -27,6 +27,8 @@ describe("ingest workflow", () => {
     expect(sorted(requests[0]!.toolNames)).toEqual(["memory_explore", "memory_get_node", "memory_search", "memory_store_edge", "memory_store_node", "memory_update_node"]);
     expect(requests[0]!.customTools ?? []).toEqual([]);
     expect(requests[0]!.model).toEqual(model);
+    expect(requests[0]!.systemPrompt).toContain("note payloads contain only kind, content, source, and summary");
+    expect(requests[0]!.systemPrompt).toContain("notes accept content, source, and summary");
     expect(requests[0]!.prompt).toContain("topic");
     expect(requests[0]!.prompt).toContain("capturedAt");
     expect(requests[0]!.prompt).toContain("2026-01-01T00:00:00Z");
@@ -37,6 +39,12 @@ describe("ingest workflow", () => {
     const outcome = await workflow.run(batch);
     expect(outcome.clean).toBe(false);
     expect(outcome.errors.length).toBeGreaterThan(0);
+  });
+  test("marks deterministic node validation errors as non-retryable", async () => {
+    const workflow = createIngestWorkflow(dependencies(async () => ({ ...settled, toolResults: [{ toolName: "memory_update_node", isError: true, structuredContent: { error: "Field does not belong to node kind" } }] })));
+    const outcome = await workflow.run(batch);
+    expect(outcome.clean).toBe(false);
+    expect(outcome.retryable).toBe(false);
   });
   test("never marks an unsettled run clean", async () => {
     const workflow = createIngestWorkflow(dependencies(async () => ({ ...settled, settled: false })));

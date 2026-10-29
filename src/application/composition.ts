@@ -59,7 +59,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
       });
     },
     createScheduler({ storage }) {
-      const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(settings.dreamModel)), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000 } });
+      const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(settings.dreamModel)), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000, cycleTimeoutMs: settings.dream.cycleTimeoutMinutes * 60000 } });
       return settings.dream.enabled ? scheduler : { ...scheduler, start() {} };
     },
     createApplication({ storage, pipeline, scheduler, dreamJobs }) {
@@ -103,14 +103,12 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
               return;
             }
             dreamJobs.set(job.job_id, { ...job, status: "running" });
-            void scheduler.runCycle().then(result => {
+            void Promise.resolve().then(() => scheduler.runCycle()).then(result => {
               const error = result.errors.length ? result.errors.join("\n") : result.aborted ? "Dream cycle cancelled" : null;
               dreamJobs.set(job.job_id, { ...job, status: error ? "failed" : "complete", error });
-              settle();
             }, error => {
               dreamJobs.set(job.job_id, { ...job, status: "failed", error: String(error) });
-              settle();
-            });
+            }).finally(settle);
           });
           return job;
         },

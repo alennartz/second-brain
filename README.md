@@ -128,6 +128,7 @@ All settings use environment variables. Workflow model references use
 | `BRAIN_INTAKE_POLL_INTERVAL_SECONDS` | `1` | Queue polling interval |
 | `BRAIN_INTAKE_SHUTDOWN_GRACE_SECONDS` | `60` | Worker shutdown grace period |
 | `BRAIN_DREAM_IDLE_TIMEOUT_MINUTES` | `10` | Idle time before a dream cycle |
+| `BRAIN_DREAM_CYCLE_TIMEOUT_MINUTES` | `10` | Maximum time for one dream cycle |
 | `BRAIN_DREAM_DELAY_MULTIPLIER` | `1.5` | Dream backoff multiplier |
 | `BRAIN_DREAM_MAX_DELAY_MINUTES` | `720` | Maximum dream backoff |
 | `BRAIN_DREAM_BATCH_SIZE` | `25` | Nodes per dream cycle |

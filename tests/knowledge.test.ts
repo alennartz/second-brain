@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { bindKnowledge, cancellableStorage, type KnowledgeFunctions } from "../packages/pi-second-brain/lib/graph.ts";
 import type { Storage } from "../src/storage/storage.ts";
-import { storeNodeOutput } from "../packages/pi-second-brain/lib/schemas.ts";
+import { storeNodeInput, storeNodeOutput } from "../packages/pi-second-brain/lib/schemas.ts";
 import { createEmbeddedStorage } from "../src/storage/embedded.ts";
 import { EmbedderStub } from "../src/embeddings/embedder.ts";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -87,6 +87,11 @@ describe("KnowledgeGraph", () => {
     const n = await g.storeNode({ kind: "note", content: "evidence" });
     await expect(g.updateNode({ id: n.id, field: "content", oldText: "evidence", newText: "" })).rejects.toThrow();
     expect(await g.getNode({ id: n.id })).toEqual(n);
+  }));
+  test("rejects fields from the other node kind before storage", () => run(async g => {
+    const input = { kind: "note", content: "evidence", name: "Ada" } as never;
+    expect(Value.Check(storeNodeInput, input)).toBe(false);
+    await expect(g.storeNode(input)).rejects.toThrow("Invalid storeNode input");
   }));
   test("retains earlier committed writes after a later mutation fails", () => run(async g => {
     const n = await g.storeNode(entity("Ada"));

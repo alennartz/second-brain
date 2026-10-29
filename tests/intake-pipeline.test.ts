@@ -160,4 +160,21 @@ describe("intake pipeline acknowledgement", () => {
     expect(cancelled).toBe(true);
     expect(released).toEqual(["lease"]);
   });
+  test("pauses a batch after a non-retryable workflow error", async () => {
+    const deps = dependencies();
+    const released = deferred<void>();
+    const paused: string[] = [];
+    const releasedTokens: string[] = [];
+    let claims = 0;
+    deps.queue.claimIntakeBatch = async () => claims++ === 0 ? batch : undefined;
+    deps.queue.pauseIntake = async intakeId => { paused.push(intakeId); return 2; };
+    deps.queue.releaseIntakeBatch = async token => { releasedTokens.push(token); released.resolve(); };
+    deps.workflow.run = async () => ({ clean: false, aborted: false, retryable: false, errors: ["Field does not belong to node kind"] });
+    const pipeline = createIntakePipeline(deps);
+    await pipeline.start();
+    await released.promise;
+    await pipeline.stop();
+    expect(paused).toEqual(["capture"]);
+    expect(releasedTokens).toEqual(["lease"]);
+  });
 });

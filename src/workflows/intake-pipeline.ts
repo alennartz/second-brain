@@ -176,8 +176,22 @@ export function createIntakePipeline(d: IntakePipelineDependencies): IntakePipel
       try { outcome = await d.workflow.run(batch, controller.signal); }
       catch (error) { outcome = { clean: false, aborted: controller.signal.aborted, errors: [String(error)] }; }
       heartbeat.abort(); await renew;
-      if (outcome.clean && !outcome.aborted && !controller.signal.aborted && ownership.valid) await d.queue.deleteIntakeBatch(batch.leaseToken);
-      else await d.queue.releaseIntakeBatch(batch.leaseToken, ownership.error || outcome.errors.join("; ") || "Batch aborted", Math.min(d.settings.retryCapMs, d.settings.retryBaseMs * 2 ** Math.min(30, batch.attemptCount ?? 0)));
+      if (outcome.clean && !outcome.aborted && !controller.signal.aborted && ownership.valid) {
+        await d.queue.deleteIntakeBatch(batch.leaseToken);
+      } else {
+        const errors = [...outcome.errors];
+        let paused = false;
+        if (outcome.retryable === false) {
+          try {
+            await d.queue.pauseIntake(batch.intakeId);
+            paused = true;
+          } catch (error) {
+            errors.push(`Could not pause intake after a permanent workflow error: ${String(error)}`);
+          }
+        }
+        const retryDelay = Math.min(d.settings.retryCapMs, d.settings.retryBaseMs * 2 ** Math.min(30, batch.attemptCount ?? 0));
+        await d.queue.releaseIntakeBatch(batch.leaseToken, ownership.error || errors.join("; ") || "Batch aborted", paused ? 0 : retryDelay);
+      }
     } finally { heartbeat.abort(); await renew; shutdownSignal.removeEventListener("abort", abortOnShutdown); state.active.delete(controller); }
   }
   async function worker(signal: AbortSignal) {

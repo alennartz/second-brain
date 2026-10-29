@@ -22,6 +22,7 @@ export type DreamSchedulerDependencies = {
     idleMs: number;
     backoffFactor: number;
     maxDelayMs: number;
+    cycleTimeoutMs?: number;
   };
 };
 export interface DreamScheduler {
@@ -55,6 +56,7 @@ export function createDreamScheduler(d: DreamSchedulerDependencies): DreamSchedu
       } catch (error) { result[phase] = "failed"; result.errors.push(String(error)); result.aborted = controller.signal.aborted; }
       if (result.aborted || (phase === "deduplication" && result.deduplication === "failed")) break;
     }
+    if (result.aborted) return result;
     if (processed.size) {
       try { await d.queue.incrementDreamAge([...processed].filter(id => /^(note|entity):/.test(id))); }
       catch (error) { result.errors.push(String(error)); }
@@ -63,9 +65,26 @@ export function createDreamScheduler(d: DreamSchedulerDependencies): DreamSchedu
   }
   function runCycle(): Promise<DreamCycleResult> {
     if (state.cycle) return state.cycle;
+    if (state.active) return Promise.resolve({ aborted: true, deduplication: "failed", connection: "skipped", errors: ["Dream cycle is still stopping"] });
     const controller = new AbortController(); state.active = controller;
-    const promise = cycle(controller).finally(() => { state.active = undefined; state.cycle = undefined; });
-    state.cycle = promise; return promise;
+    const operation = cycle(controller);
+    const waits: Promise<DreamCycleResult>[] = [operation];
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutMs = d.settings.cycleTimeoutMs;
+    if (timeoutMs !== undefined && timeoutMs > 0) waits.push(new Promise(resolve => {
+      timer = setTimeout(() => {
+        resolve({ aborted: true, deduplication: "failed", connection: "skipped", errors: [`Dream cycle timed out after ${timeoutMs}ms`] });
+        controller.abort();
+      }, timeoutMs);
+    }));
+    let promise!: Promise<DreamCycleResult>;
+    promise = Promise.race(waits).finally(() => {
+      if (timer) clearTimeout(timer);
+      state.cycle = undefined;
+    });
+    void operation.then(() => { if (state.active === controller) state.active = undefined; }, () => { if (state.active === controller) state.active = undefined; });
+    state.cycle = promise;
+    return promise;
   }
   async function loop() {
     while (state.running) {

@@ -136,6 +136,22 @@ Workspace rules (owned by the explore controller):
 - Confirmed-missing nodes and edges render dimmed and stay; Clear deleted removes them locally without a server call; Clear workspace empties the workspace (confirmed action).
 - A failed refresh leaves cached data unchanged and unmarked.
 
+### Review-approved construction and lifecycle contracts
+
+`client/mobile/lib/src/workflow_contract.dart` materializes the following public seams:
+
+- `openMobileStore(path, legacy: ...)` opens durable repositories and migrates legacy settings once. Reopening the same path preserves records. Tests use isolated temporary paths.
+- `MobileStore` exposes profile, outbox, answer, and workspace repositories plus `close`.
+- `createSyncEngine(store)` injects the repositories that supply foreground sync work.
+- `createExploreController(brainId, workspaces, gateway)` returns a controller after loading local workspace data, without requiring transport.
+- `createMobileWorkflow(store, gatewayFor, now, newKey)` injects persistence, transport, time, and identity generation.
+
+`MobileWorkflow` owns durable Capture and composer reset, automatic successful Ask snapshots, offline snapshot reopening, source-brain graph links, app-open/resume sync, and first Explore visit behavior. Each brain receives one automatic expanded-node refresh per workflow lifetime. A new workflow represents a new app launch. `visitExplore` returns cached state without awaiting transport. The controller's `refreshCompleted` future lets consumers await the scheduled refresh without timers.
+
+`AnswerSnapshot.id` supplies the stable local history identity used for reopening and deletion. Repository tests verify stored evidence content, not object identity. Search chunk projections match `memory_search`, which omits an `unprocessed` flag. The gateway derives that marker from the separate unprocessed collection.
+
+The Explore controller exposes `selectNode` and `state.selectedNodeId`. Canvas and detail views share this selection and loaded node/edge projection. Refresh keeps confirmed-missing edges as well as nodes. New connections retain directed edge identity without expanding destinations.
+
 ### Interaction Mocks
 
 - `docs/mocks/android-workflows/index.html` — Capture and outbox retry/edit/conflict, Ask with automatic snapshots and history, Explore search/canvas/detail with refresh, dimming, and clear-deleted, Brain profile add/update-address/switch, offline and reopen-app behavior.
@@ -168,6 +184,7 @@ Workspace rules (owned by the explore controller):
 - `client/mobile/lib/src/sync/sync_engine.dart` — Foreground sync report and engine contract.
 - `client/mobile/lib/src/explore/explore_controller.dart` — Explore workspace state and controller contract.
 - `client/mobile/lib/second_brain_mobile.dart` — Public exports for the Android workflow interfaces.
+- `client/mobile/lib/src/workflow_contract.dart` — Durable store opening/migration, injected construction, and foreground mobile journey contracts.
 
 ### Test Files
 
@@ -175,30 +192,38 @@ Workspace rules (owned by the explore controller):
 - `client/mobile/test/android_gateway_test.dart` — Search, graph detail, and batch refresh gateway behavior.
 - `client/mobile/test/android_repositories_test.dart` — Brain profile, outbox, snapshot, and workspace persistence behavior.
 - `client/mobile/test/android_sync_engine_test.dart` — Accepted, conflict, pending, and all-profile sync outcomes.
-- `client/mobile/test/android_explore_controller_test.dart` — Explore refresh, edge following, missing-item cleanup, and workspace clear behavior.
+- `client/mobile/test/android_explore_controller_test.dart` — Explore refresh, edge following, missing-item cleanup, shared selection, and workspace clear behavior.
+- `client/mobile/test/android_workflow_test.dart` — Durable Capture and composer reset, automatic Ask snapshots, offline reopening, source-brain graph links, foreground lifecycle sync, and cached-first Explore visits.
+- `client/mobile/test/android_contract_fixtures.dart` — Controlled transport and shared domain fixtures.
 
 ### Behaviors Covered
 
 #### HTTP and storage boundary
 
 - Search returns organized nodes and unprocessed chunks as separate collections.
-- Search accepts a bounded query and optional result limit.
+- Search accepts a bounded query and optional result limit, including both limit boundaries.
+- Invalid search/refresh input returns 400. Transport failures return 503 and never fabricate missing records.
+- Production HTTP search matches the agent-facing hybrid search projection without generating an answer.
+- Production batch refresh matches existing graph detail and preserves confirmed missing records.
 - Batch graph refresh preserves requested order and distinguishes found nodes from confirmed missing nodes.
 - Replayed intake returns the original count, while changed content under the same key returns conflict.
-- Intake keys survive chunk cleanup and continue enforcing the original fingerprint.
+- Intake keys survive chunk cleanup and storage reopening, and continue enforcing the original fingerprint.
 
 #### Mobile gateway
 
 - Hybrid search exposes graph nodes and raw chunks without an answer-generation call.
 - Single-node graph reads expose directed connections.
 - Batch refresh exposes found details and confirmed missing records in request order.
+- Search supports empty results. Gateway operations reject malformed payloads and expose HTTP and transport failures.
 
 #### Persistence repositories
 
 - Brain profiles begin disconnected, can be selected, and clear Access credentials when their address changes.
 - Outbox entries preserve idempotency keys through edits, remove accepted entries, retain conflicts, and requeue deliberate new captures with new keys.
 - Answer snapshots save only successful answers as self-contained evidence and support query and deletion operations.
-- Workspaces persist independently per Brain profile with nodes, edges, status flags, and refresh time.
+- Workspaces persist independently per Brain profile with nodes, edges, status flags, and refresh time across reopening.
+- Legacy settings and pending drafts migrate exactly once, preserving credentials, brain association, key, and capture time.
+- Snapshot evidence includes graph content and connection IDs, survives reopening, and stays isolated per brain.
 
 #### Sync engine
 
@@ -213,4 +238,18 @@ Workspace rules (owned by the explore controller):
 - Saved workspace data renders before expanded-node refresh.
 - Failed refresh leaves cached data unchanged and unmarked.
 - Clear deleted removes only confirmed missing items.
-- Clear workspace removes all local workspace data after confirmation.
+- Clear workspace removes all local workspace data after the explicit clear operation.
+- Found-node refresh marks removed connections missing without erasing cached edges.
+- New edges connect to loaded destinations without duplicates and do not expand unloaded destinations.
+- Canvas and detail consumers share the controller's selected node and loaded graph projection.
+
+#### Foreground mobile journeys
+
+- Capture persists before transport completes and returns a clean composer.
+- App open and resume retry inactive profiles' captures with unchanged identities.
+- Successful Ask automatically saves question, answer, time, and displayed evidence. Failed Ask saves nothing.
+- Answer snapshots reopen offline after store and workflow restart.
+- Graph links retain the source brain after active-profile switching.
+- First Explore visit renders saved data during a controlled pending refresh. Repeated visits retain the current projection. Relaunch permits a new automatic refresh.
+
+**Review status:** approved

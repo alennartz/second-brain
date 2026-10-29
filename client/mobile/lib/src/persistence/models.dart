@@ -61,12 +61,14 @@ final class OutboxEntry {
 /// A self-contained successful Ask result.
 final class AnswerSnapshot {
   const AnswerSnapshot({
+    required this.id,
     required this.question,
     required this.answer,
     required this.answeredAt,
     required this.evidence,
   });
 
+  final String id;
   final String question;
   final String answer;
   final DateTime answeredAt;

@@ -11,4 +11,5 @@ export 'src/persistence/models.dart';
 export 'src/persistence/repositories.dart';
 export 'src/sync/sync_engine.dart';
 export 'src/explore/explore_controller.dart';
+export 'src/workflow_contract.dart';
 export 'src/screens/server_settings_screen.dart';

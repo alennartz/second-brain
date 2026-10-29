@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:sqflite/sqflite.dart' as platform_sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
 
@@ -48,11 +49,7 @@ Future<MobileStore> openMobileStore(
 }) async {
   _configureDatabaseFactory();
   final secrets = secretStore ?? _defaultSecretStore(path);
-  final database = await openDatabase(
-    path,
-    version: 1,
-    onCreate: _createSchema,
-  );
+  final database = await _openDatabase(path);
   final store = _SqliteMobileStore(database, secrets);
   final migrated = legacy ??
       await _readLegacyData(settingsStore, migrationClock ?? _nowUtc);
@@ -69,6 +66,23 @@ void _configureDatabaseFactory() {
   if (Platform.isAndroid || Platform.isIOS) return;
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
+}
+
+Future<Database> _openDatabase(String path) {
+  if (Platform.isAndroid || Platform.isIOS) {
+    return platform_sqflite.databaseFactorySqflitePlugin.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: _createSchema,
+      ),
+    );
+  }
+  return openDatabase(
+    path,
+    version: 1,
+    onCreate: _createSchema,
+  );
 }
 
 SecretStore _defaultSecretStore(String path) {

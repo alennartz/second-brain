@@ -314,14 +314,14 @@ Create `persistence/answer_snapshot_repository.dart` and `persistence/graph_work
 Implement migration in `mobile_store.dart`. Read legacy configuration and pending Capture through `settings_store.dart`. Convert them to `LegacyMobileData` at startup. Preserve credentials, key, and capture time. Assign migration-time capture time only when absent. Commit the profile, associated outbox entry, and migration marker together. An open without legacy data must not prevent a later supplied migration. Repeated migration must not duplicate records.
 
 **Verify:** All cases in `flutter test test/android_repositories_test.dart` pass. Legacy data survives reopen exactly once.
-**Status:** in progress
+**Status:** done
 
 ### Step 7: Deliver foreground outboxes
 
 Implement `SyncEngine` in `client/mobile/lib/src/sync/sync_engine.dart` and wire `createSyncEngine` in `workflow_contract.dart`. Read all profiles and outbox entries, not only the active profile. Resolve each entry's gateway from its saved brain. Deliver with unchanged key and capture time. Map acceptance, 409, and transport failure to the approved repository outcomes and `SyncReport`. Skip retained conflicts until deliberate requeue.
 
 **Verify:** `flutter test test/android_sync_engine_test.dart` passes. Inactive brains receive their own captures and conflicts never resubmit automatically.
-**Status:** in progress
+**Status:** done
 
 ### Step 8: Implement workspace transitions
 
@@ -332,7 +332,7 @@ Opening a node selects and expands it. Following a directed edge loads the other
 Implement shared selection, local Clear deleted, persisted Clear workspace, and `refreshCompleted`. Persist successful workspace changes. Clear deleted also removes edges incident to removed nodes and clears invalid selection. Keep cached layout stable when adding nodes and edges.
 
 **Verify:** `flutter test test/android_explore_controller_test.dart` passes. Both selection consumers see the same projection.
-**Status:** not started
+**Status:** done
 
 ### Step 9: Implement mobile journeys
 
@@ -343,7 +343,7 @@ Ask resolves the source brain before transport. Save a successful answer, displa
 Route app-open and resume operations through foreground sync. Cache Explore controllers per brain for this workflow lifetime. `visitExplore` returns loaded cache without awaiting transport and schedules only one automatic expanded-node refresh per brain. A new workflow permits another automatic refresh.
 
 **Verify:** `flutter test test/android_workflow_test.dart` passes, including controlled pending transport, offline reopening, source-brain links, and relaunch refresh.
-**Status:** not started
+**Status:** done
 
 ### Step 10: Connect Capture, Outbox, and Brains
 
@@ -352,7 +352,7 @@ Update `client/mobile/lib/main.dart` to open the durable store, migrate legacy v
 Update `screens/capture_screen.dart` to use the workflow composer and local-first save. Add `screens/outbox_screen.dart` and `screens/brains_screen.dart`. Adapt `screens/server_settings_screen.dart` for add and update forms. Match `docs/mocks/android-workflows/index.html`: combined outbox badge, entries grouped by brain, retry pending, edit/cancel, conflict review, and Capture edit as new. Brains lists active selection and connection history. Save profiles offline, switch without deleting local records, and accept fresh credentials on address update. Health failure must not prevent saving or using a profile.
 
 **Verify:** Existing mobile tests retain their supported contracts. The approved mock's offline Capture, edit/conflict recovery, add/update/switch, and reopen journeys work on Android.
-**Status:** not started
+**Status:** in progress
 
 ### Step 11: Render Answer history and Explore
 

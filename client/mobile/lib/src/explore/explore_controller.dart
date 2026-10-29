@@ -59,6 +59,7 @@ final class ExploreWorkspaceControllerImpl
   })  : _brainId = brainId,
         _workspaces = workspaces,
         _gateway = gateway,
+        _fetchedAt = initialWorkspace?.fetchedAt,
         _state = _stateFromWorkspace(initialWorkspace ?? _emptyWorkspace());
 
   /// Loads one profile's workspace without contacting the server.
@@ -79,6 +80,7 @@ final class ExploreWorkspaceControllerImpl
   final String _brainId;
   final GraphWorkspaceRepository _workspaces;
   final BrainGateway _gateway;
+  DateTime? _fetchedAt;
   ExploreWorkspaceState _state;
 
   // Writes from void clearDeleted calls must retain their order. Later
@@ -179,11 +181,15 @@ final class ExploreWorkspaceControllerImpl
   @override
   void clearDeleted() {
     final next = clearDeletedWorkspace(_state);
-    if (_sameWorkspace(_state, next)) {
+    final workspaceChanged = !_sameWorkspace(_state, next);
+    final selectionChanged = _state.selectedNodeId != next.selectedNodeId;
+    if (!workspaceChanged && !selectionChanged) {
       return;
     }
     _state = next;
-    _queuePersistence(next);
+    if (workspaceChanged) {
+      _queuePersistence(next);
+    }
   }
 
   @override
@@ -194,17 +200,25 @@ final class ExploreWorkspaceControllerImpl
       edges: const <WorkspaceEdge>[],
       selectedNodeId: null,
     );
-    await _persistAndSet(next);
+    await _persistAndSet(next, markFetched: false);
   }
 
-  Future<void> _persistAndSet(ExploreWorkspaceState next) async {
+  Future<void> _persistAndSet(
+    ExploreWorkspaceState next, {
+    bool markFetched = true,
+  }) async {
     await _pendingPersistence;
-    await _workspaces.save(_brainId, _workspaceFromState(next));
+    final fetchedAt = markFetched ? DateTime.now().toUtc() : _fetchedAt;
+    await _workspaces.save(
+      _brainId,
+      _workspaceFromState(next, fetchedAt: fetchedAt),
+    );
+    _fetchedAt = fetchedAt;
     _state = next;
   }
 
   void _queuePersistence(ExploreWorkspaceState state) {
-    final workspace = _workspaceFromState(state);
+    final workspace = _workspaceFromState(state, fetchedAt: _fetchedAt);
     final write = _pendingPersistence.then<void>(
       (_) => _workspaces.save(_brainId, workspace),
       onError: (_, __) => _workspaces.save(_brainId, workspace),
@@ -353,11 +367,14 @@ ExploreWorkspaceState clearDeletedWorkspace(ExploreWorkspaceState state) {
   );
 }
 
-Workspace _workspaceFromState(ExploreWorkspaceState state) {
+Workspace _workspaceFromState(
+  ExploreWorkspaceState state, {
+  required DateTime? fetchedAt,
+}) {
   return Workspace(
     nodes: List<WorkspaceNode>.unmodifiable(state.nodes),
     edges: List<WorkspaceEdge>.unmodifiable(state.edges),
-    fetchedAt: DateTime.now().toUtc(),
+    fetchedAt: fetchedAt,
   );
 }
 

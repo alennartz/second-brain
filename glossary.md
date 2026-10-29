@@ -4,6 +4,24 @@ Second Brain stores, retrieves, and refines knowledge for humans and agents.
 
 ## Language
 
+### Mobile client
+
+**Brain profile**:
+A named server connection with its own address, optional Access credentials, and locally stored captures, answers, and workspace.
+_Avoid_: server config, server settings, connection
+
+**Capture outbox**:
+The per-profile local queue of captures the server has not accepted yet.
+_Avoid_: pending draft, failed draft
+
+**Answer snapshot**:
+A stored copy of one question, its answer, and the evidence shown with it. Repeatable without the server.
+_Avoid_: answer cache, consultation record
+
+**Graph workspace**:
+The per-profile set of loaded graph nodes and connections that survives app restarts until cleared.
+_Avoid_: exploration graph, map cache
+
 **Intake document**:
 A logical source submission represented by an ordered set of document chunks while the ingestion pipeline processes it.
 _Avoid_: queue item, ingest job, unprocessed document
@@ -42,8 +60,10 @@ _Avoid_: ingestion increment, chunk batch
 
 ## Relationships
 
+- A **Brain profile** owns one **Capture outbox**, one answer history, and one **Graph workspace**.
 - **Intake staging** creates one or more **document chunks** for an **intake document** and returns after they are searchable.
 - A **document chunk** belongs to exactly one **intake document**.
 - An **intake document** has one **capture time**, copied to each of its **document chunks**.
 - The **ingestion pipeline** packs eligible **document chunks** into one **processing batch**.
 - A **document chunk** is **unprocessed evidence** until the pipeline acknowledges a clean processing batch.
+- An **Answer snapshot** records graph record IDs, but does not depend on them to display its evidence.

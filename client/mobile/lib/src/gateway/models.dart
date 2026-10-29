@@ -99,3 +99,56 @@ final class RecallResult {
   final String answer;
   final List<EvidenceItem> evidence;
 }
+
+/// Hybrid search projections returned without an answer-generation step.
+final class MemorySearchResult {
+  const MemorySearchResult({required this.nodes, required this.unprocessed});
+
+  final List<GraphNode> nodes;
+  final List<IntakeChunk> unprocessed;
+}
+
+/// One node and its immediate graph connections.
+final class GraphNodeDetail {
+  const GraphNodeDetail({required this.node, required this.connections});
+
+  final GraphNode node;
+  final List<GraphConnection> connections;
+}
+
+/// A directed graph connection in a node detail or refresh result.
+final class GraphConnection {
+  const GraphConnection({required this.edge, required this.node});
+
+  final LinkedEdge edge;
+  final GraphNode node;
+}
+
+/// One item returned by a batch graph refresh.
+sealed class GraphRefreshItem {
+  const GraphRefreshItem({required this.id});
+
+  final String id;
+}
+
+final class GraphRefreshFound extends GraphRefreshItem {
+  const GraphRefreshFound({
+    required super.id,
+    required this.node,
+    required this.connections,
+  });
+
+  final GraphNode node;
+  final List<GraphConnection> connections;
+}
+
+final class GraphRefreshMissing extends GraphRefreshItem {
+  const GraphRefreshMissing({required super.id});
+}
+
+/// Results for every requested graph record, in request order.
+final class GraphRefreshResult {
+  const GraphRefreshResult({required this.results});
+
+  final List<GraphRefreshItem> results;
+}

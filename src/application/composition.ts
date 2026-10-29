@@ -119,6 +119,8 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
           for (const edge of edges) { const other = await storage.getNode(edge.from === id ? edge.to : edge.from); if (other) connections.push({ edge: edgeWire(edge), node: nodeWire(other) }); }
           return { node: nodeWire(node), connections };
         },
+        async search() { throw new Error("not implemented"); },
+        async refreshGraph() { throw new Error("not implemented"); },
       };
     },
   };

@@ -47,10 +47,12 @@ export function createHttpServer(application: HttpApplication, schemas = createH
     return job;
   }, { params: schemas.dreamParams, response: { 200: schemas.dreamResponse, 404: notFoundResponse } });
   server.post("/recall", ({ body }) => callApplication(() => application.recall(body)), { body: schemas.recallBody, response: schemas.recallResponse });
+  server.post("/search", ({ body }) => callApplication(() => application.search(body)), { body: schemas.searchBody, response: schemas.searchResponse });
   server.get("/graph/:record_id", async ({ params, status }) => {
     const graph = await callApplication(() => application.getGraph(params.record_id));
     if (!graph) return status(404, { detail: "Node not found" });
     return graph;
   }, { params: schemas.graphParams, response: { 200: schemas.graphResponse, 404: notFoundResponse } });
+  server.post("/graph/refresh", ({ body }) => callApplication(() => application.refreshGraph(body.ids)), { body: schemas.refreshBody, response: schemas.refreshResponse });
   return server as unknown as Elysia;
 }

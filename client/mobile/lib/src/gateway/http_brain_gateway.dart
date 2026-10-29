@@ -8,7 +8,7 @@ import 'errors.dart';
 import 'models.dart';
 
 /// Production gateway adapter for the brain server REST API.
-final class HttpBrainGateway implements BrainGateway {
+final class HttpBrainGateway implements BrainGraphGateway {
   HttpBrainGateway({
     required this.baseUrl,
     required this.client,
@@ -79,6 +79,21 @@ final class HttpBrainGateway implements BrainGateway {
       );
     }
     return IngestReceipt(chunksStored: chunksStored);
+  }
+
+  @override
+  Future<MemorySearchResult> searchMemory(String query, {int? limit}) {
+    throw UnimplementedError('not implemented');
+  }
+
+  @override
+  Future<GraphNodeDetail> getGraph(String recordId) {
+    throw UnimplementedError('not implemented');
+  }
+
+  @override
+  Future<GraphRefreshResult> refreshGraph(List<String> recordIds) {
+    throw UnimplementedError('not implemented');
   }
 
   @override

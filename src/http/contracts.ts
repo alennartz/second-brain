@@ -6,10 +6,21 @@ export type Context = {
   unprocessed: Record<string, unknown>[];
 };
 export type RecallResponse = { answer: string; context: Context | null };
+export type NodeProjection = Record<string, unknown>;
+export type ChunkProjection = Record<string, unknown>;
+export type SearchResponse = {
+  nodes: NodeProjection[];
+  unprocessed: ChunkProjection[];
+};
+export type GraphConnection = { edge: Record<string, unknown>; node: Record<string, unknown> };
 export type GraphResponse = {
   node: Record<string, unknown>;
-  connections: { edge: Record<string, unknown>; node: Record<string, unknown> }[];
+  connections: GraphConnection[];
 };
+export type RefreshResult =
+  | { id: string; status: "found"; node: Record<string, unknown>; connections: GraphConnection[] }
+  | { id: string; status: "missing" };
+export type RefreshResponse = { results: RefreshResult[] };
 export type DreamJob = {
   job_id: string;
   status: "pending" | "running" | "complete" | "failed";
@@ -39,6 +50,8 @@ export interface HttpApplication {
   waitForDreamJobs?(): Promise<void>;
   recall(request: RecallBody): Promise<RecallResponse>;
   getGraph(recordId: string): Promise<GraphResponse | undefined>;
+  search(request: { query: string; limit?: number }): Promise<SearchResponse>;
+  refreshGraph(ids: readonly string[]): Promise<RefreshResponse>;
 }
 export interface RecallEvidenceStore {
   getNode(id: string): Promise<Record<string, unknown> | undefined>;

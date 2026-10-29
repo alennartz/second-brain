@@ -149,3 +149,68 @@ Workspace rules (owned by the explore controller):
 ### DR Supersessions
 
 - **DR-004** (Android-First Flutter Client with a Typed Gateway Seam) — superseded in part. The single-draft `shared_preferences` storage decision no longer holds: sqflite replaces it for multi-record local data. The rest of DR-004 (Android-first Flutter, the injected `BrainGateway` seam, focused packages, Makefile targets outside `check-all`) carries into the replacement record with provenance.
+
+## Tests
+
+**Pre-test-write commit:** `81dc0b818c63d83c3f1b518705ca186541fd4c71`
+
+### Interface Files
+
+- `src/http/contracts.ts` — Search and batch graph-refresh response projections and application operations.
+- `src/http/schemas.ts` — Request and response schemas for search and graph refresh.
+- `src/http/server.ts` — HTTP boundary routes for search and batch graph refresh.
+- `src/application/composition.ts` — Structural application stubs for the new operations.
+- `client/mobile/lib/src/gateway/brain_gateway.dart` — Extended graph gateway capability and compatibility adapters.
+- `client/mobile/lib/src/gateway/http_brain_gateway.dart` — Gateway stubs for search, node detail, and batch refresh.
+- `client/mobile/lib/src/gateway/models.dart` — Search, graph detail, and refresh result projections.
+- `client/mobile/lib/src/persistence/models.dart` — Brain, outbox, snapshot, and workspace data shapes.
+- `client/mobile/lib/src/persistence/repositories.dart` — Profile, outbox, snapshot, and workspace repository contracts.
+- `client/mobile/lib/src/sync/sync_engine.dart` — Foreground sync report and engine contract.
+- `client/mobile/lib/src/explore/explore_controller.dart` — Explore workspace state and controller contract.
+- `client/mobile/lib/second_brain_mobile.dart` — Public exports for the Android workflow interfaces.
+
+### Test Files
+
+- `tests/android-workflows.test.ts` — Search, graph refresh, ingest replay/conflict, and permanent intake-key behavior.
+- `client/mobile/test/android_gateway_test.dart` — Search, graph detail, and batch refresh gateway behavior.
+- `client/mobile/test/android_repositories_test.dart` — Brain profile, outbox, snapshot, and workspace persistence behavior.
+- `client/mobile/test/android_sync_engine_test.dart` — Accepted, conflict, pending, and all-profile sync outcomes.
+- `client/mobile/test/android_explore_controller_test.dart` — Explore refresh, edge following, missing-item cleanup, and workspace clear behavior.
+
+### Behaviors Covered
+
+#### HTTP and storage boundary
+
+- Search returns organized nodes and unprocessed chunks as separate collections.
+- Search accepts a bounded query and optional result limit.
+- Batch graph refresh preserves requested order and distinguishes found nodes from confirmed missing nodes.
+- Replayed intake returns the original count, while changed content under the same key returns conflict.
+- Intake keys survive chunk cleanup and continue enforcing the original fingerprint.
+
+#### Mobile gateway
+
+- Hybrid search exposes graph nodes and raw chunks without an answer-generation call.
+- Single-node graph reads expose directed connections.
+- Batch refresh exposes found details and confirmed missing records in request order.
+
+#### Persistence repositories
+
+- Brain profiles begin disconnected, can be selected, and clear Access credentials when their address changes.
+- Outbox entries preserve idempotency keys through edits, remove accepted entries, retain conflicts, and requeue deliberate new captures with new keys.
+- Answer snapshots save only successful answers as self-contained evidence and support query and deletion operations.
+- Workspaces persist independently per Brain profile with nodes, edges, status flags, and refresh time.
+
+#### Sync engine
+
+- Foreground sync retries every profile's outbox.
+- Accepted entries leave the outbox.
+- Conflicts retain edited text for recovery.
+- Transport failures leave entries pending.
+
+#### Explore workspace controller
+
+- Opening a node and following an edge refresh the destination and merge connections into the workspace.
+- Saved workspace data renders before expanded-node refresh.
+- Failed refresh leaves cached data unchanged and unmarked.
+- Clear deleted removes only confirmed missing items.
+- Clear workspace removes all local workspace data after confirmation.

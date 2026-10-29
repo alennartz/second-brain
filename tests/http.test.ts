@@ -17,6 +17,8 @@ function fixture(overrides: Partial<HttpApplication> = {}) {
     getDreamJob: async () => ({ job_id: "job-1", status: "complete", error: null }),
     recall: async request => { requests.push(request); return { answer: "Found it", context: { nodes: [], edges: [], unprocessed: [{ id: "intake_chunk:1", content: "raw" }] } }; },
     getGraph: async id => ({ node: { id }, connections: [] }),
+    search: async request => { requests.push(request); return { nodes: [], unprocessed: [] }; },
+    refreshGraph: async ids => { requests.push(ids); return { results: [] }; },
     ...overrides,
   };
   return { server: createHttpServer(application), requests };

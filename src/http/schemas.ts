@@ -1,5 +1,5 @@
 import { Type, type TUnsafe } from "@sinclair/typebox";
-import type { DreamJob, GraphResponse, IntakeBody, PipelineSnapshot, RecallBody, RecallResponse } from "./contracts";
+import type { DreamJob, GraphResponse, IntakeBody, PipelineSnapshot, RecallBody, RecallResponse, RefreshResponse, SearchResponse } from "./contracts";
 import { timestampPattern } from "../core/timestamps";
 
 export interface HttpSchemas {
@@ -8,8 +8,12 @@ export interface HttpSchemas {
   ingestResponse: TUnsafe<{ chunks_stored: number }>;
   recallBody: TUnsafe<RecallBody>;
   recallResponse: TUnsafe<RecallResponse>;
+  searchBody: TUnsafe<{ query: string; limit?: number }>;
+  searchResponse: TUnsafe<SearchResponse>;
   graphParams: TUnsafe<{ record_id: string }>;
   graphResponse: TUnsafe<GraphResponse>;
+  refreshBody: TUnsafe<{ ids: string[] }>;
+  refreshResponse: TUnsafe<RefreshResponse>;
   intakeParams: TUnsafe<{ intake_id: string }>;
   intakeResponse: TUnsafe<{ intake_id: string }>;
   discardResponse: TUnsafe<{ intake_id: string; chunks_discarded: number }>;
@@ -31,8 +35,15 @@ export function createHttpSchemas(): HttpSchemas {
     ingestResponse: Type.Object({ chunks_stored: count }),
     recallBody: Type.Object({ question: Type.String(), hints: Type.Optional(Type.Array(Type.String())) }),
     recallResponse: Type.Object({ answer: Type.String(), context: Type.Union([Type.Null(), Type.Object({ nodes: dictionaries, edges: dictionaries, unprocessed: dictionaries })]) }),
+    searchBody: Type.Object({ query: Type.String({ minLength: 1 }), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }),
+    searchResponse: Type.Object({ nodes: dictionaries, unprocessed: dictionaries }),
     graphParams: identity("record_id"),
     graphResponse: Type.Object({ node: dictionary, connections: Type.Array(Type.Object({ edge: dictionary, node: dictionary })) }),
+    refreshBody: Type.Object({ ids: Type.Array(Type.String({ minLength: 1 }), { maxItems: 200 }) }),
+    refreshResponse: Type.Object({ results: Type.Array(Type.Union([
+      Type.Object({ id: Type.String({ minLength: 1 }), status: Type.Literal("found"), node: dictionary, connections: Type.Array(Type.Object({ edge: dictionary, node: dictionary })) }),
+      Type.Object({ id: Type.String({ minLength: 1 }), status: Type.Literal("missing") }),
+    ])) }),
     intakeParams: identity("intake_id"),
     intakeResponse: identity("intake_id"),
     discardResponse: Type.Object({ intake_id: Type.String(), chunks_discarded: count }),

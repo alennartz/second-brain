@@ -22,7 +22,8 @@ final class ServerConfiguration {
 
 /// One failed or edited Capture draft retained for explicit retry.
 final class PendingCapture {
-  const PendingCapture({required this.text, required this.idempotencyKey, this.capturedAt});
+  const PendingCapture(
+      {required this.text, required this.idempotencyKey, this.capturedAt});
 
   final String text;
   final String idempotencyKey;
@@ -93,7 +94,7 @@ extension SettingsStoreUrlAccess on SettingsStore {
 final class SharedPreferencesSettingsStore implements SettingsStore {
   const SharedPreferencesSettingsStore(
     this.preferences, {
-    required this.secretStore,
+    this.secretStore = const FlutterSecureSecretStore(),
   });
 
   static const _baseUrlKey = 'second_brain_mobile.base_url';

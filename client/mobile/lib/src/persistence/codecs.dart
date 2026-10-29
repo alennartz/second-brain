@@ -118,11 +118,11 @@ Map<String, dynamic> encodeEvidenceItem(EvidenceItem item) {
 EvidenceItem decodeEvidenceItem(Object? value) {
   final map = _map(value, 'evidence item');
   return switch (map['kind']) {
-    'graph_node' || 'graph' => GraphNodeEvidence(
+    'graph_node' => GraphNodeEvidence(
         node: decodeGraphNode(map['node']),
         links: _decodeList(map['links'], decodeLinkedEdge),
       ),
-    'unprocessed' || 'intake_chunk' =>
+    'unprocessed' =>
       UnprocessedEvidence(chunk: decodeIntakeChunk(map['chunk'])),
     _ => throw const FormatException('unknown evidence item kind'),
   };
@@ -142,15 +142,19 @@ List<EvidenceItem> decodeEvidenceJson(Object value) {
 }
 
 Map<String, dynamic> encodeWorkspace(Workspace workspace) => {
-      'nodes': workspace.nodes.map((item) => {
-            'node': encodeGraphNode(item.node),
-            'status': _encodeWorkspaceStatus(item.status),
-            'expanded': item.expanded,
-          }).toList(growable: false),
-      'edges': workspace.edges.map((item) => {
-            'edge': encodeLinkedEdge(item.edge),
-            'status': _encodeWorkspaceStatus(item.status),
-          }).toList(growable: false),
+      'nodes': workspace.nodes
+          .map((item) => {
+                'node': encodeGraphNode(item.node),
+                'status': _encodeWorkspaceStatus(item.status),
+                'expanded': item.expanded,
+              })
+          .toList(growable: false),
+      'edges': workspace.edges
+          .map((item) => {
+                'edge': encodeLinkedEdge(item.edge),
+                'status': _encodeWorkspaceStatus(item.status),
+              })
+          .toList(growable: false),
       'fetched_at': encodeTimestamp(workspace.fetchedAt),
     };
 
@@ -223,6 +227,6 @@ String _encodeWorkspaceStatus(WorkspaceItemStatus status) => switch (status) {
 WorkspaceItemStatus _decodeWorkspaceStatus(Object? value) => switch (value) {
       'loaded' => WorkspaceItemStatus.loaded,
       'missing' => WorkspaceItemStatus.missing,
-      'new' || 'new_item' || 'newItem' => WorkspaceItemStatus.newItem,
+      'new' => WorkspaceItemStatus.newItem,
       _ => throw const FormatException('unknown workspace item status'),
     };

@@ -62,24 +62,26 @@ final class HostSecretStore implements SecretStore {
 
   Future<void> _writeValues(Map<String, String> values) async {
     await _file.parent.create(recursive: true);
-    if (Platform.isWindows) {
-      throw UnsupportedError('Inject a secure SecretStore on Windows');
-    }
     final temporary = File('${_file.path}.${const Uuid().v4()}.tmp');
-    await temporary.create();
-    final permissions = await Process.run('chmod', ['600', temporary.path]);
-    if (permissions.exitCode != 0) {
-      await temporary.delete();
-      throw FileSystemException('Cannot protect host credentials', _file.path);
-    }
-    await temporary.writeAsString(jsonEncode(values), flush: true);
     try {
-      await temporary.rename(_file.path);
-    } on FileSystemException {
-      // Windows cannot replace an existing file with rename. Remove the old
-      // file and retry; the operation is still serialized by this instance.
-      if (await _file.exists()) await _file.delete();
-      await temporary.rename(_file.path);
+      await temporary.create();
+      if (!Platform.isWindows) {
+        final permissions = await Process.run('chmod', ['600', temporary.path]);
+        if (permissions.exitCode != 0) {
+          throw FileSystemException(
+              'Cannot protect host credentials', _file.path);
+        }
+      }
+      await temporary.writeAsString(jsonEncode(values), flush: true);
+      try {
+        await temporary.rename(_file.path);
+      } on FileSystemException {
+        if (!Platform.isWindows) rethrow;
+        if (await _file.exists()) await _file.delete();
+        await temporary.rename(_file.path);
+      }
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
     }
   }
 
@@ -89,6 +91,3 @@ final class HostSecretStore implements SecretStore {
     return result;
   }
 }
-
-/// Compatibility name for callers that describe the implementation by format.
-typedef FileSecretStore = HostSecretStore;

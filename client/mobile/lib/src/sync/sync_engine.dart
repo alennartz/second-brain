@@ -88,7 +88,7 @@ final class SyncEngineImpl implements SyncEngine {
       }
 
       try {
-        final removed = await outbox.markAccepted(
+        final removed = await outbox.markAcceptedIfUnchanged(
           entry.id,
           sentKey: entry.idempotencyKey,
           sentText: entry.text,

@@ -279,9 +279,10 @@ final class GraphCanvas extends StatelessWidget {
     final edgeLabel =
         '$label → $target${isNew ? ' · New' : ''}${missing ? ' · Missing' : ''}';
     return Positioned(
-      left: midpoint.dx - 80,
-      top: midpoint.dy - 18,
-      width: 160,
+      left: midpoint.dx - _edgeTargetWidth / 2,
+      top: midpoint.dy - _edgeTargetHeight / 2,
+      width: _edgeTargetWidth,
+      height: _edgeTargetHeight,
       child: Opacity(
         opacity: missing ? .42 : 1,
         child: TextButton(
@@ -371,10 +372,25 @@ final class _GraphLayout {
     }
     final edgeOffsets = <String, double>{};
     for (final pair in pairs.values) {
+      final first = pair.first.edge;
+      final start = positions[first.from] ?? unloadedPositions[first.from]!;
+      final end = positions[first.to] ?? unloadedPositions[first.to]!;
+      final normal = _curveOffset(start, end, 1);
+      final spacing = normal == Offset.zero
+          ? _edgeTargetHeight + 8
+          : math.min(
+              normal.dx == 0
+                  ? double.infinity
+                  : (_edgeTargetWidth + 8) / normal.dx.abs(),
+              normal.dy == 0
+                  ? double.infinity
+                  : (_edgeTargetHeight + 8) / normal.dy.abs(),
+            );
       for (var rank = 0; rank < pair.length; rank++) {
         final edge = pair[rank].edge;
         final direction = edge.from.compareTo(edge.to) <= 0 ? 1 : -1;
-        edgeOffsets[edge.id] = (rank - (pair.length - 1) / 2) * 24 * direction;
+        edgeOffsets[edge.id] =
+            (rank - (pair.length - 1) / 2) * spacing * direction;
       }
     }
     final rows = (state.nodes.length + 2) ~/ 3;
@@ -486,6 +502,9 @@ final class _GraphEdgesPainter extends CustomPainter {
         oldDelegate.colorScheme != colorScheme;
   }
 }
+
+const _edgeTargetWidth = 160.0;
+const _edgeTargetHeight = 48.0;
 
 Offset _curveOffset(Offset start, Offset end, double amount) {
   final direction = end - start;

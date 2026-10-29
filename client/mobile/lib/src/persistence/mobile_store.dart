@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:sqflite/sqflite.dart' as platform_sqflite;
 import 'package:sqflite/sqflite.dart'
     show Database, OpenDatabaseOptions, ConflictAlgorithm;
 import 'package:uuid/uuid.dart';
+
+import '../gateway/errors.dart';
 
 import 'answer_snapshot_repository.dart';
 import 'brain_profile_repository.dart';
@@ -44,10 +47,16 @@ Future<MobileStore> openMobileStore(
   SettingsStore? settingsStore,
   DateTime Function()? migrationClock,
 }) async {
+  final mobile = Platform.isAndroid || Platform.isIOS;
+  if (!mobile && (databaseFactory == null || secretStore == null)) {
+    throw const ConfigurationException(
+      'Non-mobile store opening requires an injected database factory and secret store',
+    );
+  }
   final secrets = secretStore ?? const FlutterSecureSecretStore();
-  final database =
-      await (databaseFactory ?? platform_sqflite.databaseFactorySqflitePlugin)
-          .openDatabase(
+  final factory =
+      databaseFactory ?? platform_sqflite.databaseFactorySqflitePlugin;
+  final database = await factory.openDatabase(
     path,
     options: OpenDatabaseOptions(version: 1, onCreate: _createSchema),
   );

@@ -37,7 +37,14 @@ abstract interface class CaptureOutboxRepository {
   /// Keeps the idempotency key and retains conflicts when editing.
   Future<void> updateText(String id, String text);
 
-  Future<bool> markAccepted(String id, {String? sentKey, String? sentText});
+  Future<void> markAccepted(String id);
+
+  /// Removes an entry only when the delivered version is still stored.
+  Future<bool> markAcceptedIfUnchanged(
+    String id, {
+    required String sentKey,
+    required String sentText,
+  });
 
   /// The original request was accepted. The edited text remains recoverable.
   Future<void> markConflict(String id);

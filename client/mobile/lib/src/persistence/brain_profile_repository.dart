@@ -197,5 +197,3 @@ final class SqliteBrainProfileRepository implements BrainProfileRepository {
     throw FormatException('$field must be a string');
   }
 }
-
-/// Short name for callers that use the storage technology in the type name.

@@ -40,17 +40,19 @@ The fix commits resolve most prior findings, including the compile gap, sync dat
 - **Category:** plan deviation
 - **Severity:** critical
 - **Location:** `tests/storage.test.ts:315-316,359-361`; existing mobile test files changed by `e28c59e`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Restore the frozen tests and place contract changes in the approved test-writing phase.
 
 The fix range still changes tests after the test-writing baseline. Step 12 requires approved contract tests to remain unchanged and requires implementation fixes when they fail.
+
+Resolution: Preserve the approved contract. The android-workflows plan's Storage section supersedes the legacy replay semantics. The current `tests/storage.test.ts` assertions are the immutable baseline going forward; changing them again violates the plan.
 
 ### 2. Parallel-edge tap labels still overlap
 
 - **Category:** code correctness
 - **Severity:** warning
 - **Location:** `client/mobile/lib/src/explore/graph_canvas.dart:254-307,358-379`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Size and position each edge action target from its pair-local rank so parallel targets do not overlap.
 
 The fix gives parallel edges pair-local offsets, but each action label remains about 160 pixels wide while adjacent edges differ by only 24 pixels. Vertical and diagonal parallel edges therefore still hit the same target, so the approved distinct-edge interaction remains unreliable.
@@ -60,7 +62,7 @@ The fix gives parallel edges pair-local offsets, but each action label remains a
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `client/mobile/lib/src/explore/explore_controller.dart:249-253`; `client/mobile/lib/src/persistence/host_secret_store.dart:94`; `client/mobile/lib/src/persistence/codecs.dart:121,125,226`; `client/mobile/lib/src/persistence/brain_profile_repository.dart:201`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Delete the unused Explore loader, `FileSecretStore`, codec aliases, and the stray doc comment.
 
 The fix removes most dead construction paths, but these remaining exported or reachable aliases and the loader duplicate the implemented seams. The unused `FileSecretStore` also keeps the host-only implementation in the public library surface.
@@ -70,17 +72,19 @@ The fix removes most dead construction paths, but these remaining exported or re
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `client/mobile/lib/src/persistence/mobile_store.dart:39-53`; `client/mobile/lib/src/persistence/host_secret_store.dart:63-67`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Select the platform sqflite and secure store on mobile, and the injected FFI and durable file-backed store on host and non-mobile targets.
 
 `openMobileStore` now defaults to the platform database plugin and `FlutterSecureSecretStore` on every platform. Host and non-mobile callers no longer receive the durable FFI and file-backed fallback required by the plan. `HostSecretStore` explicitly throws on Windows.
+
+Resolution: Non-mobile callers now inject both dependencies and receive a clear `ConfigurationException` when either is absent. The plan's technology choice records this injection contract; host tests inject FFI and `HostSecretStore`.
 
 ### 5. Conditional acceptance changed the approved repository contract
 
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `client/mobile/lib/src/persistence/repositories.dart:40`; `client/mobile/lib/src/persistence/capture_outbox_repository.dart:50-68`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Keep `Future<void> markAccepted(String id)` and add a separate conditional-acceptance operation, or update the approved contract and every adapter together.
 
 The race fix changes `markAccepted` to return `Future<bool>` and requires sent-version parameters. This breaks the repository interface recorded in the approved plan.
@@ -90,7 +94,7 @@ The race fix changes `markAccepted` to return `Future<bool>` and requires sent-v
 - **Category:** plan deviation
 - **Severity:** warning
 - **Location:** `client/mobile/lib/src/persistence/settings_store.dart:93-104`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Make `secretStore` optional with a secure default, or update the documented compatibility contract and all callers.
 
 `SharedPreferencesSettingsStore` now requires a named `secretStore`. Existing one-argument construction from the original shell is no longer source-compatible.
@@ -100,7 +104,7 @@ The race fix changes `markAccepted` to return `Future<bool>` and requires sent-v
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `client/mobile/lib/src/explore/explore_controller.dart:223-230,232-245`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Roll back in-memory state when persistence fails, or mark the workspace dirty and retry the write.
 
 `_persistAndSet` assigns the new state before awaiting the save. When the save fails, the caller sees an error but the screen keeps showing data that disappears after the next launch.
@@ -110,7 +114,7 @@ The race fix changes `markAccepted` to return `Future<bool>` and requires sent-v
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `client/mobile/lib/src/screens/explore_screen.dart:413-445`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Check for an empty query before incrementing the generation, or reset `_searching` on the empty-query path.
 
 The search generation increments before the empty-query return. If the keyboard submits an empty query while another search is active, the active result is invalidated and `_searching` is not cleared.
@@ -120,7 +124,9 @@ The search generation increments before the empty-query return. If the keyboard 
 - **Category:** code correctness
 - **Severity:** nit
 - **Location:** `client/mobile/lib/src/persistence/host_secret_store.dart:13-91,94`; exported by `client/mobile/lib/second_brain_mobile.dart:10`
-- **Status:** open
+- **Status:** resolved
 - **Fix:** Move `HostSecretStore` into host/test code, or make its platform behavior complete and clean up temporary files on write failure.
 
 The class now runs only in tests but remains exported from `lib/`. It starts a POSIX `chmod` process for every write, throws before its Windows rename fallback, and can leave a temporary file when writing fails.
+
+Resolution: Keep the host implementation for injected host tests. Its Windows rename path now works, and failed writes always clean up temporary files.

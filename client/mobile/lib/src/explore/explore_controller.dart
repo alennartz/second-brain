@@ -62,7 +62,10 @@ final class ExploreWorkspaceControllerImpl
         _gateway = gateway,
         _resolveGateway = resolveGateway,
         _fetchedAt = initialWorkspace?.fetchedAt,
-        _state = _stateFromWorkspace(initialWorkspace ?? _emptyWorkspace());
+        _state = _stateFromWorkspace(initialWorkspace ?? _emptyWorkspace()) {
+    _savedState = _state;
+    _savedFetchedAt = _fetchedAt;
+  }
 
   /// Loads one profile's workspace without contacting the server.
   static Future<ExploreWorkspaceControllerImpl> load({
@@ -90,12 +93,15 @@ final class ExploreWorkspaceControllerImpl
       _resolveGateway == null ? _gateway : await _resolveGateway();
   DateTime? _fetchedAt;
   ExploreWorkspaceState _state;
+  late ExploreWorkspaceState _savedState;
+  DateTime? _savedFetchedAt;
 
   // Writes from void clearDeleted calls must retain their order. Later
   // awaited operations drain this chain before writing their own snapshot.
   Future<void> _pendingPersistence = Future<void>.value();
   Future<void>? _refreshInFlight;
   int _workspaceGeneration = 0;
+  int _persistenceGeneration = 0;
 
   @override
   ExploreWorkspaceState get state => _state;
@@ -230,11 +236,22 @@ final class ExploreWorkspaceControllerImpl
   }
 
   Future<void> _queuePersistence(ExploreWorkspaceState state) {
-    final workspace = _workspaceFromState(state, fetchedAt: _fetchedAt);
-    final write = _pendingPersistence.then<void>(
-      (_) => _workspaces.save(_brainId, workspace),
-      onError: (_, __) => _workspaces.save(_brainId, workspace),
-    );
+    final generation = ++_persistenceGeneration;
+    final fetchedAt = _fetchedAt;
+    final workspace = _workspaceFromState(state, fetchedAt: fetchedAt);
+    final write = _pendingPersistence.then<void>((_) async {
+      try {
+        await _workspaces.save(_brainId, workspace);
+        _savedState = state;
+        _savedFetchedAt = fetchedAt;
+      } catch (_) {
+        if (generation == _persistenceGeneration) {
+          _state = _savedState;
+          _fetchedAt = _savedFetchedAt;
+        }
+        rethrow;
+      }
+    });
     // clearDeleted has no Future in the public contract. Consume a write
     // failure so it cannot become an unhandled asynchronous error.
     _pendingPersistence = write.then<void>(
@@ -243,19 +260,6 @@ final class ExploreWorkspaceControllerImpl
     );
     return write;
   }
-}
-
-/// Loads a persistence-backed controller without a transport call.
-Future<ExploreWorkspaceController> loadExploreWorkspaceController({
-  required String brainId,
-  required GraphWorkspaceRepository workspaces,
-  required BrainGateway gateway,
-}) async {
-  return ExploreWorkspaceControllerImpl.load(
-    brainId: brainId,
-    workspaces: workspaces,
-    gateway: gateway,
-  );
 }
 
 /// Merges a successful single-node read into [state].

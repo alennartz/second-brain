@@ -142,7 +142,7 @@ Workspace rules (owned by the explore controller):
 
 `client/mobile/lib/src/workflow_contract.dart` materializes the following public seams:
 
-- `openMobileStore(path, legacy: ...)` opens durable repositories and migrates legacy settings once. Reopening the same path preserves records. Tests use isolated temporary paths.
+- `openMobileStore(path, legacy: ..., databaseFactory: ..., secretStore: ...)` opens durable repositories and migrates legacy settings once. Reopening the same path preserves records. Android supplies platform defaults; non-mobile callers inject both dependencies. Tests use isolated temporary paths.
 - `MobileStore` exposes profile, outbox, answer, and workspace repositories plus `close`.
 - `createSyncEngine(store)` injects the repositories that supply foreground sync work.
 - `createExploreController(brainId, workspaces, gateway)` returns a controller after loading local workspace data, without requiring transport.
@@ -160,7 +160,7 @@ The Explore controller exposes `selectNode` and `state.selectedNodeId`. Canvas a
 
 ### Technology Choices
 
-- **Client persistence: sqflite** — transactional multi-record storage for profiles, outbox, snapshots, workspaces. Access credentials remain in `FlutterSecureSecretStore`, keyed per profile. sqflite holds non-secret profile fields. `openMobileStore` accepts an optional `SecretStore`. Android defaults to secure storage. Other platforms use a durable file-backed store beside the database for host tests and non-mobile builds only. Host tests use dev-only `sqflite_common_ffi`, with a version compatible with the pinned Flutter 3.22.3 toolchain. Preserve legacy capture timestamps. If absent, assign the migration-time timestamp. Rejected: `SharedPreferences` (single-record, weak fit for growing related data), Drift (typed queries and codegen not worth the added dependency set).
+- **Client persistence: sqflite** — transactional multi-record storage for profiles, outbox, snapshots, workspaces. Access credentials remain in `FlutterSecureSecretStore`, keyed per profile. sqflite holds non-secret profile fields. `openMobileStore` accepts optional database-factory and `SecretStore` injections. Android defaults to the platform factory and secure storage. Non-mobile callers inject both dependencies; host tests use dev-only `sqflite_common_ffi` and `HostSecretStore`, with versions compatible with the pinned Flutter 3.22.3 toolchain. Preserve legacy capture timestamps. If absent, assign the migration-time timestamp. Rejected: `SharedPreferences` (single-record, weak fit for growing related data), Drift (typed queries and codegen not worth the added dependency set).
 - **Graph canvas: custom Flutter canvas inside `InteractiveViewer`** — supports distinct directed edges, unloaded edge endpoints, per-item selection, and dimming. Rejected: `graphview` (layout-first, edge identity too weak), `flutter_force_directed_graph` (collapses parallel edges between the same nodes).
 - **Graph API: HTTP JSON routes** — client follows paths one hop at a time; batch refresh covers the multi-node case. Rejected: GraphQL (schema and runtime overhead without a query-shape benefit for this access pattern).
 

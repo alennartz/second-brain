@@ -382,7 +382,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
             'Explore needs a Brain profile, gateway, and workspace repository.'),
       );
     }
-    return loadExploreWorkspaceController(
+    return ExploreWorkspaceControllerImpl.load(
       brainId: id,
       workspaces: workspaces,
       gateway: gateway,
@@ -411,10 +411,10 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _search() async {
-    final generation = ++_searchGeneration;
-    final gateway = widget.gateway;
     final query = _query.trim();
     if (query.isEmpty) return;
+    final generation = ++_searchGeneration;
+    final gateway = widget.gateway;
     if (gateway == null) {
       setState(() {
         _searchFailure = StateError('Search needs a connection.');

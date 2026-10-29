@@ -51,18 +51,24 @@ final class SqliteCaptureOutboxRepository implements CaptureOutboxRepository {
   }
 
   @override
-  Future<bool> markAccepted(String id,
-      {String? sentKey, String? sentText}) async {
+  Future<void> markAccepted(String id) async {
+    await database.delete(
+      'capture_outbox',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  @override
+  Future<bool> markAcceptedIfUnchanged(
+    String id, {
+    required String sentKey,
+    required String sentText,
+  }) async {
     final changed = await database.delete(
       'capture_outbox',
-      where: 'id = ?'
-          '${sentKey == null ? '' : ' AND idempotency_key = ?'}'
-          '${sentText == null ? '' : ' AND text = ?'}',
-      whereArgs: [
-        id,
-        if (sentKey != null) sentKey,
-        if (sentText != null) sentText
-      ],
+      where: 'id = ? AND idempotency_key = ? AND text = ?',
+      whereArgs: [id, sentKey, sentText],
     );
     return changed != 0;
   }

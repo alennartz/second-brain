@@ -20,7 +20,7 @@ The implementation covers most planned server, persistence, sync, and Explore wo
 
 The reviewed range leaves the old settings and error APIs unchanged while new production files reference symbols and constructors that do not exist there. The exact range cannot compile. Uncommitted working-tree edits do not satisfy the plan or this review.
 
-Resolution: Added the required settings, secret, and configuration error APIs in commit 8b4580a.
+Resolution: Added the required settings, secret, and configuration error APIs in commit e28c59e.
 
 ### 2. Frozen tests changed after the test-writing baseline
 

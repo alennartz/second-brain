@@ -139,18 +139,27 @@ graph lookup:
 - `POST /ingest/pipeline/:intake_id/resume`
 - `POST /ingest/pipeline/:intake_id/discard`
 - `POST /recall`
+- `POST /search`
+- `POST /graph/refresh`
 - `POST /dream` and `GET /dream/jobs/:job_id`
 - `GET /graph/:record_id`
 
-`POST /ingest` supports idempotency keys. `POST /dream` returns an asynchronous
-job location.
+`POST /ingest` supports permanent idempotency keys. Replaying a key with the
+same content returns the original chunk count, including after its chunks are
+processed or discarded. Replaying the key with different content returns
+`409`. `POST /search` returns graph nodes and unprocessed chunks without
+answer generation. `POST /graph/refresh` refreshes up to 200 graph nodes in one
+request. `POST /dream` returns an asynchronous job location.
 
 ## Clients
 
 Second Brain has a Go CLI and TUI and an Android-first Flutter app. They use the
 HTTP API and remain separate from server implementation code. The Go client
-supports intake, recall, and graph operations. The mobile app supports Capture
-and one-shot Ask; it stores the server URL and one failed Capture draft.
+supports intake, recall, and graph operations. The mobile app supports offline-
+first Capture with a per-profile outbox, saved Ask answer snapshots, and a
+per-profile graph workspace for search and exploration. Brain profiles,
+captures, answers, and workspaces persist locally. Access credentials use
+platform secure storage.
 
 ## Development and Deployment
 

@@ -53,8 +53,16 @@ no connected phone or Android emulator is available here.
 
 Run this journey later in an Android emulator or real-phone environment:
 
-1. First-launch server setup.
-2. Capture success and stored chunk acknowledgement.
-3. Failed Capture retention and explicit retry.
-4. Ask recall and grouped evidence.
-5. Capture and Ask submission while the keyboard is open.
+1. Add a Brain profile, save it while offline, then connect and select it.
+2. Capture while offline. Confirm the composer clears and the Capture appears in
+   that Brain's Outbox. Reconnect and confirm sync removes the accepted entry.
+3. Edit a queued Capture, then submit its original key with changed content.
+   Confirm the conflict keeps the edit recoverable. Use Capture edit as new and
+   confirm it creates a new entry.
+4. Ask a question online. Confirm Answer history stores the question, answer,
+   and displayed evidence. Restart offline and reopen the saved snapshot.
+5. In Explore, search for a graph node, open its detail, and follow a connection.
+   Refresh the workspace, restart offline, and confirm the cached graph opens.
+   Confirm raw search chunks do not open graph records.
+6. Add a second Brain and switch between profiles. Confirm each profile keeps
+   its own Outbox, Answer history, and Explore workspace.

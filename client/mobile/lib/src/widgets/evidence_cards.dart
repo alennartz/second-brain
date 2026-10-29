@@ -7,9 +7,19 @@ final class EvidenceCards extends StatefulWidget {
   const EvidenceCards({
     super.key,
     required this.evidence,
+    this.onOpenGraphNode,
+    this.onOpenGraph,
   });
 
   final List<EvidenceItem> evidence;
+
+  /// Opens a graph evidence item in the current Explore workspace.
+  ///
+  /// Raw evidence never receives this callback. The caller owns the source
+  /// Brain selection, so snapshot links cannot follow the active Brain by
+  /// accident.
+  final ValueChanged<GraphNode>? onOpenGraphNode;
+  final ValueChanged<GraphNode>? onOpenGraph;
 
   @override
   State<EvidenceCards> createState() => _EvidenceCardsState();
@@ -38,7 +48,10 @@ final class _EvidenceCardsState extends State<EvidenceCards> {
           ...widget.evidence.map(
             (item) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: _EvidenceCard(item: item),
+              child: _EvidenceCard(
+                item: item,
+                onOpenGraphNode: widget.onOpenGraphNode ?? widget.onOpenGraph,
+              ),
             ),
           ),
       ],
@@ -47,9 +60,13 @@ final class _EvidenceCardsState extends State<EvidenceCards> {
 }
 
 final class _EvidenceCard extends StatelessWidget {
-  const _EvidenceCard({required this.item});
+  const _EvidenceCard({
+    required this.item,
+    this.onOpenGraphNode,
+  });
 
   final EvidenceItem item;
+  final ValueChanged<GraphNode>? onOpenGraphNode;
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +75,10 @@ final class _EvidenceCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: switch (item) {
-          GraphNodeEvidence evidence => _GraphCard(evidence: evidence),
+          GraphNodeEvidence evidence => _GraphCard(
+              evidence: evidence,
+              onOpenGraphNode: onOpenGraphNode,
+            ),
           UnprocessedEvidence evidence => _ChunkCard(evidence: evidence),
         },
       ),
@@ -67,9 +87,13 @@ final class _EvidenceCard extends StatelessWidget {
 }
 
 final class _GraphCard extends StatelessWidget {
-  const _GraphCard({required this.evidence});
+  const _GraphCard({
+    required this.evidence,
+    this.onOpenGraphNode,
+  });
 
   final GraphNodeEvidence evidence;
+  final ValueChanged<GraphNode>? onOpenGraphNode;
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +124,17 @@ final class _GraphCard extends StatelessWidget {
         if (evidence.links.isNotEmpty) ...[
           const Divider(height: 24),
           ...evidence.links.map((link) => _LinkRow(link: link)),
+        ],
+        if (onOpenGraphNode != null) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: () => onOpenGraphNode!(node),
+              icon: const Icon(Icons.account_tree_outlined, size: 18),
+              label: const Text('Explore current graph'),
+            ),
+          ),
         ],
       ],
     );

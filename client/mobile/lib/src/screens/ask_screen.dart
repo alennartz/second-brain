@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../gateway/brain_gateway.dart';
+import '../mobile_workflow.dart';
 import '../widgets/app_logo.dart';
 
 /// The one-shot Ask composer. The controller remains alive while its result route is open.
@@ -10,11 +11,20 @@ final class AskScreen extends StatefulWidget {
     required this.gateway,
     required this.onOpenSettings,
     required this.onAsk,
+    this.onOpenHistory,
+    this.historyCount,
+    this.workflow,
   });
 
   final BrainGateway gateway;
   final VoidCallback onOpenSettings;
   final ValueChanged<String> onAsk;
+
+  /// Opens local Answer history. A missing callback keeps the legacy Ask
+  /// surface unchanged for clients that have no durable store.
+  final VoidCallback? onOpenHistory;
+  final int? historyCount;
+  final MobileWorkflow? workflow;
 
   @override
   State<AskScreen> createState() => _AskScreenState();
@@ -90,6 +100,18 @@ final class _AskScreenState extends State<AskScreen> {
                     _QuestionSuggestion(
                       question: 'What do I know about sailing?',
                       onTap: _setQuestion,
+                    ),
+                  ],
+                  if (widget.onOpenHistory != null) ...[
+                    const SizedBox(height: 18),
+                    OutlinedButton.icon(
+                      onPressed: widget.onOpenHistory,
+                      icon: const Icon(Icons.history),
+                      label: Text(
+                        widget.historyCount == null
+                            ? 'Answer history'
+                            : 'Answer history (${widget.historyCount})',
+                      ),
                     ),
                   ],
                 ],

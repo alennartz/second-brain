@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 
 import 'gateway/brain_gateway.dart';
 import 'gateway/errors.dart';
+import 'gateway/models.dart';
+import 'explore/explore_controller.dart';
 import 'persistence/models.dart';
 import 'persistence/settings_store.dart';
+import 'screens/answer_history_screen.dart';
 import 'screens/ask_screen.dart';
 import 'screens/brains_screen.dart';
 import 'screens/capture_screen.dart';
+import 'screens/explore_screen.dart';
+import 'screens/graph_node_detail_screen.dart';
 import 'screens/outbox_screen.dart';
 import 'screens/recall_result_screen.dart';
 import 'screens/server_settings_screen.dart';
@@ -437,6 +442,7 @@ final class _DurableConfiguredApplicationState
   String? _healthNotice;
   int _selectedTab = 0;
   int _outboxCount = 0;
+  int _answerCount = 0;
   bool _routeOpen = false;
 
   @override
@@ -447,6 +453,7 @@ final class _DurableConfiguredApplicationState
     _healthNotice = widget.healthNotice;
     WidgetsBinding.instance.addObserver(this);
     unawaited(_refreshOutbox());
+    unawaited(_refreshAnswerCount());
   }
 
   @override
@@ -463,15 +470,18 @@ final class _DurableConfiguredApplicationState
 
   @override
   Widget build(BuildContext context) {
+    final brainId = _activeProfile.id;
+    final brainName = _activeProfile.name;
+    final gateway = _gateway;
     final shell = IndexedStack(
       index: _selectedTab,
       children: [
         CaptureScreen(
-          gateway: _gateway,
+          gateway: gateway,
           createIdempotencyKey: widget.createIdempotencyKey,
           onOpenSettings: _openBrains,
           workflow: widget.workflow,
-          activeBrainName: _activeProfile.name,
+          activeBrainName: brainName,
           outboxCount: _outboxCount,
           onOpenOutbox: _openOutbox,
           onOpenBrains: _openBrains,
@@ -479,10 +489,23 @@ final class _DurableConfiguredApplicationState
           onCaptureSaved: () => unawaited(_refreshOutbox()),
         ),
         AskScreen(
-          gateway: _gateway,
+          gateway: gateway,
           onOpenSettings: _openBrains,
           onAsk: _openResult,
+          onOpenHistory: _openHistory,
+          historyCount: _answerCount,
         ),
+        _selectedTab == 2
+            ? ExploreScreen(
+                brainId: brainId,
+                brainName: brainName,
+                gateway: gateway,
+                // The loader runs on the first Explore visit, not while the
+                // Capture and Ask tabs are building.
+                loadController: () => widget.workflow.visitExplore(brainId),
+                onOpenHistory: _openHistory,
+              )
+            : const SizedBox.shrink(),
       ],
     );
     return Scaffold(
@@ -505,6 +528,11 @@ final class _DurableConfiguredApplicationState
                   icon: Icon(Icons.search_outlined),
                   selectedIcon: Icon(Icons.search),
                   label: 'Ask',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.account_tree_outlined),
+                  selectedIcon: Icon(Icons.account_tree),
+                  label: 'Explore',
                 ),
               ],
             ),
@@ -553,6 +581,7 @@ final class _DurableConfiguredApplicationState
       _gateway = widget.gatewayForProfile(profile);
       _healthNotice = null;
     });
+    unawaited(_refreshAnswerCount());
   }
 
   Future<void> _reloadActive() async {
@@ -563,12 +592,23 @@ final class _DurableConfiguredApplicationState
       _gateway = widget.gatewayForProfile(active);
     });
     await _refreshOutbox();
+    await _refreshAnswerCount();
   }
 
   Future<SyncReport> _resumeWorkflow() async {
     final report = await widget.workflow.appResumed();
     await _refreshOutbox();
     return report;
+  }
+
+  Future<void> _refreshAnswerCount() async {
+    try {
+      final active = await widget.store.answers.find(_activeProfile.id, '');
+      if (!mounted) return;
+      setState(() => _answerCount = active.length);
+    } on Object {
+      // History remains available even when its badge cannot be loaded.
+    }
   }
 
   Future<void> _refreshOutbox() async {
@@ -581,21 +621,109 @@ final class _DurableConfiguredApplicationState
     }
   }
 
+  Future<void> _openHistory() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final brainId = _activeProfile.id;
+    setState(() => _routeOpen = true);
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AnswerHistoryScreen(
+          answers: widget.store.answers,
+          brainId: brainId,
+          onOpenSnapshot: (snapshot) =>
+              _openSnapshotForBrain(brainId, snapshot),
+          onOpenGraphNode: (node) =>
+              unawaited(_openGraphNode(brainId, node.id)),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() => _routeOpen = false);
+    unawaited(_refreshAnswerCount());
+  }
+
+  void _openSnapshotForBrain(String brainId, AnswerSnapshot snapshot) {
+    unawaited(
+      Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => RecallResultScreen(
+            question: snapshot.question,
+            snapshot: snapshot,
+            sourceBrainId: brainId,
+            onOpenHistory: _openHistory,
+            onOpenGraphNode: (node) =>
+                unawaited(_openGraphNode(brainId, node.id)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openGraphNode(String brainId, String nodeId) async {
+    try {
+      final profiles = await widget.store.profiles.list();
+      if (!profiles.any((candidate) => candidate.id == brainId)) {
+        throw StateError('Unknown Brain profile: $brainId');
+      }
+      GraphNodeDetail? detail;
+      ExploreWorkspaceController? cachedController;
+      try {
+        detail = await widget.workflow.openGraphLink(brainId, nodeId);
+      } on Object {
+        // A previously opened workspace can still render a graph link while
+        // the server is offline. The snapshot itself remains local either way.
+        cachedController = await widget.workflow.visitExplore(brainId);
+        if (!cachedController.state.nodes
+            .any((node) => node.node.id == nodeId)) {
+          rethrow;
+        }
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => detail == null
+              ? GraphNodeDetailScreen(
+                  controller: cachedController,
+                  nodeId: nodeId,
+                )
+              : GraphNodeDetailScreen(
+                  node: detail.node,
+                  connections: detail.connections,
+                ),
+        ),
+      );
+    } on Object catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open graph memory: $error')),
+      );
+    }
+  }
+
   void _openResult(String question) {
     FocusManager.instance.primaryFocus?.unfocus();
+    final brainId = _activeProfile.id;
+    final gateway = _gateway;
     setState(() => _routeOpen = true);
     unawaited(
       Navigator.of(context)
           .push<void>(
         MaterialPageRoute<void>(
           builder: (_) => RecallResultScreen(
-            gateway: _gateway,
+            gateway: gateway,
+            workflow: widget.workflow,
             question: question,
+            sourceBrainId: brainId,
+            onOpenHistory: _openHistory,
+            onOpenGraphNode: (node) =>
+                unawaited(_openGraphNode(brainId, node.id)),
           ),
         ),
       )
           .then((_) {
-        if (mounted) setState(() => _routeOpen = false);
+        if (!mounted) return;
+        setState(() => _routeOpen = false);
+        unawaited(_refreshAnswerCount());
       }),
     );
   }

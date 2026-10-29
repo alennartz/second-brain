@@ -363,11 +363,11 @@ Add `screens/explore_screen.dart`, `screens/graph_node_detail_screen.dart`, and 
 Add Explore to the main navigation in `mobile_application.dart`. Match the mock's search-to-detail, edge following, pan/zoom, back-to-map, missing/new refresh states, and empty workspace. Return from Outbox and Brains to the originating journey.
 
 **Verify:** All Android contract tests and existing mobile tests pass. Walk through every approved Ask/history and Explore flow on Android, including offline snapshots and cached-first relaunch.
-**Status:** in progress
+**Status:** done
 
 ### Step 12: Check the complete workflow
 
 Run `make check`, the mobile analysis/test container workflow, and `make mobile-build`. Keep approved contract tests unchanged. Resolve failures in implementation, not test expectations. Update `client/mobile/lib/second_brain_mobile.dart` exports for concrete construction as needed. Do not add manual smoke journeys here. The architecture assigns those to the manual-test phase.
 
 **Verify:** Server checks, Flutter analysis, mobile tests, and Android APK build succeed with the pinned toolchain. No production constructor returns an interface stub.
-**Status:** not started
+**Status:** in progress

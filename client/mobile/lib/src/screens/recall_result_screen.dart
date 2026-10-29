@@ -6,35 +6,67 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../gateway/brain_gateway.dart';
 import '../gateway/errors.dart';
 import '../gateway/models.dart';
+import '../mobile_workflow.dart';
+import '../persistence/models.dart';
 import '../widgets/evidence_cards.dart';
 
-enum _RecallPhase { loading, failed, complete }
-
 /// Isolated one-shot recall result route.
+///
+/// The legacy route receives [gateway] and asks the server directly. The
+/// durable route receives [workflow], which saves a successful answer as a
+/// self-contained local snapshot before this screen renders it. A supplied
+/// [snapshot] is always read locally and never refetches an answer.
 final class RecallResultScreen extends StatefulWidget {
   const RecallResultScreen({
     super.key,
-    required this.gateway,
-    required this.question,
+    this.gateway,
+    this.question,
+    this.workflow,
+    this.snapshot,
+    this.answerSnapshot,
+    this.sourceBrainId,
+    this.onOpenHistory,
+    this.onOpenGraphNode,
+    this.onOpenGraph,
   });
 
-  final BrainGateway gateway;
-  final String question;
+  final BrainGateway? gateway;
+  final String? question;
+  final MobileWorkflow? workflow;
+  final AnswerSnapshot? snapshot;
+  final AnswerSnapshot? answerSnapshot;
+  final String? sourceBrainId;
+  final VoidCallback? onOpenHistory;
+  final ValueChanged<GraphNode>? onOpenGraphNode;
+  final ValueChanged<GraphNode>? onOpenGraph;
 
   @override
   State<RecallResultScreen> createState() => _RecallResultScreenState();
 }
 
+enum _RecallPhase { loading, failed, complete }
+
 final class _RecallResultScreenState extends State<RecallResultScreen> {
   _RecallPhase _phase = _RecallPhase.loading;
   RecallResult? _result;
+  AnswerSnapshot? _snapshot;
   Object? _failure;
   int _requestGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_requestRecall());
+    final snapshot = widget.snapshot ?? widget.answerSnapshot;
+    if (snapshot != null) {
+      _snapshot = snapshot;
+      _result = RecallResult(
+        answer: snapshot.answer,
+        evidence: snapshot.evidence,
+      );
+      _phase = _RecallPhase.complete;
+    } else {
+      unawaited(_requestRecall());
+    }
   }
 
   @override
@@ -54,6 +86,14 @@ final class _RecallResultScreenState extends State<RecallResultScreen> {
           icon: const Icon(Icons.arrow_back),
         ),
         title: const Text('Answer'),
+        actions: [
+          if (widget.onOpenHistory != null)
+            IconButton(
+              onPressed: widget.onOpenHistory,
+              tooltip: 'Answer history',
+              icon: const Icon(Icons.history),
+            ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -71,24 +111,51 @@ final class _RecallResultScreenState extends State<RecallResultScreen> {
           error: _messageFor(_failure),
           onRetry: _requestRecall,
         ),
-      _RecallPhase.complete => _CompleteState(result: _result!),
+      _RecallPhase.complete => _CompleteState(
+          question: _question,
+          result: _result!,
+          snapshot: _snapshot,
+          onOpenGraphNode: widget.onOpenGraphNode ?? widget.onOpenGraph,
+        ),
     };
   }
 
   Future<void> _requestRecall() async {
     final generation = ++_requestGeneration;
+    if (!mounted) return;
     setState(() {
       _phase = _RecallPhase.loading;
       _result = null;
+      _snapshot = null;
       _failure = null;
     });
     try {
-      final result = await widget.gateway.recall(widget.question);
+      final workflow = widget.workflow;
+      final question = _question;
+      if (question.trim().isEmpty) {
+        throw StateError('An answer question is required');
+      }
+      final result = workflow == null
+          ? await _recallThroughGateway(question)
+          : await workflow.ask(question);
       if (!mounted || generation != _requestGeneration) return;
-      setState(() {
-        _phase = _RecallPhase.complete;
-        _result = result;
-      });
+      if (result is AnswerSnapshot) {
+        setState(() {
+          _phase = _RecallPhase.complete;
+          _snapshot = result;
+          _result = RecallResult(
+            answer: result.answer,
+            evidence: result.evidence,
+          );
+        });
+      } else if (result is RecallResult) {
+        setState(() {
+          _phase = _RecallPhase.complete;
+          _result = result;
+        });
+      } else {
+        throw StateError('Unsupported answer result');
+      }
     } on Object catch (error) {
       if (!mounted || generation != _requestGeneration) return;
       setState(() {
@@ -96,6 +163,20 @@ final class _RecallResultScreenState extends State<RecallResultScreen> {
         _failure = error;
       });
     }
+  }
+
+  String get _question =>
+      widget.question ??
+      widget.snapshot?.question ??
+      widget.answerSnapshot?.question ??
+      '';
+
+  Future<Object> _recallThroughGateway(String question) async {
+    final gateway = widget.gateway;
+    if (gateway == null) {
+      throw StateError('A gateway or workflow is required');
+    }
+    return gateway.recall(question);
   }
 
   String _messageFor(Object? error) {
@@ -156,15 +237,28 @@ final class _FailureState extends StatelessWidget {
 }
 
 final class _CompleteState extends StatelessWidget {
-  const _CompleteState({required this.result});
+  const _CompleteState({
+    required this.question,
+    required this.result,
+    required this.snapshot,
+    this.onOpenGraphNode,
+  });
 
+  final String question;
   final RecallResult result;
+  final AnswerSnapshot? snapshot;
+  final ValueChanged<GraphNode>? onOpenGraphNode;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Text(
+          question,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
         MarkdownBody(
           data: result.answer,
           selectable: true,
@@ -172,9 +266,26 @@ final class _CompleteState extends StatelessWidget {
             p: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.55),
           ),
         ),
+        if (snapshot != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Answer saved on this phone · ${_formatDate(snapshot!.answeredAt)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
         if (result.evidence.isNotEmpty)
-          EvidenceCards(evidence: result.evidence),
+          EvidenceCards(
+            evidence: result.evidence,
+            onOpenGraphNode: onOpenGraphNode,
+          ),
       ],
     );
+  }
+
+  String _formatDate(DateTime value) {
+    final local = value.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    return '${local.year}-$month-$day';
   }
 }

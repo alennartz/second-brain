@@ -169,6 +169,15 @@ describe("Android workflow server boundary", () => {
 });
 
 describe("Android workflow application graph operations", () => {
+  test("production search rejects whitespace-only queries as invalid input", async () => {
+    await withStorage(async storage => {
+      const server = createHttpServer(productionApplication(storage));
+      for (const query of ["   ", "\t\n", "\u00a0"]) {
+        const response = await server.handle(request("/search", { query }));
+        expect(response.status).toBe(400);
+      }
+    });
+  });
   test("direct HTTP search matches agent-facing hybrid search without a model", async () => {
     await withStorage(async storage => {
       await storage.createNode({ kind: "entity", name: "Garden", type: "place", description: "Garden behind shed" });

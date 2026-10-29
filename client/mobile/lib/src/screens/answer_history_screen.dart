@@ -95,13 +95,6 @@ final class _AnswerHistoryScreenState extends State<AnswerHistoryScreen> {
   }
 
   Widget _buildBody(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_failure != null) {
-      return _FailureBody(
-        onRetry: () => unawaited(_load()),
-      );
-    }
-
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -141,7 +134,9 @@ final class _AnswerHistoryScreenState extends State<AnswerHistoryScreen> {
             _Notice(message: _notice!),
           ],
           const SizedBox(height: 12),
-          if (_snapshots.isEmpty)
+          if (_loading) const LinearProgressIndicator(),
+          if (_failure != null) _FailureBody(onRetry: () => unawaited(_load())),
+          if (!_loading && _snapshots.isEmpty)
             _EmptyHistory(hasQuery: _queryController.text.trim().isNotEmpty)
           else
             ..._snapshots.map((snapshot) => _SnapshotCard(

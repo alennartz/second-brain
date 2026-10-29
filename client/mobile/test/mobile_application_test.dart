@@ -6,17 +6,39 @@ import 'package:second_brain_mobile/second_brain_mobile.dart';
 
 final class MemorySettings implements SettingsStore {
   String? url = 'https://brain.example.test';
+  String? accessClientId;
+  String? accessClientSecret;
   PendingCapture? pending;
   @override
-  Future<String?> loadBaseUrl() async => url;
+  Future<ServerConfiguration?> loadServerConfiguration() async {
+    final value = url;
+    return value == null
+        ? null
+        : ServerConfiguration(
+            baseUrl: value,
+            accessClientId: accessClientId,
+            accessClientSecret: accessClientSecret,
+          );
+  }
+
   @override
-  Future<void> saveBaseUrl(String value) async { url = value; }
+  Future<void> saveServerConfiguration(ServerConfiguration value) async {
+    url = value.baseUrl;
+    accessClientId = value.accessClientId;
+    accessClientSecret = value.accessClientSecret;
+  }
+
   @override
   Future<PendingCapture?> loadPendingCapture() async => pending;
   @override
-  Future<void> savePendingCapture(PendingCapture value) async { pending = value; }
+  Future<void> savePendingCapture(PendingCapture value) async {
+    pending = value;
+  }
+
   @override
-  Future<void> clearPendingCapture() async { pending = null; }
+  Future<void> clearPendingCapture() async {
+    pending = null;
+  }
 }
 
 final class FakeBrain implements BrainGateway {
@@ -30,8 +52,10 @@ final class FakeBrain implements BrainGateway {
   Future<void> checkHealth() async {
     if (failHealth) throw const NetworkException('Unavailable');
   }
+
   @override
-  Future<IngestReceipt> stageIntake(String text, {required String idempotencyKey, required String capturedAt}) async {
+  Future<IngestReceipt> stageIntake(String text,
+      {required String idempotencyKey, required String capturedAt}) async {
     captures.add(PendingCapture(text: text, idempotencyKey: idempotencyKey, capturedAt: capturedAt));
     if (storage != null) {
       expect(storage!.pending!.text, text);
@@ -41,6 +65,7 @@ final class FakeBrain implements BrainGateway {
     if (failCapture) throw const NetworkException('Unavailable');
     return const IngestReceipt(chunksStored: 2);
   }
+
   @override
   Future<RecallResult> recall(String question) {
     questions.add(question);
@@ -51,61 +76,149 @@ final class FakeBrain implements BrainGateway {
 const answer = RecallResult(answer: '**Remember** the garden.', evidence: [
   GraphNodeEvidence(
     node: GraphNode(id: 'entity:garden', table: 'entity', name: 'Garden'),
-    links: [LinkedEdge(id: 'references:1', table: 'references', from: 'note:layout', to: 'entity:garden', context: 'Garden connection')],
+    links: [
+      LinkedEdge(
+          id: 'references:1',
+          table: 'references',
+          from: 'note:layout',
+          to: 'entity:garden',
+          context: 'Garden connection')
+    ],
   ),
-  UnprocessedEvidence(chunk: IntakeChunk(id: 'intake_chunk:1', intakeId: 'intake:1', chunkPosition: 0, totalChunks: 1, content: 'Raw garden thought', source: 'mobile', hints: [], isUnprocessed: true)),
+  UnprocessedEvidence(
+      chunk: IntakeChunk(
+          id: 'intake_chunk:1',
+          intakeId: 'intake:1',
+          chunkPosition: 0,
+          totalChunks: 1,
+          content: 'Raw garden thought',
+          source: 'mobile',
+          hints: [],
+          isUnprocessed: true)),
 ]);
 
 Finder action(String label) => find.ancestor(
-  of: find.text(label),
-  matching: find.byWidgetPredicate((widget) => widget is ButtonStyleButton),
-);
+      of: find.text(label),
+      matching: find.byWidgetPredicate((widget) => widget is ButtonStyleButton),
+    );
 
 void main() {
   late MemorySettings storage;
   late FakeBrain brain;
+  ServerConfiguration? launchedConfiguration;
   var key = 0;
   Future<void> launch(WidgetTester tester) async {
     await tester.pumpWidget(MobileApplication(
       settingsStore: storage,
-      gatewayForBaseUrl: (_) => brain,
+      gatewayForConfiguration: (configuration) {
+        launchedConfiguration = configuration;
+        return brain;
+      },
       createIdempotencyKey: () => 'key-${++key}',
     ));
     await tester.pumpAndSettle();
   }
+
   Future<void> submit(WidgetTester tester, String label) async {
     await tester.pump();
     await tester.tap(action(label));
     await tester.pump(const Duration(seconds: 1));
   }
+
   Future<void> ask(WidgetTester tester) async {
     brain.recallResponse = Completer<RecallResult>();
     await tester.tap(find.text('Ask').last);
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'Where is the garden?');
+    await tester.enterText(
+        find.byType(TextField).first, 'Where is the garden?');
     await submit(tester, 'Ask');
   }
+
   setUp(() {
     storage = MemorySettings();
     brain = FakeBrain()..storage = storage;
+    launchedConfiguration = null;
     key = 0;
   });
 
-  testWidgets('setup validates URL and saves it despite failed health', (tester) async {
+  testWidgets('setup validates URL and saves it despite failed health',
+      (tester) async {
     storage.url = null;
     brain.failHealth = true;
     await launch(tester);
     await tester.enterText(find.byType(TextField).first, 'not-a-url');
     await submit(tester, 'Save');
     expect(storage.url, isNull);
-    await tester.enterText(find.byType(TextField).first, 'https://brain.example.test');
+    await tester.enterText(
+        find.byType(TextField).first, 'https://brain.example.test');
     await submit(tester, 'Save');
     await tester.pumpAndSettle();
     expect(storage.url, 'https://brain.example.test');
     expect(action('Capture'), findsOneWidget);
   });
 
-  testWidgets('opens Capture and persists a key before staging then clears on success', (tester) async {
+  testWidgets('setup rejects a partial Access credential pair', (tester) async {
+    storage.url = null;
+    await launch(tester);
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'https://brain.example.test');
+    await tester.enterText(fields.at(1), 'client-id');
+    await submit(tester, 'Save');
+
+    expect(storage.url, isNull);
+    expect(
+      find.text(
+        'Enter both Access Client ID and Access Client Secret, or leave both blank.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.enterText(fields.at(2), 'client-secret');
+    await submit(tester, 'Save');
+    await tester.pumpAndSettle();
+    expect(storage.url, 'https://brain.example.test');
+    expect(storage.accessClientId, 'client-id');
+    expect(storage.accessClientSecret, 'client-secret');
+    expect(launchedConfiguration?.accessClientId, 'client-id');
+    expect(launchedConfiguration?.accessClientSecret, 'client-secret');
+  });
+
+  testWidgets('setup rejects Access credentials on an HTTP URL',
+      (tester) async {
+    storage.url = null;
+    await launch(tester);
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), 'http://brain.example.test');
+    await tester.enterText(fields.at(1), 'client-id');
+    await tester.enterText(fields.at(2), 'client-secret');
+    await submit(tester, 'Save');
+
+    expect(storage.url, isNull);
+    expect(
+      find.text('Cloudflare Access credentials require an HTTPS server URL.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('clears Access credentials after changing the server URL',
+      (tester) async {
+    storage.accessClientId = 'client-id';
+    storage.accessClientSecret = 'client-secret';
+    await launch(tester);
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byType(TextField).first, 'https://other.example.test');
+    await submit(tester, 'Save');
+
+    expect(storage.url, 'https://other.example.test');
+    expect(storage.accessClientId, isNull);
+    expect(storage.accessClientSecret, isNull);
+  });
+
+  testWidgets(
+      'opens Capture and persists a key before staging then clears on success',
+      (tester) async {
     await launch(tester);
     expect(action('Capture'), findsOneWidget);
     await tester.enterText(find.byType(TextField).first, 'A thought');
@@ -116,7 +229,8 @@ void main() {
     expect(find.textContaining('2'), findsWidgets);
   });
 
-  testWidgets('failure retains draft and Retry uses the same key', (tester) async {
+  testWidgets('failure retains draft and Retry uses the same key',
+      (tester) async {
     brain.failCapture = true;
     await launch(tester);
     await tester.enterText(find.byType(TextField).first, 'Do not lose this');
@@ -127,12 +241,16 @@ void main() {
     brain.failCapture = false;
     await submit(tester, 'Retry');
     await tester.pumpAndSettle();
-    expect(brain.captures.map((item) => item.idempotencyKey), [savedKey, savedKey]);
+    expect(brain.captures.map((item) => item.idempotencyKey),
+        [savedKey, savedKey]);
     expect(storage.pending, isNull);
   });
 
-  testWidgets('startup restores without submitting and editing rotates persisted key', (tester) async {
-    storage.pending = const PendingCapture(text: 'Old thought', idempotencyKey: 'old-key');
+  testWidgets(
+      'startup restores without submitting and editing rotates persisted key',
+      (tester) async {
+    storage.pending =
+        const PendingCapture(text: 'Old thought', idempotencyKey: 'old-key');
     brain.failCapture = true;
     await launch(tester);
     expect(find.text('Old thought'), findsOneWidget);
@@ -142,24 +260,31 @@ void main() {
     expect(storage.pending!.text, 'Edited thought');
     expect(storage.pending!.idempotencyKey, isNot('old-key'));
     final editedKey = storage.pending!.idempotencyKey;
-    await tester.tap(action('Capture').evaluate().isNotEmpty ? action('Capture') : action('Retry'));
+    await tester.tap(action('Capture').evaluate().isNotEmpty
+        ? action('Capture')
+        : action('Retry'));
     await tester.pumpAndSettle();
     expect(brain.captures.single.idempotencyKey, editedKey);
   });
 
-  testWidgets('Settings hides tabs and saves an edited URL despite failed health', (tester) async {
+  testWidgets(
+      'Settings hides tabs and saves an edited URL despite failed health',
+      (tester) async {
     await launch(tester);
     await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsNothing);
     brain.failHealth = true;
-    await tester.enterText(find.byType(TextField).first, 'http://other.example.test');
+    await tester.enterText(
+        find.byType(TextField).first, 'http://other.example.test');
     await submit(tester, 'Save');
     await tester.pumpAndSettle();
     expect(storage.url, 'http://other.example.test');
   });
 
-  testWidgets('Ask opens loading result then grouped expanded evidence with Markdown', (tester) async {
+  testWidgets(
+      'Ask opens loading result then grouped expanded evidence with Markdown',
+      (tester) async {
     await launch(tester);
     await ask(tester);
     expect(brain.questions, ['Where is the garden?']);
@@ -180,10 +305,12 @@ void main() {
     expect(
       find.byWidgetPredicate(
         (widget) =>
-            (widget is RichText && widget.text.toPlainText().contains('Remember')) ||
+            (widget is RichText &&
+                widget.text.toPlainText().contains('Remember')) ||
             (widget is SelectableText &&
                 ((widget.data?.contains('Remember') ?? false) ||
-                    (widget.textSpan?.toPlainText().contains('Remember') ?? false))),
+                    (widget.textSpan?.toPlainText().contains('Remember') ??
+                        false))),
       ),
       findsWidgets,
     );
@@ -196,7 +323,9 @@ void main() {
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 
-  testWidgets('Ask error offers explicit retry and empty evidence has no control', (tester) async {
+  testWidgets(
+      'Ask error offers explicit retry and empty evidence has no control',
+      (tester) async {
     await launch(tester);
     await ask(tester);
     brain.recallResponse!.completeError(const NetworkException('Unavailable'));
@@ -205,13 +334,16 @@ void main() {
     brain.recallResponse = Completer<RecallResult>();
     await submit(tester, 'Retry');
     expect(brain.questions, ['Where is the garden?', 'Where is the garden?']);
-    brain.recallResponse!.complete(const RecallResult(answer: 'No memory found.', evidence: []));
+    brain.recallResponse!
+        .complete(const RecallResult(answer: 'No memory found.', evidence: []));
     await tester.pumpAndSettle();
     expect(find.text('Evidence'), findsNothing);
     expect(find.textContaining('No memory found.'), findsWidgets);
   });
 
-  testWidgets('both composers keep submission above the keyboard without overflow', (tester) async {
+  testWidgets(
+      'both composers keep submission above the keyboard without overflow',
+      (tester) async {
     tester.view.physicalSize = const Size(400, 700);
     tester.view.devicePixelRatio = 1;
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);
@@ -222,7 +354,8 @@ void main() {
         await tester.tap(find.text('Ask').last);
         await tester.pumpAndSettle();
       }
-      await tester.enterText(find.byType(TextField).first, List.filled(30, 'A long thought').join('\n'));
+      await tester.enterText(find.byType(TextField).first,
+          List.filled(30, 'A long thought').join('\n'));
       await tester.pumpAndSettle();
       final button = action(label);
       expect(tester.getBottomRight(button).dy, lessThanOrEqualTo(400));

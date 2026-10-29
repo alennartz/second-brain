@@ -168,6 +168,7 @@ final class MobileWorkflowImpl implements MobileWorkflow {
       brainId: brainId,
       workspaces: _store.workspaces,
       gateway: _gatewayFor(profile),
+      resolveGateway: () async => _gatewayFor(await _profileById(brainId)),
     );
 
     if (_autoRefreshBrains.add(brainId)) {

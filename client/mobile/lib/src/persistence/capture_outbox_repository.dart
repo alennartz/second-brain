@@ -37,22 +37,34 @@ final class SqliteCaptureOutboxRepository implements CaptureOutboxRepository {
 
   @override
   Future<void> updateText(String id, String text) async {
-    final changed = await database.update(
-      'capture_outbox',
-      {'text': text, 'state': _stateValue(OutboxState.edited)},
-      where: 'id = ?',
-      whereArgs: [id],
+    final changed = await database.rawUpdate(
+      'UPDATE capture_outbox SET text = ?, '
+      'state = CASE WHEN state = ? THEN state ELSE ? END WHERE id = ?',
+      [
+        text,
+        _stateValue(OutboxState.conflict),
+        _stateValue(OutboxState.edited),
+        id
+      ],
     );
     if (changed == 0) throw StateError('unknown Capture entry: $id');
   }
 
   @override
-  Future<void> markAccepted(String id) async {
-    await database.delete(
+  Future<bool> markAccepted(String id,
+      {String? sentKey, String? sentText}) async {
+    final changed = await database.delete(
       'capture_outbox',
-      where: 'id = ?',
-      whereArgs: [id],
+      where: 'id = ?'
+          '${sentKey == null ? '' : ' AND idempotency_key = ?'}'
+          '${sentText == null ? '' : ' AND text = ?'}',
+      whereArgs: [
+        id,
+        if (sentKey != null) sentKey,
+        if (sentText != null) sentText
+      ],
     );
+    return changed != 0;
   }
 
   @override
@@ -78,6 +90,18 @@ final class SqliteCaptureOutboxRepository implements CaptureOutboxRepository {
       whereArgs: [id],
     );
     if (changed == 0) throw StateError('unknown Capture entry: $id');
+  }
+
+  @override
+  Future<void> discardConflict(String id) async {
+    final changed = await database.delete(
+      'capture_outbox',
+      where: 'id = ? AND state = ?',
+      whereArgs: [id, _stateValue(OutboxState.conflict)],
+    );
+    if (changed == 0) {
+      throw StateError('Capture is not a retained conflict: $id');
+    }
   }
 
   static Map<String, Object?> _rowFor(OutboxEntry entry) => {
@@ -118,5 +142,3 @@ final class SqliteCaptureOutboxRepository implements CaptureOutboxRepository {
     throw FormatException('$field must be a string');
   }
 }
-
-typedef SqfliteCaptureOutboxRepository = SqliteCaptureOutboxRepository;

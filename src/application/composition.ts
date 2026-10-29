@@ -122,6 +122,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
         recall: async request => { scheduler.touchActivity(); return recall.recall(request); },
         getGraph: readGraph,
         async search(request) {
+          if (!request.query.trim()) throw new HttpApplicationError("invalid", "Search query must not be blank");
           const result = await searchMemory(storage, request);
           return {
             nodes: result.nodes.map(node => ({ ...node } as Record<string, unknown>)),
@@ -129,10 +130,11 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
           };
         },
         async refreshGraph(ids) {
-          const results = await Promise.all(ids.map(async id => {
+          const results = [];
+          for (const id of ids) {
             const graph = await readGraph(id);
-            return graph ? { id, status: "found" as const, ...graph } : { id, status: "missing" as const };
-          }));
+            results.push(graph ? { id, status: "found" as const, ...graph } : { id, status: "missing" as const });
+          }
           return { results };
         },
       };

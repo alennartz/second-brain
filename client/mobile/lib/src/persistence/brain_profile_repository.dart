@@ -65,6 +65,8 @@ final class SqliteBrainProfileRepository implements BrainProfileRepository {
     String url, {
     ({String clientId, String clientSecret})? credentials,
   }) async {
+    // Keep the old address if removing its credentials fails.
+    await secretStore.delete(_credentialsKey(id));
     final changed = await database.update(
       'brain_profiles',
       {'base_url': url},
@@ -73,13 +75,12 @@ final class SqliteBrainProfileRepository implements BrainProfileRepository {
     );
     if (changed == 0) throw StateError('unknown Brain profile: $id');
 
-    // Clear before writing the replacement. This prevents stale credentials
-    // from surviving an address change when the replacement is incomplete.
-    await secretStore.delete(_credentialsKey(id));
     final clientId = credentials?.clientId.trim();
     final clientSecret = credentials?.clientSecret.trim();
-    if (clientId == null || clientSecret == null ||
-        clientId.isEmpty || clientSecret.isEmpty) {
+    if (clientId == null ||
+        clientSecret == null ||
+        clientId.isEmpty ||
+        clientSecret.isEmpty) {
       return;
     }
     await _writeCredentials(id, clientId, clientSecret);
@@ -153,8 +154,10 @@ final class SqliteBrainProfileRepository implements BrainProfileRepository {
   ) async {
     final cleanId = clientId?.trim();
     final cleanSecret = clientSecret?.trim();
-    if (cleanId == null || cleanSecret == null ||
-        cleanId.isEmpty || cleanSecret.isEmpty) {
+    if (cleanId == null ||
+        cleanSecret == null ||
+        cleanId.isEmpty ||
+        cleanSecret.isEmpty) {
       await secretStore.delete(_credentialsKey(id));
       return;
     }
@@ -196,4 +199,3 @@ final class SqliteBrainProfileRepository implements BrainProfileRepository {
 }
 
 /// Short name for callers that use the storage technology in the type name.
-typedef SqfliteBrainProfileRepository = SqliteBrainProfileRepository;

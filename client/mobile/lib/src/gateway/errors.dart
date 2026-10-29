@@ -10,6 +10,11 @@ final class NetworkException extends BrainClientException {
   const NetworkException(super.message);
 }
 
+/// The configured server settings cannot be used safely.
+final class ConfigurationException extends BrainClientException {
+  const ConfigurationException(super.message);
+}
+
 /// The server returned a non-success HTTP status.
 final class HttpStatusException extends BrainClientException {
   const HttpStatusException({

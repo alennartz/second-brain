@@ -33,21 +33,33 @@ void main() {
 
   final operations = <String, Future<void> Function(BrainGateway)>{
     'health': (gateway) => gateway.checkHealth(),
-    'intake': (gateway) async { await gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00'); },
-    'recall': (gateway) async { await gateway.recall('Question'); },
+    'intake': (gateway) async {
+      await gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00');
+    },
+    'recall': (gateway) async {
+      await gateway.recall('Question');
+    },
   };
   for (final operation in operations.entries) {
     test('${operation.key} rejects non-success status', () async {
-      final gateway = gatewayFor((_) async => http.Response('Unavailable', 503));
-      await expectLater(operation.value(gateway), throwsA(isA<HttpStatusException>().having((error) => error.statusCode, 'status', 503)));
+      final gateway =
+          gatewayFor((_) async => http.Response('Unavailable', 503));
+      await expectLater(
+          operation.value(gateway),
+          throwsA(isA<HttpStatusException>()
+              .having((error) => error.statusCode, 'status', 503)));
     });
     test('${operation.key} maps transport failure', () async {
-      final gateway = gatewayFor((_) async { throw http.ClientException('Unavailable'); });
-      await expectLater(operation.value(gateway), throwsA(isA<NetworkException>()));
+      final gateway = gatewayFor((_) async {
+        throw http.ClientException('Unavailable');
+      });
+      await expectLater(
+          operation.value(gateway), throwsA(isA<NetworkException>()));
     });
     test('${operation.key} rejects malformed JSON', () async {
       final gateway = gatewayFor((_) async => http.Response('{', 200));
-      await expectLater(operation.value(gateway), throwsA(isA<MalformedResponseException>()));
+      await expectLater(
+          operation.value(gateway), throwsA(isA<MalformedResponseException>()));
     });
     testWidgets('${operation.key} applies its bounded timeout', (tester) async {
       final response = Completer<http.Response>();
@@ -57,47 +69,87 @@ void main() {
         healthTimeout: const Duration(seconds: 1),
         requestTimeout: const Duration(seconds: 2),
       );
-      final assertion = expectLater(operation.value(gateway), throwsA(isA<NetworkException>()));
+      final assertion = expectLater(
+          operation.value(gateway), throwsA(isA<NetworkException>()));
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
-      if (operation.key != 'health') await tester.pump(const Duration(seconds: 1));
+      if (operation.key != 'health') {
+        await tester.pump(const Duration(seconds: 1));
+      }
       await assertion;
       response.complete(jsonResponse({'status': 'ok'}));
       await tester.pump();
     });
   }
 
-  for (final body in [null, [], {}, {'chunks_stored': 'two'}, {'chunks_stored': 1.5}]) {
+  for (final body in [
+    null,
+    [],
+    {},
+    {'chunks_stored': 'two'},
+    {'chunks_stored': 1.5}
+  ]) {
     test('intake rejects invalid receipt $body', () async {
       final gateway = gatewayFor((_) async => jsonResponse(body));
-      await expectLater(gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00'), throwsA(isA<MalformedResponseException>()));
+      await expectLater(gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00'),
+          throwsA(isA<MalformedResponseException>()));
     });
   }
-  for (final body in [null, [], {}, {'answer': 42, 'context': null}, {'answer': 'Answer', 'context': 'invalid'}]) {
+  for (final body in [
+    null,
+    [],
+    {},
+    {'answer': 42, 'context': null},
+    {'answer': 'Answer', 'context': 'invalid'}
+  ]) {
     test('recall rejects invalid response $body', () async {
       final gateway = gatewayFor((_) async => jsonResponse(body));
-      await expectLater(gateway.recall('Question'), throwsA(isA<MalformedResponseException>()));
+      await expectLater(gateway.recall('Question'),
+          throwsA(isA<MalformedResponseException>()));
     });
   }
 
   test('recall maps empty context to no evidence', () async {
-    final gateway = gatewayFor((_) async => jsonResponse({'answer': 'Answer', 'context': {'nodes': [], 'edges': [], 'unprocessed': []}}));
+    final gateway = gatewayFor((_) async => jsonResponse({
+          'answer': 'Answer',
+          'context': {'nodes': [], 'edges': [], 'unprocessed': []}
+        }));
     expect((await gateway.recall('Question')).evidence, isEmpty);
   });
 
-  test('both returned endpoints attach the directed edge once to its to node', () async {
+  test('both returned endpoints attach the directed edge once to its to node',
+      () async {
     final gateway = gatewayFor((_) async => jsonResponse({
-      'answer': 'Answer',
-      'context': {
-        'nodes': [
-          {'id': 'note:1', 'table': 'note', 'content': 'Content', 'name': 'Name', 'type': 'Type', 'description': 'Description', 'summary': 'Summary'},
-          {'id': 'entity:2', 'table': 'entity'},
-        ],
-        'edges': [{'id': 'references:1', 'table': 'references', 'from': 'note:1', 'to': 'entity:2', 'context': 'Link'}],
-        'unprocessed': [],
-      },
-    }));
-    final items = (await gateway.recall('Question')).evidence.whereType<GraphNodeEvidence>().toList();
+          'answer': 'Answer',
+          'context': {
+            'nodes': [
+              {
+                'id': 'note:1',
+                'table': 'note',
+                'content': 'Content',
+                'name': 'Name',
+                'type': 'Type',
+                'description': 'Description',
+                'summary': 'Summary'
+              },
+              {'id': 'entity:2', 'table': 'entity'},
+            ],
+            'edges': [
+              {
+                'id': 'references:1',
+                'table': 'references',
+                'from': 'note:1',
+                'to': 'entity:2',
+                'context': 'Link'
+              }
+            ],
+            'unprocessed': [],
+          },
+        }));
+    final items = (await gateway.recall('Question'))
+        .evidence
+        .whereType<GraphNodeEvidence>()
+        .toList();
     expect(items, hasLength(2));
     final from = items.singleWhere((item) => item.node.id == 'note:1');
     expect(from.links, isEmpty);
@@ -112,7 +164,8 @@ void main() {
     expect(to.links.single.to, 'entity:2');
     expect(to.links.single.context, 'Link');
   });
-  test('health checks GET /health and accepts a successful ok response', () async {
+  test('health checks GET /health and accepts a successful ok response',
+      () async {
     final requests = <http.Request>[];
     final gateway = gatewayFor((request) async {
       requests.add(request);
@@ -124,6 +177,78 @@ void main() {
     expect(requests, hasLength(1));
     expect(requests.single.method, 'GET');
     expect(requests.single.url.toString(), 'https://brain.example.test/health');
+  });
+
+  test('attaches Access headers to health, intake, and recall requests',
+      () async {
+    final requests = <http.Request>[];
+    final gateway = HttpBrainGateway(
+      configuration: const ServerConfiguration(
+        baseUrl: 'https://brain.example.test',
+        accessClientId: 'client-id',
+        accessClientSecret: 'client-secret',
+      ),
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('/health')) {
+          return jsonResponse({'status': 'ok'});
+        }
+        if (request.url.path.endsWith('/ingest')) {
+          return jsonResponse({'chunks_stored': 1});
+        }
+        return jsonResponse({'answer': 'Answer', 'context': null});
+      }),
+    );
+
+    await gateway.checkHealth();
+    await gateway.stageIntake('Thought', idempotencyKey: 'key', capturedAt: '2026-01-01T00:00:00+02:00');
+    await gateway.recall('Question');
+
+    expect(requests, hasLength(3));
+    for (final request in requests) {
+      expect(request.headers['CF-Access-Client-Id'], 'client-id');
+      expect(request.headers['CF-Access-Client-Secret'], 'client-secret');
+    }
+  });
+
+  test('does not attach a partial Access credential pair', () async {
+    final requests = <http.Request>[];
+    final gateway = HttpBrainGateway(
+      configuration: const ServerConfiguration(
+        baseUrl: 'https://brain.example.test',
+        accessClientId: 'client-id',
+      ),
+      client: MockClient((request) async {
+        requests.add(request);
+        return jsonResponse({'status': 'ok'});
+      }),
+    );
+
+    await gateway.checkHealth();
+
+    expect(requests.single.headers, isNot(contains('CF-Access-Client-Id')));
+    expect(requests.single.headers, isNot(contains('CF-Access-Client-Secret')));
+  });
+
+  test('rejects Access credentials with an HTTP server URL', () async {
+    var requestSent = false;
+    final gateway = HttpBrainGateway(
+      configuration: const ServerConfiguration(
+        baseUrl: 'http://brain.example.test',
+        accessClientId: 'client-id',
+        accessClientSecret: 'client-secret',
+      ),
+      client: MockClient((_) async {
+        requestSent = true;
+        return jsonResponse({'status': 'ok'});
+      }),
+    );
+
+    await expectLater(
+      gateway.checkHealth(),
+      throwsA(isA<ConfigurationException>()),
+    );
+    expect(requestSent, isFalse);
   });
 
   test('health rejects a successful response without status ok', () async {
@@ -162,7 +287,8 @@ void main() {
     });
   });
 
-  test('staging maps a non-success response to a typed HTTP exception', () async {
+  test('staging maps a non-success response to a typed HTTP exception',
+      () async {
     final gateway = gatewayFor(
       (_) async => jsonResponse(
         {'detail': 'duplicate idempotency key'},
@@ -248,8 +374,8 @@ void main() {
     expect(result.evidence, hasLength(3));
 
     final graph = result.evidence.whereType<GraphNodeEvidence>().firstWhere(
-      (item) => item.node.id == 'entity:garden',
-    );
+          (item) => item.node.id == 'entity:garden',
+        );
     expect(graph.links, hasLength(2));
     expect(
       graph.links.map((link) => link.to),
@@ -264,8 +390,8 @@ void main() {
     );
 
     final orphan = result.evidence.whereType<GraphNodeEvidence>().firstWhere(
-      (item) => item.links.any((link) => link.id == 'relates_to:3'),
-    );
+          (item) => item.links.any((link) => link.id == 'relates_to:3'),
+        );
     expect(orphan.node.id, isIn(['note:missing', 'entity:orphan']));
     expect(orphan.links, hasLength(1));
     expect(orphan.links.single.id, 'relates_to:3');
@@ -279,13 +405,16 @@ void main() {
     expect(raw.chunk.source, 'mobile');
     expect(graph.node.table, 'entity');
     expect(graph.node.name, 'Garden plot');
-    expect(graph.links.firstWhere((link) => link.id == 'references:1').from, 'note:layout');
-    expect(graph.links.firstWhere((link) => link.id == 'references:1').table, 'references');
+    expect(graph.links.firstWhere((link) => link.id == 'references:1').from,
+        'note:layout');
+    expect(graph.links.firstWhere((link) => link.id == 'references:1').table,
+        'references');
     expect(raw.chunk.hints, ['garden']);
     expect(raw.chunk.isUnprocessed, isTrue);
   });
 
-  test('recall returns empty evidence when the response context is null', () async {
+  test('recall returns empty evidence when the response context is null',
+      () async {
     final gateway = gatewayFor(
       (_) async => jsonResponse({
         'answer': 'There is no matching memory.',
@@ -310,7 +439,8 @@ void main() {
     );
   });
 
-  test('recall rejects malformed JSON with a typed response exception', () async {
+  test('recall rejects malformed JSON with a typed response exception',
+      () async {
     final gateway = gatewayFor(
       (_) async => http.Response('{"answer":', 200),
     );

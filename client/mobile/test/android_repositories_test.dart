@@ -11,7 +11,7 @@ void main() {
     root = await Directory.systemTemp.createTemp('brain-contract-');
     addTearDown(() => root.delete(recursive: true));
     path = '${root.path}/mobile.db';
-    store = await openMobileStore(path);
+    store = await openTestMobileStore(path);
     addTearDown(() => store.close());
   });
 
@@ -47,7 +47,7 @@ void main() {
     expect((await store.outbox.pendingAll()).single.state, OutboxState.edited);
     await store.outbox.markConflict(entry.id);
     await store.close();
-    store = await openMobileStore(path);
+    store = await openTestMobileStore(path);
     final saved = (await store.outbox.pendingAll()).single;
     expect(saved.text, 'Edited');
     expect(saved.idempotencyKey, 'key');
@@ -78,7 +78,7 @@ void main() {
         evidence: const [evidence]);
     await store.answers.save(home, snapshot);
     await store.close();
-    store = await openMobileStore(path);
+    store = await openTestMobileStore(path);
     final saved = (await store.answers.find(home, 'Garden')).single;
     expect(saved.id, snapshot.id);
     expect(saved.question, snapshot.question);
@@ -110,7 +110,7 @@ void main() {
           WorkspaceEdge(edge: edge, status: WorkspaceItemStatus.newItem)
         ], fetchedAt: fetched));
     await store.close();
-    store = await openMobileStore(path);
+    store = await openTestMobileStore(path);
     final saved = (await store.workspaces.load(home))!;
     expect(saved.nodes.first.node.id, garden.id);
     expect(saved.nodes.first.expanded, isTrue);
@@ -132,7 +132,7 @@ void main() {
             text: 'Draft',
             idempotencyKey: 'old-key',
             capturedAt: '2025-12-01T01:02:03Z'));
-    store = await openMobileStore(path, legacy: legacy);
+    store = await openTestMobileStore(path, legacy: legacy);
     final profile = (await store.profiles.active())!;
     expect(profile.baseUrl, draft.baseUrl);
     expect(profile.accessClientId, draft.accessClientId);
@@ -142,7 +142,7 @@ void main() {
     expect(entry.idempotencyKey, 'old-key');
     expect(entry.capturedAt, legacy.pending!.capturedAt);
     await store.close();
-    store = await openMobileStore(path, legacy: legacy);
+    store = await openTestMobileStore(path, legacy: legacy);
     expect(await store.profiles.list(), hasLength(1));
     expect(await store.outbox.pendingAll(), hasLength(1));
   });

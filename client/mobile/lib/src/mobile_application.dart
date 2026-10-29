@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'gateway/brain_gateway.dart';
 import 'gateway/errors.dart';
-import 'gateway/models.dart';
-import 'explore/explore_controller.dart';
 import 'persistence/models.dart';
 import 'persistence/settings_store.dart';
 import 'screens/answer_history_screen.dart';
@@ -665,31 +663,21 @@ final class _DurableConfiguredApplicationState
       if (!profiles.any((candidate) => candidate.id == brainId)) {
         throw StateError('Unknown Brain profile: $brainId');
       }
-      GraphNodeDetail? detail;
-      ExploreWorkspaceController? cachedController;
+      final controller = await widget.workflow.visitExplore(brainId);
       try {
-        detail = await widget.workflow.openGraphLink(brainId, nodeId);
+        await controller.openNode(nodeId);
       } on Object {
-        // A previously opened workspace can still render a graph link while
-        // the server is offline. The snapshot itself remains local either way.
-        cachedController = await widget.workflow.visitExplore(brainId);
-        if (!cachedController.state.nodes
-            .any((node) => node.node.id == nodeId)) {
+        if (!controller.state.nodes.any((node) => node.node.id == nodeId)) {
           rethrow;
         }
       }
       if (!mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => detail == null
-              ? GraphNodeDetailScreen(
-                  controller: cachedController,
-                  nodeId: nodeId,
-                )
-              : GraphNodeDetailScreen(
-                  node: detail.node,
-                  connections: detail.connections,
-                ),
+          builder: (_) => GraphNodeDetailScreen(
+            controller: controller,
+            nodeId: nodeId,
+          ),
         ),
       );
     } on Object catch (error) {

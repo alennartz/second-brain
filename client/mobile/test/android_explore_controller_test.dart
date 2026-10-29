@@ -11,7 +11,7 @@ void main() {
   setUp(() async {
     root = await Directory.systemTemp.createTemp('explore-contract-');
     addTearDown(() => root.delete(recursive: true));
-    store = await openMobileStore('${root.path}/mobile.db');
+    store = await openTestMobileStore('${root.path}/mobile.db');
     addTearDown(() => store.close());
     home = await addBrain(store);
     gateway = ControlledGateway();

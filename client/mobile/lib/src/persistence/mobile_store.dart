@@ -1,18 +1,14 @@
-// Host tests use sqflite_common_ffi, which remains a dev dependency by design.
-// ignore_for_file: depend_on_referenced_packages
-
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:sqflite/sqflite.dart' as platform_sqflite;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite/sqflite.dart'
+    show Database, OpenDatabaseOptions, ConflictAlgorithm;
 import 'package:uuid/uuid.dart';
 
 import 'answer_snapshot_repository.dart';
 import 'brain_profile_repository.dart';
 import 'capture_outbox_repository.dart';
 import 'graph_workspace_repository.dart';
-import 'host_secret_store.dart';
 import 'models.dart';
 import 'repositories.dart';
 import 'settings_store.dart';
@@ -44,15 +40,20 @@ Future<MobileStore> openMobileStore(
   String path, {
   LegacyMobileData? legacy,
   SecretStore? secretStore,
+  platform_sqflite.DatabaseFactory? databaseFactory,
   SettingsStore? settingsStore,
   DateTime Function()? migrationClock,
 }) async {
-  _configureDatabaseFactory();
-  final secrets = secretStore ?? _defaultSecretStore(path);
-  final database = await _openDatabase(path);
+  final secrets = secretStore ?? const FlutterSecureSecretStore();
+  final database =
+      await (databaseFactory ?? platform_sqflite.databaseFactorySqflitePlugin)
+          .openDatabase(
+    path,
+    options: OpenDatabaseOptions(version: 1, onCreate: _createSchema),
+  );
   final store = _SqliteMobileStore(database, secrets);
-  final migrated = legacy ??
-      await _readLegacyData(settingsStore, migrationClock ?? _nowUtc);
+  final migrated =
+      legacy ?? await _readLegacyData(settingsStore, migrationClock ?? _nowUtc);
   try {
     await store.migrate(migrated, migrationClock ?? _nowUtc);
     return store;
@@ -60,36 +61,6 @@ Future<MobileStore> openMobileStore(
     await store.close();
     rethrow;
   }
-}
-
-void _configureDatabaseFactory() {
-  if (Platform.isAndroid || Platform.isIOS) return;
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
-}
-
-Future<Database> _openDatabase(String path) {
-  if (Platform.isAndroid || Platform.isIOS) {
-    return platform_sqflite.databaseFactorySqflitePlugin.openDatabase(
-      path,
-      options: OpenDatabaseOptions(
-        version: 1,
-        onCreate: _createSchema,
-      ),
-    );
-  }
-  return openDatabase(
-    path,
-    version: 1,
-    onCreate: _createSchema,
-  );
-}
-
-SecretStore _defaultSecretStore(String path) {
-  if (Platform.isAndroid || Platform.isIOS) {
-    return const FlutterSecureSecretStore();
-  }
-  return HostSecretStore(path);
 }
 
 Future<void> _createSchema(Database database, int version) async {
@@ -209,17 +180,20 @@ final class _SqliteMobileStore implements MobileStore {
 
     final profileId = const Uuid().v4();
     final pending = legacy.pending;
-    final outboxId = pending == null || pending.id.isEmpty
-        ? const Uuid().v4()
-        : pending.id;
+    final outboxId =
+        pending == null || pending.id.isEmpty ? const Uuid().v4() : pending.id;
     final capturedAt = pending == null
         ? null
         : pending.capturedAt.isEmpty
             ? migrationClock().toIso8601String()
             : pending.capturedAt;
 
-    // SQLite records and the marker commit in one transaction. Credentials
-    // use a separate store and therefore never enter this transaction.
+    // Credentials must be durable before the migration marker commits.
+    await _saveCredentials(
+      profileId,
+      legacy.profile.accessClientId,
+      legacy.profile.accessClientSecret,
+    );
     await database.transaction((transaction) async {
       await transaction.insert('brain_profiles', {
         'id': profileId,
@@ -247,12 +221,6 @@ final class _SqliteMobileStore implements MobileStore {
         'value': '1',
       });
     });
-
-    await _saveCredentials(
-      profileId,
-      legacy.profile.accessClientId,
-      legacy.profile.accessClientSecret,
-    );
   }
 
   Future<void> _saveCredentials(
@@ -262,8 +230,10 @@ final class _SqliteMobileStore implements MobileStore {
   ) async {
     final cleanId = clientId?.trim();
     final cleanSecret = clientSecret?.trim();
-    if (cleanId == null || cleanSecret == null ||
-        cleanId.isEmpty || cleanSecret.isEmpty) {
+    if (cleanId == null ||
+        cleanSecret == null ||
+        cleanId.isEmpty ||
+        cleanSecret.isEmpty) {
       await _secretStore.delete(_credentialsKey(id));
       return;
     }

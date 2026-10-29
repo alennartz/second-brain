@@ -55,10 +55,12 @@ final class ExploreWorkspaceControllerImpl
     required String brainId,
     required GraphWorkspaceRepository workspaces,
     required BrainGateway gateway,
+    Future<BrainGateway> Function()? resolveGateway,
     Workspace? initialWorkspace,
   })  : _brainId = brainId,
         _workspaces = workspaces,
         _gateway = gateway,
+        _resolveGateway = resolveGateway,
         _fetchedAt = initialWorkspace?.fetchedAt,
         _state = _stateFromWorkspace(initialWorkspace ?? _emptyWorkspace());
 
@@ -67,12 +69,14 @@ final class ExploreWorkspaceControllerImpl
     required String brainId,
     required GraphWorkspaceRepository workspaces,
     required BrainGateway gateway,
+    Future<BrainGateway> Function()? resolveGateway,
   }) async {
     final workspace = await workspaces.load(brainId);
     return ExploreWorkspaceControllerImpl(
       brainId: brainId,
       workspaces: workspaces,
       gateway: gateway,
+      resolveGateway: resolveGateway,
       initialWorkspace: workspace,
     );
   }
@@ -80,6 +84,10 @@ final class ExploreWorkspaceControllerImpl
   final String _brainId;
   final GraphWorkspaceRepository _workspaces;
   final BrainGateway _gateway;
+  final Future<BrainGateway> Function()? _resolveGateway;
+
+  Future<BrainGateway> _currentGateway() async =>
+      _resolveGateway == null ? _gateway : await _resolveGateway();
   DateTime? _fetchedAt;
   ExploreWorkspaceState _state;
 
@@ -87,6 +95,7 @@ final class ExploreWorkspaceControllerImpl
   // awaited operations drain this chain before writing their own snapshot.
   Future<void> _pendingPersistence = Future<void>.value();
   Future<void>? _refreshInFlight;
+  int _workspaceGeneration = 0;
 
   @override
   ExploreWorkspaceState get state => _state;
@@ -104,7 +113,10 @@ final class ExploreWorkspaceControllerImpl
 
   @override
   Future<void> openNode(String recordId) async {
-    final detail = await _gateway.getGraph(recordId);
+    final generation = _workspaceGeneration;
+    final gateway = await _currentGateway();
+    final detail = await gateway.getGraph(recordId);
+    if (generation != _workspaceGeneration) return;
     final next = mergeOpenedNode(_state, recordId, detail);
     await _persistAndSet(next);
   }
@@ -154,6 +166,7 @@ final class ExploreWorkspaceControllerImpl
   }
 
   Future<void> _performRefresh() async {
+    final generation = _workspaceGeneration;
     final expandedIds = _state.nodes
         .where((node) => node.expanded)
         .map((node) => node.node.id)
@@ -162,18 +175,20 @@ final class ExploreWorkspaceControllerImpl
       return;
     }
 
+    final gateway = await _currentGateway();
     final results = <GraphRefreshItem>[];
     for (var offset = 0; offset < expandedIds.length; offset += 200) {
       final end = (offset + 200 < expandedIds.length)
           ? offset + 200
           : expandedIds.length;
       final batch = expandedIds.sublist(offset, end);
-      final response = await _gateway.refreshGraph(batch);
+      final response = await gateway.refreshGraph(batch);
       results.addAll(response.results);
     }
 
     // Do not publish a partial result. Every network request above completed
     // before this single merge and persistence transition.
+    if (generation != _workspaceGeneration) return;
     final next = mergeRefresh(_state, results);
     await _persistAndSet(next);
   }
@@ -188,12 +203,14 @@ final class ExploreWorkspaceControllerImpl
     }
     _state = next;
     if (workspaceChanged) {
-      _queuePersistence(next);
+      unawaited(_queuePersistence(next).catchError((Object _) {}));
     }
   }
 
   @override
   Future<void> clearWorkspace() async {
+    _workspaceGeneration++;
+    _refreshInFlight = null;
     final next = _stateFor(
       _state,
       nodes: const <WorkspaceNode>[],
@@ -206,18 +223,13 @@ final class ExploreWorkspaceControllerImpl
   Future<void> _persistAndSet(
     ExploreWorkspaceState next, {
     bool markFetched = true,
-  }) async {
-    await _pendingPersistence;
-    final fetchedAt = markFetched ? DateTime.now().toUtc() : _fetchedAt;
-    await _workspaces.save(
-      _brainId,
-      _workspaceFromState(next, fetchedAt: fetchedAt),
-    );
-    _fetchedAt = fetchedAt;
+  }) {
+    _fetchedAt = markFetched ? DateTime.now().toUtc() : _fetchedAt;
     _state = next;
+    return _queuePersistence(next);
   }
 
-  void _queuePersistence(ExploreWorkspaceState state) {
+  Future<void> _queuePersistence(ExploreWorkspaceState state) {
     final workspace = _workspaceFromState(state, fetchedAt: _fetchedAt);
     final write = _pendingPersistence.then<void>(
       (_) => _workspaces.save(_brainId, workspace),
@@ -229,6 +241,7 @@ final class ExploreWorkspaceControllerImpl
       (_) {},
       onError: (_, __) {},
     );
+    return write;
   }
 }
 
@@ -668,39 +681,4 @@ bool _sameLinkedEdge(LinkedEdge left, LinkedEdge right) {
       left.to == right.to &&
       left.context == right.context &&
       left.freshnessAt == right.freshnessAt;
-}
-
-/// Interface-only controller stub.
-final class ExploreWorkspaceControllerStub
-    implements ExploreWorkspaceController {
-  const ExploreWorkspaceControllerStub();
-
-  @override
-  ExploreWorkspaceState get state =>
-      throw UnimplementedError('not implemented');
-
-  @override
-  Future<void> get refreshCompleted =>
-      throw UnimplementedError('not implemented');
-
-  @override
-  void selectNode(String recordId) =>
-      throw UnimplementedError('not implemented');
-
-  @override
-  Future<void> openNode(String recordId) =>
-      throw UnimplementedError('not implemented');
-
-  @override
-  Future<void> followEdge(String edgeId) =>
-      throw UnimplementedError('not implemented');
-
-  @override
-  Future<void> refresh() => throw UnimplementedError('not implemented');
-
-  @override
-  void clearDeleted() => throw UnimplementedError('not implemented');
-
-  @override
-  Future<void> clearWorkspace() => throw UnimplementedError('not implemented');
 }

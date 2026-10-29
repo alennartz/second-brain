@@ -73,5 +73,3 @@ final class SqliteAnswerSnapshotRepository implements AnswerSnapshotRepository {
     throw FormatException('$field must be a string');
   }
 }
-
-typedef SqfliteAnswerSnapshotRepository = SqliteAnswerSnapshotRepository;

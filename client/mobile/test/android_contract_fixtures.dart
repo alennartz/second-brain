@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:second_brain_mobile/second_brain_mobile.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const garden = GraphNode(id: 'entity:garden', table: 'entity', name: 'Garden');
 const layout =
@@ -17,6 +19,23 @@ const draft = BrainProfileDraft(
     baseUrl: 'https://home.test',
     accessClientId: 'id',
     accessClientSecret: 'secret');
+
+final DatabaseFactory _testDatabaseFactory = (() {
+  sqfliteFfiInit();
+  return databaseFactoryFfi;
+})();
+
+Future<MobileStore> openTestMobileStore(
+  String path, {
+  LegacyMobileData? legacy,
+}) {
+  return openMobileStore(
+    path,
+    legacy: legacy,
+    databaseFactory: _testDatabaseFactory,
+    secretStore: HostSecretStore(path),
+  );
+}
 
 final class ControlledGateway implements BrainGraphGateway {
   Object? failure;

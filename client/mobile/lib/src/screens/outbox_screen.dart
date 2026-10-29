@@ -106,6 +106,9 @@ final class _OutboxScreenState extends State<OutboxScreen> {
                 _EntryCard(
                   entry: entry,
                   onEdit: () => unawaited(_edit(entry)),
+                  onDiscard: entry.state == OutboxState.conflict
+                      ? () => unawaited(_discard(entry))
+                      : null,
                   onRequeue: entry.state == OutboxState.conflict
                       ? () => unawaited(_requeue(entry))
                       : null,
@@ -204,6 +207,38 @@ final class _OutboxScreenState extends State<OutboxScreen> {
     }
   }
 
+  Future<void> _discard(OutboxEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard retained edit?'),
+        content: const Text(
+            'Delete this edit from this phone? The original capture remains accepted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.outbox.discardConflict(entry.id);
+      widget.onChanged?.call();
+      if (!mounted) return;
+      setState(() => _notice = 'Retained edit discarded.');
+      await _reload();
+    } on Object {
+      if (!mounted) return;
+      setState(() => _notice = 'Could not discard the edit.');
+    }
+  }
+
   Future<void> _requeue(OutboxEntry entry) async {
     try {
       await widget.outbox.requeueAsNew(entry.id);
@@ -239,11 +274,13 @@ final class _EntryCard extends StatelessWidget {
     required this.entry,
     required this.onEdit,
     this.onRequeue,
+    this.onDiscard,
   });
 
   final OutboxEntry entry;
   final VoidCallback onEdit;
   final VoidCallback? onRequeue;
+  final VoidCallback? onDiscard;
 
   @override
   Widget build(BuildContext context) {
@@ -277,6 +314,9 @@ final class _EntryCard extends StatelessWidget {
               runSpacing: 6,
               children: [
                 OutlinedButton(onPressed: onEdit, child: const Text('Edit')),
+                if (onDiscard != null)
+                  TextButton(
+                      onPressed: onDiscard, child: const Text('Discard')),
                 if (onRequeue != null)
                   ElevatedButton(
                     onPressed: onRequeue,

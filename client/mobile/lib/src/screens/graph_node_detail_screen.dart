@@ -55,10 +55,10 @@ final class _GraphNodeDetailScreenState extends State<GraphNodeDetailScreen> {
   Widget build(BuildContext context) {
     final controller = widget.controller ?? widget.workspaceController;
     final projection = controller?.state;
-    final id = widget.nodeId ??
+    final id = projection?.selectedNodeId ??
+        widget.nodeId ??
         widget.recordId ??
         widget.selectedNodeId ??
-        projection?.selectedNodeId ??
         widget.node?.id;
     final item = id == null
         ? null
@@ -156,10 +156,10 @@ final class _GraphNodeDetailScreenState extends State<GraphNodeDetailScreen> {
 
   Future<void> _refreshNode() async {
     final controller = widget.controller ?? widget.workspaceController;
-    final id = widget.nodeId ??
+    final id = controller?.state.selectedNodeId ??
+        widget.nodeId ??
         widget.recordId ??
-        widget.selectedNodeId ??
-        controller?.state.selectedNodeId;
+        widget.selectedNodeId;
     if (controller == null || id == null) return;
     setState(() => _failure = null);
     try {

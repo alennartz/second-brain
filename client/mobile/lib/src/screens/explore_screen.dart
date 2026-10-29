@@ -61,6 +61,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   Object? _controllerFailure;
   Object? _searchFailure;
   MemorySearchResult? _searchResult;
+  int _searchGeneration = 0;
   bool _searching = false;
   bool _refreshing = false;
   String _query = '';
@@ -80,8 +81,19 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void didUpdateWidget(covariant ExploreScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.brainId != widget.brainId ||
+        oldWidget.gateway != widget.gateway ||
+        oldWidget.workflow != widget.workflow) {
+      _searchGeneration++;
+      _searchResult = null;
+      _searchFailure = null;
+      _searching = false;
+      _query = '';
+      _searchController.clear();
+    }
     if (widget.controller != null) {
       if (!identical(widget.controller, _controller)) {
+        _controllerFuture = null;
         setState(() {
           _controller = widget.controller;
           _controllerFailure = null;
@@ -92,8 +104,14 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     final profileChanged = oldWidget.brainId != widget.brainId ||
         oldWidget.workflow != widget.workflow ||
         oldWidget.gateway != widget.gateway;
+    final sourceChanged =
+        oldWidget.controllerFuture != widget.controllerFuture ||
+            oldWidget.loadController != widget.loadController ||
+            oldWidget.controllerLoader != widget.controllerLoader ||
+            oldWidget.workspaces != widget.workspaces ||
+            oldWidget.workspaceRepository != widget.workspaceRepository;
     final directControllerRemoved = oldWidget.controller != widget.controller;
-    if (profileChanged || directControllerRemoved) {
+    if (profileChanged || sourceChanged || directControllerRemoved) {
       setState(() {
         _controller = null;
         _controllerFailure = null;
@@ -376,15 +394,24 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   ) async {
     try {
       final controller = await future;
-      if (!mounted) return;
+      if (!mounted || !identical(future, _controllerFuture)) return;
       setState(() => _controller = controller);
+      try {
+        await controller.refreshCompleted;
+      } on Object {
+        // Cached graph data remains available when refresh fails.
+      }
+      if (!mounted || !identical(controller, _controller)) return;
+      setState(() {});
     } on Object catch (error) {
       if (!mounted) return;
+      if (!identical(future, _controllerFuture)) return;
       setState(() => _controllerFailure = error);
     }
   }
 
   Future<void> _search() async {
+    final generation = ++_searchGeneration;
     final gateway = widget.gateway;
     final query = _query.trim();
     if (query.isEmpty) return;
@@ -401,13 +428,14 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     });
     try {
       final result = await gateway.searchMemory(query);
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _searchResult = result;
         _searching = false;
       });
     } on Object catch (error) {
       if (!mounted) return;
+      if (generation != _searchGeneration) return;
       setState(() {
         _searchFailure = error;
         _searching = false;

@@ -14,7 +14,7 @@ void main() {
   setUp(() async {
     root = await Directory.systemTemp.createTemp('workflow-contract-');
     addTearDown(() => root.delete(recursive: true));
-    store = await openMobileStore('${root.path}/mobile.db');
+    store = await openTestMobileStore('${root.path}/mobile.db');
     addTearDown(() => store.close());
     home = await addBrain(store);
     gateway = ControlledGateway();
@@ -37,7 +37,7 @@ void main() {
     expect(entry.brainId, home);
     expect(DateTime.parse(entry.capturedAt), now);
     await store.close();
-    store = await openMobileStore('${root.path}/mobile.db');
+    store = await openTestMobileStore('${root.path}/mobile.db');
     final saved = (await store.outbox.pendingAll()).single;
     expect(saved.text, entry.text);
     expect(saved.idempotencyKey, entry.idempotencyKey);
@@ -66,7 +66,7 @@ void main() {
     expect(answer.answeredAt, now);
     expect((await store.answers.find(home, 'Garden')).single.id, answer.id);
     await store.close();
-    store = await openMobileStore('${root.path}/mobile.db');
+    store = await openTestMobileStore('${root.path}/mobile.db');
     gateway.failure = StateError('no server for snapshot');
     final reopened = createMobileWorkflow(
         store: store,

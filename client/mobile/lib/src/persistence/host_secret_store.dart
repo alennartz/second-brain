@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:uuid/uuid.dart';
+
 import 'settings_store.dart';
 
 /// Durable host-side secret storage used when Android secure storage is absent.
@@ -60,7 +62,16 @@ final class HostSecretStore implements SecretStore {
 
   Future<void> _writeValues(Map<String, String> values) async {
     await _file.parent.create(recursive: true);
-    final temporary = File('${_file.path}.${pid.toString()}.tmp');
+    if (Platform.isWindows) {
+      throw UnsupportedError('Inject a secure SecretStore on Windows');
+    }
+    final temporary = File('${_file.path}.${const Uuid().v4()}.tmp');
+    await temporary.create();
+    final permissions = await Process.run('chmod', ['600', temporary.path]);
+    if (permissions.exitCode != 0) {
+      await temporary.delete();
+      throw FileSystemException('Cannot protect host credentials', _file.path);
+    }
     await temporary.writeAsString(jsonEncode(values), flush: true);
     try {
       await temporary.rename(_file.path);

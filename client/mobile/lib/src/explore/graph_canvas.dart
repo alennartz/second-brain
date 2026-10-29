@@ -260,7 +260,8 @@ final class GraphCanvas extends StatelessWidget {
   ) {
     final rawStart = layout.endpointPosition(item.edge.from, index);
     final rawEnd = layout.endpointPosition(item.edge.to, index);
-    final curveOffset = _curveOffset(rawStart, rawEnd, index);
+    final curveOffset =
+        _curveOffset(rawStart, rawEnd, layout.edgeOffset(item.edge.id));
     final start = rawStart + curveOffset;
     final end = rawEnd + curveOffset;
     final midpoint = Offset(
@@ -328,11 +329,15 @@ final class _GraphLayout {
   _GraphLayout(
       {required this.positions,
       required this.nodes,
+      required this.unloadedPositions,
+      required this.edgeOffsets,
       this.width = 900,
       this.height = 560});
 
   final Map<String, Offset> positions;
   final Map<String, WorkspaceNode> nodes;
+  final Map<String, Offset> unloadedPositions;
+  final Map<String, double> edgeOffsets;
   final double width;
   final double height;
 
@@ -349,12 +354,38 @@ final class _GraphLayout {
         56 + row * 185,
       );
     }
+    final unloadedPositions = <String, Offset>{};
+    final pairs = <String, List<WorkspaceEdge>>{};
+    for (final item in state.edges) {
+      for (final id in [item.edge.from, item.edge.to]) {
+        if (!positions.containsKey(id)) {
+          unloadedPositions.putIfAbsent(
+            id,
+            () => Offset(940, 56 + unloadedPositions.length * 185),
+          );
+        }
+      }
+      final endpoints = [item.edge.from, item.edge.to]..sort();
+      final key = '${endpoints[0]}\u0000${endpoints[1]}';
+      pairs.putIfAbsent(key, () => []).add(item);
+    }
+    final edgeOffsets = <String, double>{};
+    for (final pair in pairs.values) {
+      for (var rank = 0; rank < pair.length; rank++) {
+        final edge = pair[rank].edge;
+        final direction = edge.from.compareTo(edge.to) <= 0 ? 1 : -1;
+        edgeOffsets[edge.id] = (rank - (pair.length - 1) / 2) * 24 * direction;
+      }
+    }
     final rows = (state.nodes.length + 2) ~/ 3;
     return _GraphLayout(
       positions: positions,
       nodes: nodes,
-      width: 56 + 3 * 285,
-      height: math.max(560, 56 + math.max(1, rows) * 185),
+      unloadedPositions: unloadedPositions,
+      edgeOffsets: edgeOffsets,
+      width: unloadedPositions.isEmpty ? 56 + 3 * 285 : 1176,
+      height: math.max(560,
+          56 + math.max(math.max(1, rows), unloadedPositions.length) * 185),
     );
   }
 
@@ -362,21 +393,15 @@ final class _GraphLayout {
 
   WorkspaceNode? node(String id) => nodes[id];
 
-  Offset nodePosition(String id) => positions[id] ?? _unloadedPosition(id, 0);
+  Offset nodePosition(String id) => positions[id] ?? unloadedNodePosition(id);
 
-  Offset unloadedNodePosition(String id) => _unloadedPosition(id, 0);
+  Offset unloadedNodePosition(String id) =>
+      unloadedPositions[id] ?? Offset.zero;
 
-  Offset endpointPosition(String id, int edgeIndex) {
-    final loaded = positions[id];
-    if (loaded != null) return loaded + const Offset(90, 48);
-    return _unloadedPosition(id, edgeIndex) + const Offset(90, 48);
-  }
+  Offset endpointPosition(String id, int edgeIndex) =>
+      nodePosition(id) + const Offset(90, 48);
 
-  Offset _unloadedPosition(String id, int index) {
-    final hash = id.codeUnits.fold<int>(0, (sum, value) => sum + value);
-    final row = (hash + index) % 3;
-    return Offset(760, 70 + row * 150);
-  }
+  double edgeOffset(String id) => edgeOffsets[id] ?? 0;
 }
 
 final class _GraphEdgesPainter extends CustomPainter {
@@ -396,7 +421,8 @@ final class _GraphEdgesPainter extends CustomPainter {
       final item = edges[index];
       final rawStart = layout.endpointPosition(item.edge.from, index);
       final rawEnd = layout.endpointPosition(item.edge.to, index);
-      final curveOffset = _curveOffset(rawStart, rawEnd, index);
+      final curveOffset =
+          _curveOffset(rawStart, rawEnd, layout.edgeOffset(item.edge.id));
       final start = rawStart + curveOffset;
       final end = rawEnd + curveOffset;
       final missing = item.status == WorkspaceItemStatus.missing;
@@ -461,12 +487,11 @@ final class _GraphEdgesPainter extends CustomPainter {
   }
 }
 
-Offset _curveOffset(Offset start, Offset end, int index) {
+Offset _curveOffset(Offset start, Offset end, double amount) {
   final direction = end - start;
   if (direction.distance < 1) return Offset.zero;
   final unit = direction / direction.distance;
   final perpendicular = Offset(-unit.dy, unit.dx);
-  final amount = ((index % 3) - 1) * 18.0;
   return perpendicular * amount;
 }
 

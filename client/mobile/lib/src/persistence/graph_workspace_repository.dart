@@ -39,5 +39,3 @@ final class SqliteGraphWorkspaceRepository implements GraphWorkspaceRepository {
     );
   }
 }
-
-typedef SqfliteGraphWorkspaceRepository = SqliteGraphWorkspaceRepository;

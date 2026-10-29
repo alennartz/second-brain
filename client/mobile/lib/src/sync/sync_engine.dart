@@ -88,8 +88,16 @@ final class SyncEngineImpl implements SyncEngine {
       }
 
       try {
-        await outbox.markAccepted(entry.id);
-        accepted++;
+        final removed = await outbox.markAccepted(
+          entry.id,
+          sentKey: entry.idempotencyKey,
+          sentText: entry.text,
+        );
+        if (removed) {
+          accepted++;
+        } else {
+          pending++;
+        }
       } on Object {
         // If local deletion fails, retry with the same key. Intake is
         // idempotent, so a later pass cannot create a duplicate chunk set.
@@ -103,19 +111,4 @@ final class SyncEngineImpl implements SyncEngine {
       pending: pending,
     );
   }
-}
-
-/// Interface-only sync engine stub.
-final class SyncEngineStub implements SyncEngine {
-  const SyncEngineStub();
-
-  @override
-  Future<SyncReport> syncAll(GatewayForProfile gatewayFor) {
-    throw UnimplementedError('not implemented');
-  }
-}
-
-/// Convenience operation matching the workflow contract.
-Future<SyncReport> syncAll(GatewayForProfile gatewayFor) {
-  throw UnimplementedError('not implemented');
 }

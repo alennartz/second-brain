@@ -7,6 +7,13 @@ mirrored WSL, the scripts prefer the Windows ADB executable at
 Windows ADB server and its persistent pairing key. They fall back to
 `/home/alenna/android/platform-tools/adb` on hosts without that Windows path.
 
+Use Windows SDK Platform-Tools 37.0.1 or later for Android 17 wireless debugging.
+The host daemon must report `mdns_backend: LIBADBMDNS` and `mdns_enabled: true`
+from `adb server-status`. Older OpenScreen discovery can send queries through a
+virtual adapter instead of the LAN. Upgrade the host tools without replacing the
+Windows pairing key. See [Google's wireless debugging guidance](https://developer.android.com/tools/adb#wireless-adb-android-11).
+The pinned container toolchain below remains separate from the host daemon.
+
 ## Toolchain and paths
 
 `Dockerfile` starts from `ghcr.io/cirruslabs/flutter:3.22.3` pinned to the
@@ -71,7 +78,8 @@ make mobile-check
 make mobile-build
 ```
 
-`mobile-check` runs `flutter pub get`, `flutter analyze`, and `flutter test`.
+`mobile-check` verifies stale-address recovery with Unix and Windows mDNS output,
+then runs `flutter pub get`, `flutter analyze`, and `flutter test`.
 It needs no phone or server configuration. `mobile-build` prints
 `MOBILE_SERVER_URL` before it builds. Enter that URL in the app on first launch.
 It produces only the debug APK. Release signing and profile builds are not part
@@ -150,7 +158,9 @@ requirement.
 - Run `adb devices -l` to inspect host ADB. In mirrored WSL this uses the
   Windows ADB server; check it with
   `/mnt/c/Tools/android-sdk/platform-tools/adb.exe devices -l`.
+- Run `adb server-status` to verify the host version and discovery backend.
 - Run `adb mdns services` to inspect connect and pairing services.
+- Run `bash tests/mobile-discovery.test.sh` to check discovery without a phone or Docker.
 - Keep the ADB daemon on loopback. Never expose port 5037 on the LAN.
 - A missing or malformed local value fails before Docker builds or device
   changes. `MOBILE_SERVER_URL` must use the isolated port `8200`, and the
@@ -162,7 +172,7 @@ requirement.
 - Device commands fail before selecting an arbitrary phone.
 
 Container checks are automated and device-independent. Phone installation and
-live debugging are manual. No connected phone or Android emulator is available
-here, so real-phone installation, live debugging, and VM-service connection remain
-unrun. The Android emulator smoke journey is deferred to a later environment and
-does not target this debugging phone.
+live debugging are manual. Wireless discovery and an in-place debug APK update
+were verified on a Pixel 8 running Android 17. The existing pairing key and app
+data remained in place. Live debugging, VM-service connection, and the emulator
+smoke journey require separate verification.

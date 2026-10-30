@@ -220,6 +220,7 @@ mobile_connect_address() {
 mobile_mdns_candidates() {
     local output
     output=$("$MOBILE_ADB" mdns services 2>/dev/null || true)
+    output=${output//$'\r'/}
     # Prefer TLS connect services. Group records by advertised host so one
     # phone offering legacy and TLS services is one candidate, not two.
     awk '
@@ -250,6 +251,7 @@ mobile_mdns_candidates() {
 mobile_mdns_pairing_candidates() {
     local output
     output=$("$MOBILE_ADB" mdns services 2>/dev/null || true)
+    output=${output//$'\r'/}
     awk '/adb-tls-pairing[.]_tcp/ {
         for (field = 1; field <= NF; field++) {
             if ($field ~ /^[^[:space:]]+:[0-9]+$/) print $field

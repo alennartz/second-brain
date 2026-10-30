@@ -121,7 +121,7 @@ export function createIngestWorkflow(d: WorkflowDependencies, guidance: string):
     try {
       if (signal?.aborted) return { clean: false, aborted: true, errors: [] };
       const freshnessAt = maxTimestamp(batch.chunks.map(chunk => chunk.capturedAt));
-      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal, onEvent }));
+      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ workflow: "ingest", model: d.model, systemPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal, onEvent }));
       const errors = [...resultErrors(result, true), ...diagnostics.map(diagnostic => `Ingest mutation failed: ${JSON.stringify(diagnostic)}`)];
       const aborted = result.aborted || !!signal?.aborted;
       return { clean: !aborted && !errors.length, aborted, errors, ...nonRetryableOutcome(errors) };
@@ -191,6 +191,7 @@ export function createRecallWorkflow(d: WorkflowDependencies, guidance: string):
     } });
     const followUpState = { requested: false };
     const result = await d.runtime.run({
+      workflow: "recall",
       model: d.model,
       systemPrompt,
       prompt: JSON.stringify({ question, hints }),
@@ -218,10 +219,10 @@ export type DreamGuidance = { deduplicate: string; connect: string };
 export function createDreamWorkflow(d: WorkflowDependencies, guidance: DreamGuidance): DreamWorkflow {
   const deduplicationPrompt = `${dedupPrompt}\n\n${guidance.deduplicate}`;
   const connectionPrompt = `${connectPrompt}\n\n${guidance.connect}`;
-  async function run(ids: readonly string[], signal: AbortSignal | undefined, systemPrompt: string, names: readonly string[]): Promise<DreamPhaseResult> {
+  async function run(workflow: "deduplicate" | "connect", ids: readonly string[], signal: AbortSignal | undefined, systemPrompt: string, names: readonly string[]): Promise<DreamPhaseResult> {
     try {
       if (signal?.aborted) return { aborted: true, errors: [] };
-      const result = await d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify(ids), toolNames: [...names], signal });
+      const result = await d.runtime.run({ workflow, model: d.model, systemPrompt, prompt: JSON.stringify(ids), toolNames: [...names], signal });
       const touched = new Set<string>();
       for (const tool of result.toolResults) {
         if (tool.isError) continue;
@@ -233,7 +234,7 @@ export function createDreamWorkflow(d: WorkflowDependencies, guidance: DreamGuid
     } catch (error) { return { aborted: !!signal?.aborted, errors: [errorText(error)] }; }
   }
   return {
-    deduplicate: (ids, signal) => run(ids, signal, deduplicationPrompt, ["memory_find_similar", "memory_get_node", "memory_explore", "memory_merge_nodes", "memory_merge_edges", "memory_update_node", "memory_remove_edge", "memory_rename_edge_type"]),
-    connect: (ids, signal) => run(ids, signal, connectionPrompt, ["memory_find_similar", "memory_suggest_edges", "memory_get_node", "memory_explore", "memory_store_edge", "memory_update_node"]),
+    deduplicate: (ids, signal) => run("deduplicate", ids, signal, deduplicationPrompt, ["memory_find_similar", "memory_get_node", "memory_explore", "memory_merge_nodes", "memory_merge_edges", "memory_update_node", "memory_remove_edge", "memory_rename_edge_type"]),
+    connect: (ids, signal) => run("connect", ids, signal, connectionPrompt, ["memory_find_similar", "memory_suggest_edges", "memory_get_node", "memory_explore", "memory_store_edge", "memory_update_node"]),
   };
 }

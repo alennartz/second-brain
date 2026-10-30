@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
   parseSettings,
   parseWorkflowModelRef,
@@ -6,6 +8,13 @@ import {
 } from "../src/core/config.ts";
 
 describe("configuration contracts", () => {
+  test("defaults workflow transcripts to server state and accepts an override", () => {
+    const models = { BRAIN_INGEST_MODEL: "provider/model:off", BRAIN_RECALL_MODEL: "provider/model:off", BRAIN_DREAM_MODEL: "provider/model:off" };
+    expect(parseSettings(models).sessionDir).toBe(join(homedir(), ".state", "second-brain"));
+    expect(parseSettings({ ...models, BRAIN_SESSION_DIR: "/data/sessions" }).sessionDir).toBe("/data/sessions");
+    expect(parseSettings({ ...models, BRAIN_SESSION_DIR: "~/transcripts" }).sessionDir).toBe(join(homedir(), "transcripts"));
+    expect(() => parseSettings({ ...models, BRAIN_SESSION_DIR: "" })).toThrow();
+  });
   test("parses a provider/model reference with a thinking level", () => {
     expect(parseWorkflowModelRef("openai/gpt-4o:high")).toEqual({
       provider: "openai",

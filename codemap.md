@@ -114,7 +114,7 @@ Ships the knowledge tools as a pi package: one idiomatic extension file per tool
 
 Adapts Pi AgentSession to isolated, request-scoped workflow runs.
 
-**Responsibilities:** model selection, in-memory sessions, extension loading from the configured package path, tool activation by name, closed Codemode loadouts, custom tools such as answerRecall, event observation and structured result collection, cancellation, disposal
+**Responsibilities:** model selection, isolated file-backed sessions in per-workflow server directories, private transcript storage, extension loading from the configured package path, tool activation by name, closed Codemode loadouts, custom tools such as answerRecall, event observation and structured result collection, cancellation, disposal
 
 **Dependencies:** Core for workflow model references, the Pi package for discovered tools, Pi SDK for session execution
 

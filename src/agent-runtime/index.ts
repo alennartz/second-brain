@@ -1,4 +1,6 @@
 import type { TSchema } from "@sinclair/typebox";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory, type ModelRuntime, type ToolAnnotations } from "@earendil-works/pi-coding-agent";
 import { Value } from "@sinclair/typebox/value";
 import type { ThinkingLevel, WorkflowModelRef } from "../core/config";
@@ -17,7 +19,9 @@ export type AgentTool = {
   outputSchema?: TSchema;
   execute(input: unknown, signal: AbortSignal): Promise<StructuredToolResult>;
 };
+export type WorkflowName = "ingest" | "recall" | "deduplicate" | "connect";
 export type AgentRunRequest = {
+  workflow: WorkflowName;
   model: WorkflowModelRef;
   systemPrompt: string;
   prompt: string;
@@ -39,15 +43,17 @@ export type SdkAgentRuntimeOptions = {
   modelRuntime: ModelRuntime;
   cwd: string;
   agentDir: string;
+  sessionDir: string;
   extensionPaths?: readonly string[];
 };
 
 export type SessionOptions = {
+  workflow: WorkflowName;
   model: WorkflowModelRef;
   systemPrompt: string;
   toolNames: readonly string[];
   customTools: readonly AgentTool[];
-  persistence: "memory";
+  persistence: "file";
   builtInTools: readonly never[];
   resources: readonly never[];
   codemode: { mode: "on"; models: false };
@@ -98,10 +104,16 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
       systemPromptOverride: () => undefined,
     });
     await resourceLoader.reload();
+    const sessionDir = join(options.sessionDir, request.workflow);
+    mkdirSync(options.sessionDir, { recursive: true, mode: 0o700 });
+    chmodSync(options.sessionDir, 0o700);
+    mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+    chmodSync(sessionDir, 0o700);
+    const sessionManager = SessionManager.create(options.cwd, sessionDir);
     const { session } = await createAgentSession({
       cwd: options.cwd, agentDir: options.agentDir, model, thinkingLevel: request.model.thinkingLevel,
       modelRuntime: options.modelRuntime, resourceLoader, settingsManager,
-      sessionManager: SessionManager.inMemory(options.cwd),
+      sessionManager,
       tools: activeTools,
       customTools: (request.customTools ?? []).map(tool => ({
         name: tool.name, label: tool.label ?? tool.name, description: tool.description, parameters: tool.parameters,
@@ -146,7 +158,11 @@ export function createSdkAgentRuntime(options: SdkAgentRuntimeOptions): AgentRun
           await session.waitForIdle();
           const lastAssistantText = session.getLastAssistantText();
           return { settled: true, aborted: execution.signal.aborted && !termination.requested, ...(lastAssistantText === undefined ? {} : { lastAssistantText }), toolResults: results };
-        } finally { unsubscribe(); }
+        } finally {
+          unsubscribe();
+          const path = sessionManager.getSessionFile();
+          if (path && existsSync(path)) chmodSync(path, 0o600);
+        }
       },
       abort: () => session.abort(),
       async dispose() { session.dispose(); },
@@ -158,7 +174,7 @@ export function createAgentRuntime(factory?: SessionFactory): AgentRuntime {
   return { async run(request) {
     const signal = request.signal ?? new AbortController().signal;
     if (signal.aborted) return { settled: true, aborted: true, toolResults: [] };
-    const session = await factory({ model: request.model, systemPrompt: request.systemPrompt, toolNames: request.toolNames, customTools: [...(request.customTools ?? [])], persistence: "memory", builtInTools: [], resources: [], codemode: { mode: "on", models: false } });
+    const session = await factory({ workflow: request.workflow, model: request.model, systemPrompt: request.systemPrompt, toolNames: request.toolNames, customTools: [...(request.customTools ?? [])], persistence: "file", builtInTools: [], resources: [], codemode: { mode: "on", models: false } });
     const cancellation = { pending: Promise.resolve() };
     const abort = () => { cancellation.pending = session.abort(); };
     signal.addEventListener("abort", abort, { once: true });

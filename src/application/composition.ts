@@ -41,7 +41,7 @@ function readWorkflowGuidance(cwd: string, packagePath: string, workflow: "inges
   return content;
 }
 export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, IntakePipeline, DreamScheduler, ModelRuntime> {
-  const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir, extensionPaths: [resolve(cwd, settings.piToolsPackage)] });
+  const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir, sessionDir: settings.sessionDir, extensionPaths: [resolve(cwd, settings.piToolsPackage)] });
   const ingestGuidance = readWorkflowGuidance(cwd, settings.piToolsPackage, "ingest");
   const recallGuidance = readWorkflowGuidance(cwd, settings.piToolsPackage, "recall");
   const dreamGuidance = {

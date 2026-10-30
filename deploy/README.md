@@ -55,7 +55,9 @@ Set these values:
 - `BRAIN_DEPLOY_DB_NAME`: `brain.db`, the active database directory.
 
 The application environment file must contain the three Bun workflow model
-settings and provider credentials. The rendered service injects
+settings and provider credentials. Set `BRAIN_SESSION_DIR=/data/sessions` to
+retain workflow transcripts through the existing data mount. These transcripts
+contain private evidence and are not included in database archives. The rendered service injects
 `BRAIN_DB_PATH=/data/${BRAIN_DEPLOY_DB_NAME}`. `install.sh` sets the file mode to
 `0600` before it enables any unit.
 

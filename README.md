@@ -113,6 +113,7 @@ All settings use environment variables. Workflow model references use
 | Variable | Default | Description |
 |---|---|---|
 | `BRAIN_DB_PATH` | `data/brain.db` | Fresh SurrealKV database path |
+| `BRAIN_SESSION_DIR` | `~/.state/second-brain` | Parent directory for workflow transcripts |
 | `BRAIN_INGEST_MODEL` | required | Model for intake organization |
 | `BRAIN_RECALL_MODEL` | required | Model for evidence-backed recall |
 | `BRAIN_DREAM_MODEL` | required | Model for graph refinement |
@@ -137,6 +138,14 @@ All settings use environment variables. Workflow model references use
 Pi reads standard provider credentials. For OpenAI, set `OPENAI_API_KEY`.
 Embeddings use the official OpenAI TypeScript client. Set `OPENAI_BASE_URL` for
 an OpenAI-compatible embedding endpoint.
+
+Each workflow invocation creates a new file-backed Pi session under
+`BRAIN_SESSION_DIR`, in `ingest/`, `recall/`, `deduplicate/`, or `connect/`.
+Sessions remain isolated and are not resumed automatically. Transcripts contain
+source text, model messages, and tool results. Directories are owner-only, and
+completed transcript files use mode `0600`. There is no automatic retention
+cleanup. In Docker, set `BRAIN_SESSION_DIR=/data/sessions` to retain transcripts
+through the existing data mount. Database archives do not include these files.
 
 Changing embedding dimensions after initialization requires a new database.
 The HNSW indexes store their configured dimension.

@@ -36,6 +36,7 @@ describe("ingest workflow", () => {
     expect(sorted(requests[0]!.toolNames)).toEqual(["memory_explore", "memory_get_node", "memory_search", "memory_store_edge", "memory_store_node", "memory_update_node"]);
     expect(requests[0]!.customTools ?? []).toEqual([]);
     expect(requests[0]!.model).toEqual(model);
+    expect(requests[0]!.workflow).toBe("ingest");
     expect(requests[0]!.systemPrompt).toContain(ingestGuidance);
     expect(requests[0]!.systemPrompt).not.toContain(recallGuidance);
     expect(requests[0]!.systemPrompt).not.toContain(dreamGuidance.deduplicate);
@@ -104,6 +105,7 @@ describe("ingest workflow", () => {
 describe("recall workflow", () => {
   test("passes caller hints into the recall operation", async () => {
     const workflow = createRecallWorkflow(dependencies(async request => {
+      expect(request.workflow).toBe("recall");
       expect(request.prompt).toContain("project-alpha");
       expect(request.systemPrompt).toContain(recallGuidance);
       expect(request.systemPrompt).not.toContain(ingestGuidance);
@@ -215,6 +217,8 @@ describe("dream workflow", () => {
     await workflow.deduplicate(["entity:a"]);
     await workflow.connect(["entity:a", "note:b"]);
 
+    expect(requests[0]!.workflow).toBe("deduplicate");
+    expect(requests[1]!.workflow).toBe("connect");
     expect(requests[0]!.systemPrompt).toContain(dreamGuidance.deduplicate);
     expect(requests[0]!.systemPrompt).not.toContain(dreamGuidance.connect);
     expect(requests[1]!.systemPrompt).toContain(dreamGuidance.connect);

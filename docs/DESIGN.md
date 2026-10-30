@@ -37,7 +37,8 @@ until new activity.
 
 ### Explicit agent capabilities
 
-Pi provides request-scoped in-memory agent sessions. The ingest, recall, and
+Pi provides request-scoped file-backed agent sessions. Transcripts live in
+server-owned per-workflow directories and do not carry context between runs. The ingest, recall, and
 dream workflows each receive a closed set of domain tools. Direct tools and
 Codemode share validated structured results. The runtime disables built-in
 filesystem, shell, network, MCP, and persistent-resource capabilities. Codemode

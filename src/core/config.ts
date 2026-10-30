@@ -1,3 +1,6 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 export type ThinkingLevel =
   | "off"
   | "minimal"
@@ -42,6 +45,7 @@ export interface Settings {
   embeddingDimensions: number;
   dbPath: string;
   piToolsPackage: string;
+  sessionDir: string;
   intake: IntakeSettings;
   dream: DreamSettings;
 }
@@ -70,6 +74,7 @@ export function parseSettings(environment: SettingsEnvironment): Settings {
     return value;
   };
   const model = (key: string) => parseWorkflowModelRef(environment[`BRAIN_${key}_MODEL`] ?? "");
+  const sessionDir = path("SESSION_DIR", join(homedir(), ".state", "second-brain"));
   const enabled = environment.BRAIN_DREAM_ENABLED ?? "true";
   if (!["true", "false", "1", "0"].includes(enabled.toLowerCase())) throw new Error("Invalid BRAIN_DREAM_ENABLED");
   return {
@@ -77,6 +82,7 @@ export function parseSettings(environment: SettingsEnvironment): Settings {
     embeddingModel: environment.BRAIN_EMBEDDING_MODEL ?? "openai:text-embedding-3-small",
     embeddingDimensions: number("EMBEDDING_DIMENSIONS", 1536, true), dbPath: environment.BRAIN_DB_PATH ?? "data/brain.db",
     piToolsPackage: path("PI_TOOLS_PACKAGE", "packages/pi-second-brain"),
+    sessionDir: sessionDir.startsWith("~/") ? join(homedir(), sessionDir.slice(2)) : sessionDir,
     intake: {
       maxRequestChars: number("INTAKE_MAX_REQUEST_CHARS", 100000, true), chunkChars: number("INTAKE_CHUNK_CHARS", 4000, true),
       processingBatchChars: number("INTAKE_PROCESSING_BATCH_CHARS", 12000, true), workerConcurrency: number("INTAKE_WORKER_CONCURRENCY", 1, true),

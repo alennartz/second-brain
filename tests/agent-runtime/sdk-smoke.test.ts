@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -9,7 +9,7 @@ import {
   type FauxProviderHandle,
   type FauxResponseStep,
 } from "@earendil-works/pi-ai";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import {
   createSdkAgentRuntime,
@@ -140,7 +140,7 @@ async function withRuntime<T>(
       auth: { apiKey: credential?.key ?? "agent-runtime-test-key" },
     });
     modelRuntime.registerNativeProvider(faux.provider);
-    const runtime = createSdkAgentRuntime({ modelRuntime, cwd: directory, agentDir: directory });
+    const runtime = createSdkAgentRuntime({ modelRuntime, cwd: directory, agentDir: directory, sessionDir: join(directory, "sessions") });
     return await run({ runtime, faux, directory });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -149,6 +149,7 @@ async function withRuntime<T>(
 
 function request(tools: readonly AgentTool[], prompt = "Use the domain tools."): AgentRunRequest {
   return {
+    workflow: "recall",
     model,
     systemPrompt: "Use only the supplied domain tools.",
     prompt,
@@ -158,7 +159,31 @@ function request(tools: readonly AgentTool[], prompt = "Use the domain tools."):
 }
 
 describe("SDK-backed agent runtime seam", () => {
-  test("creates an in-memory session per run and selects provider, model, and effort", async () => {
+  test("persists separate private transcripts in each workflow folder", async () => {
+    const workflows = ["ingest", "recall", "deduplicate", "connect", "recall"] as const;
+    await withRuntime(workflows.map(() => fauxAssistantMessage("complete")), async ({ runtime, directory }) => {
+      for (const [index, workflow] of workflows.entries()) {
+        await runtime.run({ ...request([], `request-${index}`), workflow });
+      }
+      const root = join(directory, "sessions");
+      expect((await stat(root)).mode & 0o777).toBe(0o700);
+      for (const workflow of new Set(workflows)) {
+        const folder = join(root, workflow);
+        expect((await stat(folder)).mode & 0o777).toBe(0o700);
+        const sessions = await SessionManager.list(directory, folder);
+        expect(sessions.length).toBe(workflow === "recall" ? 2 : 1);
+        for (const session of sessions) {
+          expect((await stat(session.path)).mode & 0o777).toBe(0o600);
+          const messages = SessionManager.open(session.path).buildSessionContext().messages;
+          const users = messages.filter(message => message.role === "user");
+          expect(users).toHaveLength(1);
+          expect(messages.some(message => message.role === "assistant")).toBe(true);
+        }
+      }
+    });
+  });
+
+  test("creates an isolated session per run and selects provider, model, and effort", async () => {
     const domain = createDomainFixture();
     const userCounts: number[] = [];
     const modelsSeen: string[] = [];
@@ -317,10 +342,15 @@ describe("SDK-backed agent runtime seam", () => {
         providerReadyResolve?.();
         signal.addEventListener("abort", () => resolve(fauxAssistantMessage("aborted")), { once: true });
       });
-    await withRuntime([response], async ({ runtime }) => {
+    await withRuntime([response], async ({ runtime, directory }) => {
       const controller = new AbortController();
       const pending = runtime.run({ ...request(domain.tools, "cancel this"), signal: controller.signal });
       await providerReady;
+      const folder = join(directory, "sessions", "recall");
+      const files = await readdir(folder);
+      expect(files).toHaveLength(1);
+      const sessions = await SessionManager.list(directory, folder);
+      expect(sessions[0]!.firstMessage).toBe("cancel this");
       controller.abort();
       const result = await pending;
 
@@ -360,9 +390,11 @@ describe("SDK-backed agent runtime seam", () => {
         modelRuntime,
         cwd: directory,
         agentDir: directory,
+        sessionDir: join(directory, "sessions"),
         extensionPaths: [join(import.meta.dir, "..", "..", "packages", "pi-second-brain")],
       });
       const result = await withKnowledgeContext({ freshnessAt: "2026-01-02T03:00:00+02:00" }, () => runtime.run({
+        workflow: "ingest",
         model,
         systemPrompt: "Use only the knowledge tools.",
         prompt: "Store Ada as a person.",

@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import { createAgentRuntime, type AgentRunRequest, type AgentRunResult, type RuntimeSession, type SessionOptions } from "../src/agent-runtime/index.ts";
 
 const result: AgentRunResult = { settled: true, aborted: false, lastAssistantText: "done", toolResults: [{ toolName: "searchMemory", structuredContent: { nodes: [] } }] };
-const request: AgentRunRequest = { model: { provider: "test", model: "model", thinkingLevel: "high" }, systemPrompt: "domain only", prompt: "find evidence", toolNames: [] };
+const request: AgentRunRequest = { workflow: "recall", model: { provider: "test", model: "model", thinkingLevel: "high" }, systemPrompt: "domain only", prompt: "find evidence", toolNames: [] };
 function fixture(prompt: RuntimeSession["prompt"] = async () => result) {
   const options: SessionOptions[] = [];
   const sessions: { aborted: number; disposed: number }[] = [];
@@ -20,12 +20,12 @@ describe("AgentRuntime", () => {
     const { runtime } = fixture();
     expect(await runtime.run(request)).toEqual(result);
   });
-  test("creates isolated in-memory sessions for each request", async () => {
+  test("creates isolated file-backed sessions for each request", async () => {
     const f = fixture();
     await f.runtime.run(request);
     await f.runtime.run(request);
     expect(f.sessions).toHaveLength(2);
-    expect(f.options.every(o => o.persistence === "memory")).toBe(true);
+    expect(f.options.every(o => o.persistence === "file")).toBe(true);
   });
   test("sends follow-up prompts through the same session", async () => {
     const prompts: string[] = [];

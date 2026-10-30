@@ -187,10 +187,24 @@ describe("dream workflow", () => {
     expect(sorted(requests[1]!.toolNames)).toEqual(["memory_explore", "memory_find_similar", "memory_get_node", "memory_store_edge", "memory_suggest_edges", "memory_update_node"]);
     expect(requests[0]!.prompt).toContain("entity:a");
     expect(requests[1]!.prompt).toContain("note:b");
-    expect(requests[0]!.systemPrompt).toContain("Process every entity");
-    expect(requests[0]!.systemPrompt).toContain("explicit correction");
-    expect(requests[0]!.systemPrompt).toContain("memory_merge_nodes");
-    expect(requests[1]!.systemPrompt).toContain("Shared notes identify candidates");
+    expect(requests[0]!.systemPrompt).toContain("server-side deduplication curator");
+    expect(requests[0]!.systemPrompt).toContain("scheduler has already selected");
+    expect(requests[1]!.systemPrompt).toContain("server-side connection curator");
+    expect(requests[1]!.systemPrompt).toContain("scheduler has already selected");
+  });
+
+  test("includes the shared maintenance skill in server dream sessions", async () => {
+    const requests: Parameters<WorkflowRuntime["run"]>[0][] = [];
+    const skill = "# Maintenance\nCompare capture time before choosing precedence.";
+    const workflow = createDreamWorkflow(
+      dependencies(async request => { requests.push(request); return settled; }),
+      skill,
+    );
+
+    await workflow.deduplicate(["entity:a"]);
+
+    expect(requests[0]!.systemPrompt).toContain("Follow the Second Brain memory maintenance skill");
+    expect(requests[0]!.systemPrompt).toContain(skill);
   });
   test("reports phase mutation failures", async () => {
     const workflow = createDreamWorkflow(dependencies(async () => ({ ...settled, toolResults: [{ toolName: "memory_merge_nodes", isError: true, structuredContent: { error: "merge failed" } }] })));

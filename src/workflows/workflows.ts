@@ -212,11 +212,15 @@ export interface DreamWorkflow {
   deduplicate(nodeIds: readonly string[], signal?: AbortSignal): Promise<DreamPhaseResult>;
   connect(nodeIds: readonly string[], signal?: AbortSignal): Promise<DreamPhaseResult>;
 }
-export function createDreamWorkflow(d: WorkflowDependencies): DreamWorkflow {
+export function createDreamWorkflow(d: WorkflowDependencies, maintenanceSkill = ""): DreamWorkflow {
+  const maintenanceInstructions = maintenanceSkill.trim();
+  const withMaintenanceSkill = (prompt: string) => maintenanceInstructions
+    ? `${prompt}\n\n<skill name="memory-dream">\n${maintenanceInstructions}\n</skill>`
+    : prompt;
   async function run(ids: readonly string[], signal: AbortSignal | undefined, systemPrompt: string, names: readonly string[]): Promise<DreamPhaseResult> {
     try {
       if (signal?.aborted) return { aborted: true, errors: [] };
-      const result = await d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify(ids), toolNames: [...names], signal });
+      const result = await d.runtime.run({ model: d.model, systemPrompt: withMaintenanceSkill(systemPrompt), prompt: JSON.stringify(ids), toolNames: [...names], signal });
       const touched = new Set<string>();
       for (const tool of result.toolResults) {
         if (tool.isError) continue;

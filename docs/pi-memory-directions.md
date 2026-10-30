@@ -67,14 +67,21 @@ and recomputes the budget; single-flight with per-phase failure semantics.
 
 ## Directions
 
+### Shared dream guidance
+
+Direct Pi maintenance enters through `skills/memory/dream.md`, which scopes the
+work and progressively loads `deduplicate.md` or `connect.md`. These two bundled
+documents own the phase procedures. The server loads them separately and renders
+each inside its corresponding system prompt. Server prompts retain target-ID
+context and scheduler ownership. The server does not load the direct Pi
+maintenance entry point.
+
 ### Role files as the single source
 
-The four workflow prompts move into `packages/pi-second-brain/roles/`
-(`ingest.md`, `recall.md`, `dedup.md`, `connect.md`). The server reads the
-bodies at startup and passes them as `systemPromptOverride`. Pi sessions
-consume the same files through skills and personas. Prompts version with the
-tools they name in one artifact. Authoring rule: role files must not depend on
-prompt sections existing, because the two contexts render different sections.
+Ingest and recall role files remain a possible next step. Dream already shares
+its procedures through the bundled phase documents above. Its server-specific
+prompt templates remain in code. Shared documents must not depend on host prompt
+sections or scheduler invocation details.
 
 ### Package contract versus my-pi veneer
 

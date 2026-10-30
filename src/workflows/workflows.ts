@@ -212,15 +212,14 @@ export interface DreamWorkflow {
   deduplicate(nodeIds: readonly string[], signal?: AbortSignal): Promise<DreamPhaseResult>;
   connect(nodeIds: readonly string[], signal?: AbortSignal): Promise<DreamPhaseResult>;
 }
-export function createDreamWorkflow(d: WorkflowDependencies, maintenanceSkill = ""): DreamWorkflow {
-  const maintenanceInstructions = maintenanceSkill.trim();
-  const withMaintenanceSkill = (prompt: string) => maintenanceInstructions
-    ? `${prompt}\n\n<skill name="memory-dream">\n${maintenanceInstructions}\n</skill>`
-    : prompt;
+export type DreamGuidance = { deduplicate: string; connect: string };
+export function createDreamWorkflow(d: WorkflowDependencies, guidance: DreamGuidance): DreamWorkflow {
+  const deduplicationPrompt = `${dedupPrompt}\n\n${guidance.deduplicate}`;
+  const connectionPrompt = `${connectPrompt}\n\n${guidance.connect}`;
   async function run(ids: readonly string[], signal: AbortSignal | undefined, systemPrompt: string, names: readonly string[]): Promise<DreamPhaseResult> {
     try {
       if (signal?.aborted) return { aborted: true, errors: [] };
-      const result = await d.runtime.run({ model: d.model, systemPrompt: withMaintenanceSkill(systemPrompt), prompt: JSON.stringify(ids), toolNames: [...names], signal });
+      const result = await d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify(ids), toolNames: [...names], signal });
       const touched = new Set<string>();
       for (const tool of result.toolResults) {
         if (tool.isError) continue;
@@ -232,7 +231,7 @@ export function createDreamWorkflow(d: WorkflowDependencies, maintenanceSkill = 
     } catch (error) { return { aborted: !!signal?.aborted, errors: [errorText(error)] }; }
   }
   return {
-    deduplicate: (ids, signal) => run(ids, signal, dedupPrompt, ["memory_find_similar", "memory_get_node", "memory_explore", "memory_merge_nodes", "memory_merge_edges", "memory_update_node", "memory_remove_edge", "memory_rename_edge_type"]),
-    connect: (ids, signal) => run(ids, signal, connectPrompt, ["memory_find_similar", "memory_suggest_edges", "memory_get_node", "memory_explore", "memory_store_edge", "memory_update_node"]),
+    deduplicate: (ids, signal) => run(ids, signal, deduplicationPrompt, ["memory_find_similar", "memory_get_node", "memory_explore", "memory_merge_nodes", "memory_merge_edges", "memory_update_node", "memory_remove_edge", "memory_rename_edge_type"]),
+    connect: (ids, signal) => run(ids, signal, connectionPrompt, ["memory_find_similar", "memory_suggest_edges", "memory_get_node", "memory_explore", "memory_store_edge", "memory_update_node"]),
   };
 }

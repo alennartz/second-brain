@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   createDreamWorkflow, createIngestWorkflow, createRecallWorkflow,
   type WorkflowDependencies, type WorkflowRuntime,
 } from "../src/workflows/workflows";
 
 const model = { provider: "test", model: "model", thinkingLevel: "off" as const };
+const dreamGuidance = {
+  deduplicate: readFileSync(new URL("../packages/pi-second-brain/skills/memory/deduplicate.md", import.meta.url), "utf8"),
+  connect: readFileSync(new URL("../packages/pi-second-brain/skills/memory/connect.md", import.meta.url), "utf8"),
+};
 function dependencies(run: WorkflowRuntime["run"]): WorkflowDependencies {
   return { model, runtime: { run } };
 }
@@ -179,7 +184,7 @@ describe("recall workflow", () => {
 describe("dream workflow", () => {
   test("runs deduplication and connection in separate runtime calls with closed tool sets", async () => {
     const requests: Parameters<WorkflowRuntime["run"]>[0][] = [];
-    const workflow = createDreamWorkflow(dependencies(async request => { requests.push(request); return settled; }));
+    const workflow = createDreamWorkflow(dependencies(async request => { requests.push(request); return settled; }), dreamGuidance);
     await workflow.deduplicate(["entity:a"]);
     await workflow.connect(["entity:a", "note:b"]);
     expect(requests).toHaveLength(2);
@@ -193,21 +198,25 @@ describe("dream workflow", () => {
     expect(requests[1]!.systemPrompt).toContain("scheduler has already selected");
   });
 
-  test("includes the shared maintenance skill in server dream sessions", async () => {
+  test("injects only the corresponding bundled phase guidance", async () => {
     const requests: Parameters<WorkflowRuntime["run"]>[0][] = [];
-    const skill = "# Maintenance\nCompare capture time before choosing precedence.";
     const workflow = createDreamWorkflow(
       dependencies(async request => { requests.push(request); return settled; }),
-      skill,
+      dreamGuidance,
     );
 
     await workflow.deduplicate(["entity:a"]);
+    await workflow.connect(["entity:a", "note:b"]);
 
-    expect(requests[0]!.systemPrompt).toContain("Follow the Second Brain memory maintenance skill");
-    expect(requests[0]!.systemPrompt).toContain(skill);
+    expect(requests[0]!.systemPrompt).toContain(dreamGuidance.deduplicate);
+    expect(requests[0]!.systemPrompt).not.toContain(dreamGuidance.connect);
+    expect(requests[1]!.systemPrompt).toContain(dreamGuidance.connect);
+    expect(requests[1]!.systemPrompt).not.toContain(dreamGuidance.deduplicate);
+    expect(JSON.parse(requests[0]!.prompt)).toEqual(["entity:a"]);
+    expect(JSON.parse(requests[1]!.prompt)).toEqual(["entity:a", "note:b"]);
   });
   test("reports phase mutation failures", async () => {
-    const workflow = createDreamWorkflow(dependencies(async () => ({ ...settled, toolResults: [{ toolName: "memory_merge_nodes", isError: true, structuredContent: { error: "merge failed" } }] })));
+    const workflow = createDreamWorkflow(dependencies(async () => ({ ...settled, toolResults: [{ toolName: "memory_merge_nodes", isError: true, structuredContent: { error: "merge failed" } }] })), dreamGuidance);
     expect((await workflow.deduplicate(["entity:a"])).errors.length).toBeGreaterThan(0);
   });
   test("passes cancellation to each phase", async () => {
@@ -215,7 +224,7 @@ describe("dream workflow", () => {
     const workflow = createDreamWorkflow(dependencies(async request => {
       expect(request.signal).toBe(controller.signal);
       return { ...settled, aborted: true };
-    }));
+    }), dreamGuidance);
     expect((await workflow.connect(["note:a"], controller.signal)).aborted).toBe(true);
   });
 });

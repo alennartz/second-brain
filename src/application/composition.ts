@@ -34,15 +34,18 @@ function edgeWire(edge: EdgeRecord): Record<string, unknown> {
   const { edgeType, freshnessAt, ...fields } = edge;
   return { ...fields, ...(freshnessAt === undefined ? {} : { freshness_at: freshnessAt }), table: edge.id.split(":")[0] };
 }
-function readMaintenanceSkill(cwd: string, packagePath: string): string {
-  const path = resolve(cwd, packagePath, "skills/memory/dream.md");
+function readDreamGuidance(cwd: string, packagePath: string, phase: "deduplicate" | "connect"): string {
+  const path = resolve(cwd, packagePath, `skills/memory/${phase}.md`);
   const content = readFileSync(path, "utf8").trim();
-  if (!content) throw new Error(`Empty memory maintenance skill: ${path}`);
+  if (!content) throw new Error(`Empty dream guidance: ${path}`);
   return content;
 }
 export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, IntakePipeline, DreamScheduler, ModelRuntime> {
   const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir, extensionPaths: [resolve(cwd, settings.piToolsPackage)] });
-  const maintenanceSkill = readMaintenanceSkill(cwd, settings.piToolsPackage);
+  const dreamGuidance = {
+    deduplicate: readDreamGuidance(cwd, settings.piToolsPackage, "deduplicate"),
+    connect: readDreamGuidance(cwd, settings.piToolsPackage, "connect"),
+  };
   const workflowDependencies = (model: Settings["ingestModel"]) => ({ runtime, model });
   return {
     createModelRuntime: () => modelRuntime,
@@ -67,7 +70,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
       });
     },
     createScheduler({ storage }) {
-      const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(settings.dreamModel), maintenanceSkill), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000, cycleTimeoutMs: settings.dream.cycleTimeoutMinutes * 60000 } });
+      const scheduler = createDreamScheduler({ workflow: createDreamWorkflow(workflowDependencies(settings.dreamModel), dreamGuidance), queue: { countNodes: () => storage.countNodes(), selectDreamBatch: async (kind, limit) => (await storage.selectDreamBatch(kind, limit)).map(node => ({ id: node.id, dreamAge: node.dreamAge ?? 0 })), incrementDreamAge: ids => storage.incrementDreamAge(ids) }, clock: systemClock, settings: { batchSize: settings.dream.batchSize, idleMs: settings.dream.idleTimeoutMinutes * 60000, backoffFactor: settings.dream.delayMultiplier, maxDelayMs: settings.dream.maxDelayMinutes * 60000, cycleTimeoutMs: settings.dream.cycleTimeoutMinutes * 60000 } });
       return settings.dream.enabled ? scheduler : { ...scheduler, start() {} };
     },
     createApplication({ storage, pipeline, scheduler, dreamJobs }) {

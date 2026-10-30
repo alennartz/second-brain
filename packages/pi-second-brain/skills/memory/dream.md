@@ -1,63 +1,18 @@
-# Maintenance (Dream)
+# Maintenance
 
-Use this procedure for knowledge-graph maintenance.
+## Scope
 
-## Evidence and precedence
+If the user specifies a scope, keep maintenance within that scope. Search and
+explore relevant knowledge to identify work. Without a specified scope, explore
+the graph and choose useful maintenance through judgment. Keep the work bounded.
 
-Use evidence, not surface similarity, to make identity decisions.
+## Procedure
 
-- Intake evidence exposes capture time. Graph nodes and edges expose freshness
-  time, which is a recency signal derived from captured evidence when available.
-- When a correction conflicts with older evidence, compare the source capture
-  times when available. Use freshness time when the original capture time is not
-  exposed. Prefer a newer, supported correction for the canonical name and
-  current fields.
-- Capture time and freshness time do not describe when an event occurred.
-- Preserve older facts and captured note wording. Do not rewrite source notes
-  only to replace an older spelling.
-
-## Deduplication phase
-
-For each entity under review:
-
-1. Call `memory_find_similar` with a limit of 10.
-2. Read the entity and each promising candidate with `memory_get_node`.
-3. Use `memory_explore` when names, descriptions, correction notes, or
-   relationships need confirmation.
-4. Merge identities that represent the same real-world thing with
-   `memory_merge_nodes`. Reconcile the survivor's `name`, `type`, and
-   `description` explicitly in `survivorFields`.
-5. Use `memory_update_node` for an exact field correction that does not require
-   a merge.
-
-Treat an explicit correction such as “X is actually Y” as strong identity
-evidence. Keep the corrected name when the evidence supports it. Merge the old
-or misspelled entity into the corrected canonical entity. Identical names with
-compatible types are duplicates. Near-spelling variants are duplicates when
-surrounding evidence identifies one thing. Do not merge merely related things or
-different instances.
-
-Choose the survivor with the corrected name, stronger and newer supporting
-evidence, or more useful relationships. Node merging moves loser edges,
-collapses duplicate relationships, and deletes losers. Do not create an alias
-edge instead of merging.
-
-## Connection phase
-
-For each node under review:
-
-1. Call `memory_suggest_edges` for candidate pairs.
-2. Read each shared note with `memory_get_node`.
-3. Create `memory_store_edge` only when the evidence supports a relationship
-   between distinct real-world nodes.
-
-Shared notes identify candidates, not proof. A spelling correction or duplicate
-identity is not a relationship. Deduplication merges those nodes first.
-
-## Edge cleanup
-
-Use `memory_remove_edge` for invalid relationships. Use
-`memory_rename_edge_type` to reconcile supported edge type names. Use
-`memory_merge_edges` only for duplicate relationships with the same ordered
-endpoints. Successful mutations remain committed, so continue after each
-successful operation.
+1. For duplicate identities, corrections, or edge cleanup, read
+   [deduplicate.md](deduplicate.md) before doing that work.
+2. For missing relationships, read [connect.md](connect.md) before doing that
+   work. If both tasks are needed, finish deduplication before loading connection
+   guidance.
+3. When a required maintenance tool is deferred, activate it with `tool_search`
+   before use. Search for `memory_merge`, `memory_remove`, or `memory_rename`.
+4. Summarize changes and unresolved issues within the chosen scope.

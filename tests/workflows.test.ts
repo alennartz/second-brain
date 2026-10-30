@@ -46,6 +46,25 @@ describe("ingest workflow", () => {
     expect(outcome.clean).toBe(false);
     expect(outcome.retryable).toBe(false);
   });
+  test("records safe diagnostics for failed mutation arguments", async () => {
+    const diagnostics: unknown[] = [];
+    const workflow = createIngestWorkflow({
+      ...dependencies(async request => {
+        request.onEvent?.({ type: "tool_execution_start", toolName: "memory_store_node", toolCallId: "call-1", args: { kind: "note", content: "private evidence", name: "wrong field" } });
+        request.onEvent?.({ type: "tool_execution_end", toolName: "memory_store_node", toolCallId: "call-1", isError: true, result: { structuredContent: { error: "Invalid tool parameters" } } });
+        return settled;
+      }),
+      onIngestDiagnostic: diagnostic => diagnostics.push(diagnostic),
+    });
+    const outcome = await workflow.run(batch);
+    const serialized = JSON.stringify(diagnostics);
+    expect(diagnostics).toHaveLength(1);
+    expect(serialized).toContain('"tool_name":"memory_store_node"');
+    expect(serialized).toContain('"argument_keys":["content","kind","name"]');
+    expect(serialized).toContain('"payload_hash"');
+    expect(serialized).not.toContain("private evidence");
+    expect(outcome.errors.some(error => error.includes("Ingest mutation failed"))).toBe(true);
+  });
   test("never marks an unsettled run clean", async () => {
     const workflow = createIngestWorkflow(dependencies(async () => ({ ...settled, settled: false })));
     expect((await workflow.run(batch)).clean).toBe(false);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { ingestPrompt, recallPrompt, dedupPrompt, connectPrompt } from "./prompts";
@@ -11,9 +12,22 @@ export type WorkflowModel = WorkflowModelRef;
 export type WorkflowTool = AgentTool;
 export type WorkflowRuntime = AgentRuntime;
 
+export type IngestMutationDiagnostic = {
+  intake_id: string;
+  chunk_ids: readonly string[];
+  tool_name: string;
+  tool_call_id?: string;
+  argument_keys: readonly string[];
+  kind?: "note" | "entity";
+  node_id?: string;
+  field?: string;
+  payload_hash: string;
+  error: string;
+};
 export type WorkflowDependencies = {
   runtime: WorkflowRuntime;
   model: WorkflowModel;
+  onIngestDiagnostic?: (diagnostic: IngestMutationDiagnostic) => void;
 };
 
 export type IngestBatch = {
@@ -30,6 +44,50 @@ const ingestNames = ["memory_search", "memory_get_node", "memory_explore", "memo
 const readNames = ["memory_search", "memory_get_node", "memory_explore"];
 const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const ingestMutationTools = new Set(["memory_store_node", "memory_store_edge", "memory_update_node"]);
+const editableFields = new Set(["name", "type", "description", "content", "source", "summary"]);
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+function argumentsRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try { return record(JSON.parse(value)) ?? {}; }
+    catch { return {}; }
+  }
+  return record(value) ?? {};
+}
+function serializedArguments(value: unknown): string {
+  try { return JSON.stringify(value) ?? String(value); }
+  catch { return String(value); }
+}
+function diagnosticError(event: AgentEvent): string {
+  const result = record(event.result);
+  const structured = result?.structuredContent ?? event.result;
+  const details = record(structured);
+  const message = typeof details?.error === "string" ? details.error : "Tool execution failed";
+  const normalized = message.replace(/\\s+/g, " ").trim();
+  return normalized.length > 240 ? `${normalized.slice(0, 240)}…` : normalized;
+}
+function mutationDiagnostic(batch: IngestBatch, event: AgentEvent, args: Record<string, unknown>): IngestMutationDiagnostic {
+  const rawId = args.id ?? args.survivorId;
+  const nodeId = typeof rawId === "string" && /^(note|entity):[a-zA-Z0-9_⟨⟩-]+$/.test(rawId) ? rawId : undefined;
+  const kind = args.kind === "note" || args.kind === "entity" ? args.kind : nodeId?.split(":")[0] as "note" | "entity" | undefined;
+  const field = typeof args.field === "string" && editableFields.has(args.field) ? args.field : undefined;
+  const toolName = String(event.toolName);
+  const callId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+  const payload = serializedArguments(args);
+  return {
+    intake_id: batch.intakeId,
+    chunk_ids: batch.chunks.map(chunk => chunk.id),
+    tool_name: toolName,
+    ...(callId ? { tool_call_id: callId } : {}),
+    argument_keys: Object.keys(args).sort(),
+    ...(kind ? { kind } : {}),
+    ...(nodeId ? { node_id: nodeId } : {}),
+    ...(field ? { field } : {}),
+    payload_hash: createHash("sha256").update(payload).digest("hex"),
+    error: diagnosticError(event),
+  };
+}
 function resultErrors(result: Awaited<ReturnType<WorkflowRuntime["run"]>>, mutationOnly = false) {
   const toolErrors = result.toolResults.filter(t => t.isError && (!mutationOnly || ingestMutationTools.has(t.toolName)));
   return [...toolErrors.map(t => JSON.stringify(t.structuredContent) ?? "Tool execution failed"), ...(!result.settled ? ["Run did not settle"] : [])];
@@ -42,15 +100,32 @@ function nonRetryableOutcome(errors: readonly string[]): Pick<IngestOutcome, "re
 }
 export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
   return { async run(batch, signal) {
+    const diagnostics: IngestMutationDiagnostic[] = [];
+    const pendingArguments = new Map<string, unknown>();
+    const report = d.onIngestDiagnostic ?? (diagnostic => console.error("Ingest mutation failed", diagnostic));
+    const onEvent = (event: AgentEvent) => {
+      if (!ingestMutationTools.has(String(event.toolName))) return;
+      const callId = typeof event.toolCallId === "string" ? event.toolCallId : undefined;
+      if (event.type === "tool_execution_start") {
+        if (callId) pendingArguments.set(callId, event.args);
+        return;
+      }
+      if (event.type !== "tool_execution_end" || !event.isError) return;
+      const args = argumentsRecord(event.args ?? (callId ? pendingArguments.get(callId) : undefined));
+      const diagnostic = mutationDiagnostic(batch, event, args);
+      diagnostics.push(diagnostic);
+      report(diagnostic);
+      if (callId) pendingArguments.delete(callId);
+    };
     try {
       if (signal?.aborted) return { clean: false, aborted: true, errors: [] };
       const freshnessAt = maxTimestamp(batch.chunks.map(chunk => chunk.capturedAt));
-      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal }));
-      const errors = resultErrors(result, true);
+      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal, onEvent }));
+      const errors = [...resultErrors(result, true), ...diagnostics.map(diagnostic => `Ingest mutation failed: ${JSON.stringify(diagnostic)}`)];
       const aborted = result.aborted || !!signal?.aborted;
       return { clean: !aborted && !errors.length, aborted, errors, ...nonRetryableOutcome(errors) };
     } catch (error) {
-      const errors = [errorText(error)];
+      const errors = [errorText(error), ...diagnostics.map(diagnostic => `Ingest mutation failed: ${JSON.stringify(diagnostic)}`)];
       return { clean: false, aborted: !!signal?.aborted, errors, ...nonRetryableOutcome(errors) };
     }
   } };

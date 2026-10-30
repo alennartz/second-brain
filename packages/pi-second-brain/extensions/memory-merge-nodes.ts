@@ -12,6 +12,7 @@ export default function (pi: ExtensionAPI) {
     description: "Merge loser nodes into one survivor of the same kind. Loser edges move to the survivor, duplicate relationships collapse, and losers are deleted in one transaction. Returns survivor and removedIds.",
     promptSnippet: "Collapse duplicate nodes into one survivor, keeping their relationships.",
     promptGuidelines: ["Before calling memory_merge_nodes, read each candidate with memory_get_node, merge only supported identities, and reconcile fields explicitly."],
+    exposure: "deferred" as const,
     parameters: mergeNodesInput,
     outputSchema: mergeNodesOutput,
     prepareArguments: prepareToolArguments,

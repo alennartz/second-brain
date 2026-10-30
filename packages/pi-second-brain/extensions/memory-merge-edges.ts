@@ -11,6 +11,7 @@ export default function (pi: ExtensionAPI) {
     label: "Merge Edges",
     description: "Merge duplicate edges between the same ordered node pair into one survivor edge, combining their context. Losers are deleted in one transaction. Returns survivor and removedIds.",
     promptSnippet: "Collapse duplicate edges between the same node pair into one.",
+    exposure: "deferred" as const,
     parameters: mergeEdgesInput,
     outputSchema: mergeEdgesOutput,
     prepareArguments: prepareToolArguments,

@@ -12,6 +12,7 @@ export default function (pi: ExtensionAPI) {
     description: "Rename one edge type across the whole graph and merge edges that collide after the rename. Returns renamed and merged counts in one transaction.",
     promptSnippet: "Rename a relationship type across the whole graph.",
     promptGuidelines: ["Before calling memory_rename_edge_type, verify that the edge-type change is supported."],
+    exposure: "deferred" as const,
     parameters: renameEdgeTypeInput,
     outputSchema: renameEdgeTypeOutput,
     prepareArguments: prepareToolArguments,

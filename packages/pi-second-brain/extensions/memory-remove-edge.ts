@@ -12,6 +12,7 @@ export default function (pi: ExtensionAPI) {
     description: "Delete one edge by canonical ID. Returns id and removed, which is false when the edge was already gone. Nodes are never deleted.",
     promptSnippet: "Delete one wrong relationship between nodes.",
     promptGuidelines: ["Before calling memory_remove_edge, verify that the edge is invalid."],
+    exposure: "deferred" as const,
     parameters: removeEdgeInput,
     outputSchema: removeEdgeOutput,
     prepareArguments: prepareToolArguments,

@@ -10,6 +10,7 @@ import '../gateway/models.dart';
 import '../mobile_workflow.dart';
 import '../persistence/models.dart';
 import '../persistence/repositories.dart';
+import '../widgets/memory_labels.dart';
 import 'graph_node_detail_screen.dart';
 
 /// Graph workspace, memory search, and local workspace maintenance.
@@ -88,6 +89,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
       _searchResult = null;
       _searchFailure = null;
       _searching = false;
+      _refreshing = false;
       _query = '';
       _searchController.clear();
     }
@@ -169,105 +171,116 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     ExploreWorkspaceController controller,
   ) {
     final state = controller.state;
-    final nodes = state.nodes;
-    final edges = state.edges;
-    return RefreshIndicator(
-      onRefresh: () => _refresh(controller),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+    final selected = state.nodes.cast<WorkspaceNode?>().firstWhere(
+          (item) => item?.node.id == state.selectedNodeId,
+          orElse: () => null,
+        );
+    final raw = _searchResult?.unprocessed ?? const <IntakeChunk>[];
+    return SafeArea(
+      top: false,
+      child: Column(
         children: [
-          Text(
-            'Search your memory or follow a thread.',
-            style: Theme.of(context).textTheme.bodyMedium,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: _searchField(context),
           ),
-          const SizedBox(height: 12),
-          _searchField(context),
-          if (_searchFailure != null) ...[
-            const SizedBox(height: 10),
-            _Notice(
-              message: _messageFor(_searchFailure, fallback: 'Search failed.'),
-              icon: Icons.cloud_off_outlined,
+          if (_searching || _refreshing) const LinearProgressIndicator(),
+          if (_searchFailure != null || _notice != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: _Notice(
+                message: _searchFailure == null
+                    ? _notice!
+                    : _messageFor(_searchFailure,
+                        fallback: 'Search failed. Try again when connected.'),
+              ),
             ),
-          ],
-          if (_searching) ...[
-            const SizedBox(height: 10),
-            const LinearProgressIndicator(),
-          ],
-          if (_searchResult != null) _searchResults(context),
-          const SizedBox(height: 18),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Text(
-                  'Exploration workspace',
-                  style: Theme.of(context).textTheme.titleMedium,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${state.nodes.where((item) => item.expanded).length} memories · ${state.edges.length} connections',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ),
-              ),
-              Text(
-                '${nodes.length} memories · ${edges.length} connections',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-          if (_notice != null) ...[
-            const SizedBox(height: 10),
-            _Notice(message: _notice!, icon: Icons.info_outline),
-          ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
+                IconButton(
+                  tooltip: 'Refresh',
                   onPressed: _refreshing
                       ? null
                       : () => unawaited(_refresh(controller)),
-                  icon: _refreshing
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  label: Text(_refreshing ? 'Refreshing…' : 'Refresh'),
+                  icon: const Icon(Icons.refresh),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: nodes.any(_isMissing) || edges.any(_isMissingEdge)
-                      ? () => _clearDeleted(controller)
-                      : null,
-                  child: const Text('Clear deleted'),
+                PopupMenuButton<String>(
+                  tooltip: 'Workspace options',
+                  onSelected: (action) {
+                    if (action == 'deleted') _clearDeleted(controller);
+                    if (action == 'clear') {
+                      unawaited(_clearWorkspace(controller));
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'deleted',
+                      enabled: state.nodes.any(_isMissing) ||
+                          state.edges.any(_isMissingEdge),
+                      child: const Text('Clear deleted'),
+                    ),
+                    PopupMenuItem(
+                      value: 'clear',
+                      enabled: state.nodes.isNotEmpty || state.edges.isNotEmpty,
+                      child: const Text('Clear workspace'),
+                    ),
+                  ],
                 ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: state.nodes.isEmpty && state.edges.isEmpty
+                ? Center(
+                    child: SingleChildScrollView(
+                        child: _EmptyWorkspace(onSearch: _focusSearch)))
+                : LayoutBuilder(
+                    builder: (_, constraints) => GraphCanvas(
+                      height: constraints.maxHeight,
+                      state: state,
+                      focusRevision: _searchGeneration,
+                      onSelectNode: (id) =>
+                          unawaited(_expandNode(controller, id)),
+                      onSelectEdge: (id) =>
+                          unawaited(_followEdge(controller, id)),
+                    ),
+                  ),
+          ),
+          if (selected != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      memoryTitle(selected.node),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () =>
+                        unawaited(_showDetails(controller, selected.node.id)),
+                    icon: const Icon(Icons.subject),
+                    label: const Text('Details'),
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: nodes.isEmpty && edges.isEmpty
-                ? null
-                : () => _clearWorkspace(controller),
-            icon: const Icon(Icons.delete_sweep_outlined),
-            label: const Text('Clear workspace'),
-          ),
-          const SizedBox(height: 12),
-          if (nodes.isEmpty && edges.isEmpty)
-            _EmptyWorkspace(onSearch: _focusSearch)
-          else ...[
-            GraphCanvas(
-              state: state,
-              onSelectNode: (id) => unawaited(_openNode(controller, id)),
-              onSelectEdge: (id) => unawaited(_followEdge(controller, id)),
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Pan and zoom the map. Tap a node for details or a directed edge to follow it.',
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
+          if (raw.isNotEmpty)
+            TextButton(
+              onPressed: () => _showUnprocessed(raw),
+              child: Text('Unprocessed evidence (${raw.length})'),
             ),
-          ],
         ],
       ),
     );
@@ -278,7 +291,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
       controller: _searchController,
       focusNode: _searchFocus,
       textInputAction: TextInputAction.search,
-      onChanged: (value) => _query = value,
+      onChanged: (value) => setState(() => _query = value),
       onSubmitted: (_) => unawaited(_search()),
       decoration: InputDecoration(
         labelText: 'Search memory',
@@ -294,73 +307,28 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
-  Widget _searchResults(BuildContext context) {
-    final result = _searchResult!;
-    if (result.nodes.isEmpty && result.unprocessed.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 14),
-        child: _Notice(
-          message: 'No memories or raw evidence matched “$_query”.',
-          icon: Icons.search_off,
+  void _showUnprocessed(List<IntakeChunk> chunks) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * .65,
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Text('Unprocessed evidence',
+                  style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              ...chunks.map((chunk) => Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(chunk.content),
+                    ),
+                  )),
+            ],
+          ),
         ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.only(top: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (result.nodes.isNotEmpty) ...[
-            Text('Graph results',
-                style: Theme.of(context).textTheme.titleSmall),
-            const SizedBox(height: 6),
-            ...result.nodes.map(
-              (node) => Card(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                child: ListTile(
-                  leading: const Icon(Icons.account_tree_outlined),
-                  title: Text(_nodeTitle(node)),
-                  subtitle: Text(node.id),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    final controller = _controller;
-                    if (controller != null) {
-                      unawaited(_openNode(controller, node.id));
-                    }
-                  },
-                ),
-              ),
-            ),
-          ],
-          if (result.unprocessed.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(
-              'Unprocessed evidence',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            const SizedBox(height: 4),
-            const Text('Raw evidence is shown here and cannot open the graph.'),
-            ...result.unprocessed.map(
-              (chunk) => Card(
-                margin: const EdgeInsets.symmetric(vertical: 4),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(chunk.content),
-                      const SizedBox(height: 7),
-                      Text(
-                        '${chunk.source} · chunk ${chunk.chunkPosition + 1} of ${chunk.totalChunks}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -414,6 +382,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     final query = _query.trim();
     if (query.isEmpty) return;
     final generation = ++_searchGeneration;
+    FocusManager.instance.primaryFocus?.unfocus();
     final gateway = widget.gateway;
     if (gateway == null) {
       setState(() {
@@ -429,10 +398,32 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     try {
       final result = await gateway.searchMemory(query);
       if (!mounted || generation != _searchGeneration) return;
+      final controller = _controller;
+      if (controller == null) return;
+      if (result.nodes.isNotEmpty) {
+        await controller.addSearchMatches(result.nodes);
+      }
+      if (!mounted ||
+          generation != _searchGeneration ||
+          !identical(controller, _controller)) return;
       setState(() {
         _searchResult = result;
         _searching = false;
+        _notice = result.nodes.isEmpty
+            ? 'No graph memories matched this search.'
+            : null;
       });
+      if (result.nodes.isNotEmpty) {
+        try {
+          await controller.refreshCompleted;
+        } on Object {
+          // This search still needs its own connection refresh.
+        }
+        if (!mounted ||
+            generation != _searchGeneration ||
+            !identical(controller, _controller)) return;
+        await _refresh(controller);
+      }
     } on Object catch (error) {
       if (!mounted) return;
       if (generation != _searchGeneration) return;
@@ -444,28 +435,32 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
-  Future<void> _openNode(
+  Future<void> _expandNode(
     ExploreWorkspaceController controller,
     String id,
   ) async {
     controller.selectNode(id);
-    final callback =
-        widget.onOpenNode ?? widget.onOpenDetail ?? widget.onNodeSelected;
-    if (callback != null) {
-      callback(id);
-      return;
-    }
-    Object? failure;
+    setState(() {});
     try {
       await controller.openNode(id);
+      if (mounted && identical(controller, _controller)) setState(() {});
     } on Object catch (error) {
-      failure = error;
+      if (mounted && identical(controller, _controller)) {
+        setState(() => _notice = _messageFor(error,
+            fallback:
+                'Could not load this memory. Cached data is still available.'));
+      }
     }
-    if (!mounted) return;
-    if (failure != null &&
-        !controller.state.nodes.any((node) => node.node.id == id)) {
-      setState(() => _notice =
-          _messageFor(failure, fallback: 'Could not open this memory.'));
+  }
+
+  Future<void> _showDetails(
+    ExploreWorkspaceController controller,
+    String id,
+  ) async {
+    final callback =
+        widget.onOpenDetail ?? widget.onOpenNode ?? widget.onNodeSelected;
+    if (callback != null) {
+      callback(id);
       return;
     }
     await Navigator.of(context).push<void>(
@@ -505,7 +500,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     });
     try {
       await controller.refresh();
-      if (!mounted) return;
+      if (!mounted || !identical(controller, _controller)) return;
       setState(() {
         _refreshing = false;
         _notice = 'Workspace refreshed.';
@@ -546,6 +541,12 @@ final class _ExploreScreenState extends State<ExploreScreen> {
       ),
     );
     if (confirmed != true) return;
+    _searchGeneration++;
+    setState(() {
+      _searching = false;
+      _searchResult = null;
+      _searchFailure = null;
+    });
     await controller.clearWorkspace();
     if (!mounted) return;
     setState(() => _notice = 'Workspace cleared.');
@@ -597,8 +598,12 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   String _messageFor(Object? error, {required String fallback}) {
-    if (error is BrainClientException) return error.message;
-    if (error is StateError) return error.message;
+    if (error is HttpStatusException) {
+      if (error.statusCode == 401 || error.statusCode == 403) {
+        return 'Check this brain’s access credentials.';
+      }
+      if (error.statusCode == 404) return 'This memory is no longer available.';
+    }
     return fallback;
   }
 
@@ -655,39 +660,17 @@ final class _EmptyWorkspace extends StatelessWidget {
 }
 
 final class _Notice extends StatelessWidget {
-  const _Notice({required this.message, this.icon});
+  const _Notice({required this.message});
 
   final String message;
-  final IconData? icon;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 19),
-            const SizedBox(width: 8),
-          ],
-          Expanded(child: Text(message)),
-        ],
-      ),
-    );
-  }
-}
-
-String _nodeTitle(GraphNode node) {
-  if (node.name?.trim().isNotEmpty == true) return node.name!.trim();
-  if (node.summary?.trim().isNotEmpty == true) return node.summary!.trim();
-  if (node.content?.trim().isNotEmpty == true) {
-    final first = node.content!.split(RegExp(r'[.!?]')).first.trim();
-    if (first.isNotEmpty) return first;
-  }
-  return node.id;
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(message),
+      );
 }

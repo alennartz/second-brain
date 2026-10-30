@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../explore/explore_controller.dart';
 import '../gateway/models.dart';
 import '../persistence/models.dart';
+import '../widgets/memory_labels.dart';
 
 /// Detail view for one selected Explore node.
 ///
@@ -90,6 +91,12 @@ final class _GraphNodeDetailScreenState extends State<GraphNodeDetailScreen> {
                 (edge) => edge.edge.from == node.id || edge.edge.to == node.id)
             .toList(growable: false) ??
         const <WorkspaceEdge>[];
+    final nodes = <String, GraphNode>{
+      for (final connection in widget.connections ?? const <GraphConnection>[])
+        connection.node.id: connection.node,
+      for (final item in projection?.nodes ?? const <WorkspaceNode>[])
+        item.node.id: item.node,
+    };
     return Scaffold(
       appBar: AppBar(
         leading: _backButton(context),
@@ -137,6 +144,9 @@ final class _GraphNodeDetailScreenState extends State<GraphNodeDetailScreen> {
               ...edges.map((edge) => _ConnectionTile(
                     item: edge,
                     selectedNodeId: node.id,
+                    target: nodes[edge.edge.from == node.id
+                        ? edge.edge.to
+                        : edge.edge.from],
                     following: _following,
                     onTap: () => _follow(edge),
                   )),
@@ -206,7 +216,7 @@ final class _GraphNodeDetailScreenState extends State<GraphNodeDetailScreen> {
   }
 
   String _messageFor(Object? error) {
-    return error is StateError ? error.message : 'Could not load this memory.';
+    return 'Could not load this memory. Cached data is still available.';
   }
 }
 
@@ -231,20 +241,15 @@ final class _NodeHeader extends StatelessWidget {
             runSpacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              Chip(label: Text(node.table)),
+              Chip(label: Text(memoryKind(node))),
               if (missing) const Chip(label: Text('Missing')),
               if (isNew) const Chip(label: Text('New')),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            _nodeTitle(node),
+            memoryTitle(node),
             style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 4),
-          SelectableText(
-            node.id,
-            style: Theme.of(context).textTheme.bodySmall,
           ),
           if (missing) ...[
             const SizedBox(height: 12),
@@ -262,12 +267,14 @@ final class _ConnectionTile extends StatelessWidget {
   const _ConnectionTile({
     required this.item,
     required this.selectedNodeId,
+    required this.target,
     required this.following,
     required this.onTap,
   });
 
   final WorkspaceEdge item;
   final String selectedNodeId;
+  final GraphNode? target;
   final bool following;
   final VoidCallback onTap;
 
@@ -275,12 +282,11 @@ final class _ConnectionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final edge = item.edge;
     final outgoing = edge.from == selectedNodeId;
-    final target = outgoing ? edge.to : edge.from;
+    final targetTitle = connectedMemoryTitle(target);
     final missing = item.status == WorkspaceItemStatus.missing;
     final isNew = item.status == WorkspaceItemStatus.newItem;
-    final label = edge.context?.trim().isNotEmpty == true
-        ? edge.context!.trim()
-        : edge.table;
+    final hasContext = edge.context?.trim().isNotEmpty == true;
+    final status = [if (isNew) 'New', if (missing) 'Missing'].join(' · ');
     return Opacity(
       opacity: missing ? .45 : 1,
       child: Card(
@@ -288,10 +294,16 @@ final class _ConnectionTile extends StatelessWidget {
         child: ListTile(
           enabled: !missing && !following,
           leading: Icon(outgoing ? Icons.arrow_forward : Icons.arrow_back),
-          title: Text('$label → $target'),
-          subtitle: Text(
-            '${edge.from} → ${edge.to}${isNew ? ' · New' : ''}${missing ? ' · Missing' : ''}',
-          ),
+          title: Text('${relationshipTitle(edge)} → $targetTitle'),
+          subtitle: hasContext || status.isNotEmpty
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (hasContext) Text(edge.context!),
+                    if (status.isNotEmpty) Text(status),
+                  ],
+                )
+              : null,
           trailing: following
               ? const SizedBox(
                   width: 20,
@@ -322,14 +334,4 @@ final class _Notice extends StatelessWidget {
       child: Text(message),
     );
   }
-}
-
-String _nodeTitle(GraphNode node) {
-  if (node.name?.trim().isNotEmpty == true) return node.name!.trim();
-  if (node.summary?.trim().isNotEmpty == true) return node.summary!.trim();
-  if (node.content?.trim().isNotEmpty == true) {
-    final first = node.content!.split(RegExp(r'[.!?]')).first.trim();
-    if (first.isNotEmpty) return first;
-  }
-  return node.id;
 }

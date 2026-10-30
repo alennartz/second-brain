@@ -164,6 +164,12 @@ per-profile graph workspace for search and exploration. Brain profiles,
 captures, answers, and workspaces persist locally. Access credentials use
 platform secure storage.
 
+Explore is graph-first. Search matches appear directly on the canvas while their
+connections load in the background. Following nodes and edges stays on the map.
+The Details action opens the separate drill-down view. Evidence links also enter
+the map. Memory labels use names, summaries, or human fallbacks, never database
+record IDs.
+
 ## Development and Deployment
 
 Bun manages server dependencies, runs the server and tests, and builds the

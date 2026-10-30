@@ -11,7 +11,6 @@ import 'screens/ask_screen.dart';
 import 'screens/brains_screen.dart';
 import 'screens/capture_screen.dart';
 import 'screens/explore_screen.dart';
-import 'screens/graph_node_detail_screen.dart';
 import 'screens/outbox_screen.dart';
 import 'screens/recall_result_screen.dart';
 import 'screens/server_settings_screen.dart';
@@ -498,9 +497,7 @@ final class _DurableConfiguredApplicationState
                 brainId: brainId,
                 brainName: brainName,
                 gateway: gateway,
-                // The loader runs on the first Explore visit, not while the
-                // Capture and Ask tabs are building.
-                loadController: () => widget.workflow.visitExplore(brainId),
+                workflow: widget.workflow,
                 onOpenHistory: _openHistory,
               )
             : const SizedBox.shrink(),
@@ -663,7 +660,9 @@ final class _DurableConfiguredApplicationState
       if (!profiles.any((candidate) => candidate.id == brainId)) {
         throw StateError('Unknown Brain profile: $brainId');
       }
+      final profile = profiles.firstWhere((profile) => profile.id == brainId);
       final controller = await widget.workflow.visitExplore(brainId);
+      controller.selectNode(nodeId);
       try {
         await controller.openNode(nodeId);
       } on Object {
@@ -674,16 +673,20 @@ final class _DurableConfiguredApplicationState
       if (!mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => GraphNodeDetailScreen(
+          builder: (_) => ExploreScreen(
+            brainId: brainId,
+            brainName: profile.name,
+            gateway: widget.gatewayForProfile(profile),
             controller: controller,
-            nodeId: nodeId,
           ),
         ),
       );
-    } on Object catch (error) {
+    } on Object {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open graph memory: $error')),
+        const SnackBar(
+            content:
+                Text('Could not open this memory. Try again when connected.')),
       );
     }
   }

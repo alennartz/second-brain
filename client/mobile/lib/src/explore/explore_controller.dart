@@ -33,6 +33,8 @@ abstract interface class ExploreWorkspaceController {
 
   void selectNode(String recordId);
 
+  Future<void> addSearchMatches(Iterable<GraphNode> nodes);
+
   Future<void> openNode(String recordId);
 
   Future<void> followEdge(String edgeId);
@@ -101,6 +103,7 @@ final class ExploreWorkspaceControllerImpl
   Future<void> _pendingPersistence = Future<void>.value();
   Future<void>? _refreshInFlight;
   int _workspaceGeneration = 0;
+  int _navigationGeneration = 0;
   int _persistenceGeneration = 0;
 
   @override
@@ -111,6 +114,7 @@ final class ExploreWorkspaceControllerImpl
 
   @override
   void selectNode(String recordId) {
+    _navigationGeneration++;
     _state = _stateFor(
       _state,
       selectedNodeId: recordId,
@@ -118,12 +122,37 @@ final class ExploreWorkspaceControllerImpl
   }
 
   @override
+  Future<void> addSearchMatches(Iterable<GraphNode> matches) async {
+    final returned = matches.toList(growable: false);
+    if (returned.isEmpty) return;
+    _navigationGeneration++;
+    final nodes = List<WorkspaceNode>.of(_state.nodes);
+    for (final node in returned) {
+      _upsertNode(
+        nodes,
+        node,
+        status: WorkspaceItemStatus.loaded,
+        expanded: true,
+        forceExpanded: true,
+      );
+    }
+    await _persistAndSet(
+      _stateFor(_state, nodes: nodes, selectedNodeId: returned.first.id),
+      markFetched: false,
+    );
+  }
+
+  @override
   Future<void> openNode(String recordId) async {
     final generation = _workspaceGeneration;
+    final navigation = ++_navigationGeneration;
     final gateway = await _currentGateway();
     final detail = await gateway.getGraph(recordId);
     if (generation != _workspaceGeneration) return;
-    final next = mergeOpenedNode(_state, recordId, detail);
+    final merged = mergeOpenedNode(_state, recordId, detail);
+    final next = navigation == _navigationGeneration
+        ? merged
+        : _stateFor(merged, selectedNodeId: _state.selectedNodeId);
     await _persistAndSet(next);
   }
 
@@ -216,6 +245,7 @@ final class ExploreWorkspaceControllerImpl
   @override
   Future<void> clearWorkspace() async {
     _workspaceGeneration++;
+    _navigationGeneration++;
     _refreshInFlight = null;
     final next = _stateFor(
       _state,

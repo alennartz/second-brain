@@ -55,9 +55,8 @@ void main() {
           ),
         ),
       ));
-      final first =
-          find.widgetWithText(TextButton, 'First connection → N$destination');
-      final second = find.widgetWithText(TextButton, 'Second connection → N0');
+      final first = find.byTooltip('First connection → N$destination');
+      final second = find.byTooltip('Second connection → N0');
       expect(tester.getRect(first).overlaps(tester.getRect(second)), isFalse);
       await tester.tap(first);
       await tester.tap(second);

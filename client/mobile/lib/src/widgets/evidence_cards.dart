@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../gateway/models.dart';
+import 'memory_labels.dart';
 
 /// A grouped evidence section with one card per graph node or raw chunk.
 final class EvidenceCards extends StatefulWidget {
@@ -31,6 +32,10 @@ final class _EvidenceCardsState extends State<EvidenceCards> {
   @override
   Widget build(BuildContext context) {
     if (widget.evidence.isEmpty) return const SizedBox.shrink();
+    final nodes = <String, GraphNode>{
+      for (final item in widget.evidence.whereType<GraphNodeEvidence>())
+        item.node.id: item.node,
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -50,6 +55,7 @@ final class _EvidenceCardsState extends State<EvidenceCards> {
               padding: const EdgeInsets.only(bottom: 12),
               child: _EvidenceCard(
                 item: item,
+                nodes: nodes,
                 onOpenGraphNode: widget.onOpenGraphNode ?? widget.onOpenGraph,
               ),
             ),
@@ -62,10 +68,12 @@ final class _EvidenceCardsState extends State<EvidenceCards> {
 final class _EvidenceCard extends StatelessWidget {
   const _EvidenceCard({
     required this.item,
+    required this.nodes,
     this.onOpenGraphNode,
   });
 
   final EvidenceItem item;
+  final Map<String, GraphNode> nodes;
   final ValueChanged<GraphNode>? onOpenGraphNode;
 
   @override
@@ -77,6 +85,7 @@ final class _EvidenceCard extends StatelessWidget {
         child: switch (item) {
           GraphNodeEvidence evidence => _GraphCard(
               evidence: evidence,
+              nodes: nodes,
               onOpenGraphNode: onOpenGraphNode,
             ),
           UnprocessedEvidence evidence => _ChunkCard(evidence: evidence),
@@ -89,31 +98,25 @@ final class _EvidenceCard extends StatelessWidget {
 final class _GraphCard extends StatelessWidget {
   const _GraphCard({
     required this.evidence,
+    required this.nodes,
     this.onOpenGraphNode,
   });
 
   final GraphNodeEvidence evidence;
+  final Map<String, GraphNode> nodes;
   final ValueChanged<GraphNode>? onOpenGraphNode;
 
   @override
   Widget build(BuildContext context) {
     final node = evidence.node;
-    final title = _nodeTitle(node);
+    final title = memoryTitle(node);
     final description = _nodeDescription(node, title);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            Chip(label: Text(node.table)),
-            Text(
-              node.id,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Chip(label: Text(memoryKind(node))),
         ),
         const SizedBox(height: 4),
         Text(title, style: Theme.of(context).textTheme.titleMedium),
@@ -123,7 +126,7 @@ final class _GraphCard extends StatelessWidget {
         ],
         if (evidence.links.isNotEmpty) ...[
           const Divider(height: 24),
-          ...evidence.links.map((link) => _LinkRow(link: link)),
+          ...evidence.links.map((link) => _LinkRow(link: link, nodes: nodes)),
         ],
         if (onOpenGraphNode != null) ...[
           const SizedBox(height: 8),
@@ -142,12 +145,17 @@ final class _GraphCard extends StatelessWidget {
 }
 
 final class _LinkRow extends StatelessWidget {
-  const _LinkRow({required this.link});
+  const _LinkRow({required this.link, required this.nodes});
 
   final LinkedEdge link;
+  final Map<String, GraphNode> nodes;
 
   @override
   Widget build(BuildContext context) {
+    final from = nodes[link.from];
+    final to = nodes[link.to];
+    final fromTitle = connectedMemoryTitle(from);
+    final toTitle = connectedMemoryTitle(to);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
@@ -163,8 +171,8 @@ final class _LinkRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('${link.table}: ${link.from} → ${link.to}'),
-                if (link.context != null && link.context!.isNotEmpty)
+                Text('${relationshipTitle(link)}: $fromTitle → $toTitle'),
+                if (link.context?.trim().isNotEmpty == true)
                   Text(
                     link.context!,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -189,20 +197,12 @@ final class _ChunkCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            const Chip(
-              avatar: Icon(Icons.pending_outlined, size: 16),
-              label: Text('Unprocessed'),
-            ),
-            Text(
-              chunk.id,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Chip(
+            avatar: Icon(Icons.pending_outlined, size: 16),
+            label: Text('Unprocessed'),
+          ),
         ),
         const SizedBox(height: 4),
         Text(chunk.content),
@@ -219,16 +219,6 @@ final class _ChunkCard extends StatelessWidget {
       ],
     );
   }
-}
-
-String _nodeTitle(GraphNode node) {
-  if (node.name?.isNotEmpty == true) return node.name!;
-  if (node.summary?.isNotEmpty == true) return node.summary!;
-  if (node.content?.isNotEmpty == true) {
-    final firstSentence = node.content!.split(RegExp(r'[.!?]')).first.trim();
-    if (firstSentence.isNotEmpty) return firstSentence;
-  }
-  return node.id;
 }
 
 String _nodeDescription(GraphNode node, String title) {

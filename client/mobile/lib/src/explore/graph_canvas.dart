@@ -4,8 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'explore_controller.dart';
-import '../gateway/models.dart';
 import '../persistence/models.dart';
+import '../widgets/memory_labels.dart';
 
 /// A graph projection rendered with Flutter primitives.
 ///
@@ -24,6 +24,7 @@ final class GraphCanvas extends StatelessWidget {
     this.onNodeSelected,
     this.onEdgeSelected,
     this.height = 360,
+    this.focusRevision = 0,
   });
 
   /// Pass a state projection when the parent owns rebuilds.
@@ -41,6 +42,7 @@ final class GraphCanvas extends StatelessWidget {
   final ValueChanged<String>? onNodeSelected;
   final ValueChanged<String>? onEdgeSelected;
   final double height;
+  final int focusRevision;
 
   ExploreWorkspaceState get _state =>
       state ??
@@ -51,7 +53,7 @@ final class GraphCanvas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final projection = _state;
-    final layout = _GraphLayout.fromState(projection);
+    final layout = _GraphLayout.fromState(projection, context);
     final width = math.max(900.0, layout.width);
     final boardHeight = math.max(560.0, layout.height);
     final edgeHandler =
@@ -68,11 +70,10 @@ final class GraphCanvas extends StatelessWidget {
               Border.all(color: Theme.of(context).colorScheme.outlineVariant),
           color: Theme.of(context).colorScheme.surfaceContainerLowest,
         ),
-        child: InteractiveViewer(
-          minScale: .55,
-          maxScale: 2.4,
-          boundaryMargin: const EdgeInsets.all(180),
-          constrained: false,
+        child: _GraphViewport(
+          layout: layout,
+          selectedNodeId: projection.selectedNodeId,
+          focusRevision: focusRevision,
           child: SizedBox(
             width: width,
             height: boardHeight,
@@ -162,7 +163,7 @@ final class GraphCanvas extends StatelessWidget {
                   const SizedBox(width: 7),
                   Expanded(
                     child: Text(
-                      'Unloaded\n$id',
+                      connectedMemoryTitle(null),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
@@ -187,7 +188,7 @@ final class GraphCanvas extends StatelessWidget {
     final selected = item.node.id == _state.selectedNodeId;
     final missing = item.status == WorkspaceItemStatus.missing;
     final isNew = item.status == WorkspaceItemStatus.newItem;
-    final title = _nodeTitle(item.node);
+    final title = memoryTitle(item.node);
     final status = missing
         ? 'Missing'
         : isNew
@@ -230,7 +231,7 @@ final class GraphCanvas extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    item.node.id,
+                    item.expanded ? memoryKind(item.node) : 'Tap to explore',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall,
@@ -272,10 +273,10 @@ final class GraphCanvas extends StatelessWidget {
     final isNew = item.status == WorkspaceItemStatus.newItem;
     final label = item.edge.context?.trim().isNotEmpty == true
         ? item.edge.context!.trim()
-        : item.edge.table;
+        : relationshipTitle(item.edge);
     final target = layout.isLoaded(item.edge.to)
-        ? _nodeTitle(layout.node(item.edge.to)!.node)
-        : 'unloaded';
+        ? memoryTitle(layout.node(item.edge.to)!.node)
+        : connectedMemoryTitle(null);
     final edgeLabel =
         '$label → $target${isNew ? ' · New' : ''}${missing ? ' · Missing' : ''}';
     return Positioned(
@@ -285,27 +286,176 @@ final class GraphCanvas extends StatelessWidget {
       height: _edgeTargetHeight,
       child: Opacity(
         opacity: missing ? .42 : 1,
-        child: TextButton(
-          onPressed: handler == null ? null : () => handler(item.edge.id),
-          style: TextButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.surface,
-            foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
-            minimumSize: const Size(20, 30),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            shape: const StadiumBorder(),
-          ),
-          child: Text(
-            edgeLabel,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelSmall,
+        child: Tooltip(
+          message: edgeLabel,
+          excludeFromSemantics: true,
+          child: Semantics(
+            label: edgeLabel,
+            button: true,
+            enabled: handler != null && !missing,
+            onTap:
+                handler == null || missing ? null : () => handler(item.edge.id),
+            excludeSemantics: true,
+            child: TextButton(
+              onPressed: handler == null || missing
+                  ? null
+                  : () => handler(item.edge.id),
+              style: TextButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+                minimumSize: const Size(20, 30),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: const StadiumBorder(),
+              ),
+              child: Text(
+                relationshipTitle(item.edge),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+final class _GraphViewport extends StatefulWidget {
+  const _GraphViewport({
+    required this.layout,
+    required this.selectedNodeId,
+    required this.focusRevision,
+    required this.child,
+  });
+
+  final _GraphLayout layout;
+  final String? selectedNodeId;
+  final int focusRevision;
+  final Widget child;
+
+  @override
+  State<_GraphViewport> createState() => _GraphViewportState();
+}
+
+final class _GraphViewportState extends State<_GraphViewport> {
+  final _transform = TransformationController();
+  Size _viewport = Size.zero;
+
+  @override
+  void didUpdateWidget(covariant _GraphViewport oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedNodeId != widget.selectedNodeId ||
+        oldWidget.focusRevision != widget.focusRevision) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _transform.dispose();
+    super.dispose();
+  }
+
+  void _focus() {
+    final nodes = widget.layout.nodes;
+    if (nodes.isEmpty || _viewport.isEmpty) return;
+    final selected = widget.selectedNodeId;
+    final id = selected != null && nodes.containsKey(selected)
+        ? selected
+        : nodes.keys.first;
+    _center(widget.layout.endpointPosition(id, 0), 1);
+  }
+
+  void _center(Offset position, double scale) {
+    _transform.value = Matrix4.identity()
+      ..translate(_viewport.width / 2 - position.dx * scale,
+          _viewport.height / 2 - position.dy * scale)
+      ..scale(scale);
+  }
+
+  void _zoom(double factor) {
+    final center = _transform.toScene(_viewport.center(Offset.zero));
+    final scale = (_transform.value.getMaxScaleOnAxis() * factor)
+        .clamp(.2, 2.4)
+        .toDouble();
+    _center(center, scale);
+  }
+
+  void _fit() {
+    final positions = [
+      ...widget.layout.positions.values,
+      ...widget.layout.unloadedPositions.values,
+    ];
+    if (positions.isEmpty) return;
+    final left = positions.map((point) => point.dx).reduce(math.min);
+    final top = positions.map((point) => point.dy).reduce(math.min);
+    final right = positions.map((point) => point.dx + 180).reduce(math.max);
+    final bottom = positions.map((point) => point.dy + 95).reduce(math.max);
+    final scale = math
+        .min(_viewport.width / (right - left + 60),
+            _viewport.height / (bottom - top + 60))
+        .clamp(.2, 2.4)
+        .toDouble();
+    _center(Offset((left + right) / 2, (top + bottom) / 2), scale);
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          final size = constraints.biggest;
+          if (size != _viewport) {
+            _viewport = size;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _focus();
+            });
+          }
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: InteractiveViewer(
+                  transformationController: _transform,
+                  minScale: .2,
+                  maxScale: 2.4,
+                  boundaryMargin: const EdgeInsets.all(1000),
+                  constrained: false,
+                  child: widget.child,
+                ),
+              ),
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                          tooltip: 'Zoom in',
+                          onPressed: () => _zoom(1.25),
+                          icon: const Icon(Icons.add)),
+                      IconButton(
+                          tooltip: 'Zoom out',
+                          onPressed: () => _zoom(.8),
+                          icon: const Icon(Icons.remove)),
+                      IconButton(
+                          tooltip: 'Fit graph',
+                          onPressed: _fit,
+                          icon: const Icon(Icons.center_focus_strong)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 final class _StatusChip extends StatelessWidget {
@@ -329,6 +479,8 @@ final class _StatusChip extends StatelessWidget {
 final class _GraphLayout {
   _GraphLayout(
       {required this.positions,
+      required this.nodeSizes,
+      required this.unloadedSize,
       required this.nodes,
       required this.unloadedPositions,
       required this.edgeOffsets,
@@ -336,13 +488,62 @@ final class _GraphLayout {
       this.height = 560});
 
   final Map<String, Offset> positions;
+  final Map<String, Size> nodeSizes;
+  final Size unloadedSize;
   final Map<String, WorkspaceNode> nodes;
   final Map<String, Offset> unloadedPositions;
   final Map<String, double> edgeOffsets;
   final double width;
   final double height;
 
-  factory _GraphLayout.fromState(ExploreWorkspaceState state) {
+  factory _GraphLayout.fromState(
+      ExploreWorkspaceState state, BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    double textHeight(
+        String text, TextStyle? style, int maxLines, double width) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: maxLines,
+        ellipsis: '…',
+      )..layout(maxWidth: width);
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    final nodeSizes = <String, Size>{};
+    for (final item in state.nodes) {
+      final status = item.status == WorkspaceItemStatus.missing
+          ? 'Missing'
+          : item.status == WorkspaceItemStatus.newItem
+              ? 'New'
+              : null;
+      final title =
+          textHeight(memoryTitle(item.node), textTheme.titleSmall, 2, 158);
+      final kind = textHeight(
+          item.expanded ? memoryKind(item.node) : 'Tap to explore',
+          textTheme.bodySmall,
+          1,
+          158);
+      final statusHeight = status == null
+          ? 0.0
+          : 11 + textHeight(status, textTheme.labelSmall, 1, 144);
+      nodeSizes[item.node.id] = Size(180, 20 + title + 3 + kind + statusHeight);
+    }
+    final unloadedSize = Size(
+        180,
+        20 +
+            math.max(
+                18,
+                textHeight(
+                    connectedMemoryTitle(null), textTheme.bodySmall, 2, 133)));
+    final rowSpacing = math.max(
+        185.0,
+        nodeSizes.values.fold<double>(unloadedSize.height,
+                (height, size) => math.max(height, size.height)) +
+            60);
     final positions = <String, Offset>{};
     final nodes = <String, WorkspaceNode>{};
     for (var index = 0; index < state.nodes.length; index++) {
@@ -350,10 +551,8 @@ final class _GraphLayout {
       final row = index ~/ 3;
       final node = state.nodes[index];
       nodes[node.node.id] = node;
-      positions[node.node.id] = Offset(
-        56 + column * 285,
-        56 + row * 185,
-      );
+      positions[node.node.id] =
+          Offset(56 + column * 285, 56 + row * rowSpacing);
     }
     final unloadedPositions = <String, Offset>{};
     final pairs = <String, List<WorkspaceEdge>>{};
@@ -396,12 +595,17 @@ final class _GraphLayout {
     final rows = (state.nodes.length + 2) ~/ 3;
     return _GraphLayout(
       positions: positions,
+      nodeSizes: nodeSizes,
+      unloadedSize: unloadedSize,
       nodes: nodes,
       unloadedPositions: unloadedPositions,
       edgeOffsets: edgeOffsets,
       width: unloadedPositions.isEmpty ? 56 + 3 * 285 : 1176,
-      height: math.max(560,
-          56 + math.max(math.max(1, rows), unloadedPositions.length) * 185),
+      height: math.max(
+          560,
+          56 +
+              math.max(math.max(1, rows), unloadedPositions.length) *
+                  rowSpacing),
     );
   }
 
@@ -414,8 +618,10 @@ final class _GraphLayout {
   Offset unloadedNodePosition(String id) =>
       unloadedPositions[id] ?? Offset.zero;
 
+  Size endpointSize(String id) => nodeSizes[id] ?? unloadedSize;
+
   Offset endpointPosition(String id, int edgeIndex) =>
-      nodePosition(id) + const Offset(90, 48);
+      nodePosition(id) + endpointSize(id).center(Offset.zero);
 
   double edgeOffset(String id) => edgeOffsets[id] ?? 0;
 }
@@ -439,8 +645,14 @@ final class _GraphEdgesPainter extends CustomPainter {
       final rawEnd = layout.endpointPosition(item.edge.to, index);
       final curveOffset =
           _curveOffset(rawStart, rawEnd, layout.edgeOffset(item.edge.id));
-      final start = rawStart + curveOffset;
-      final end = rawEnd + curveOffset;
+      final start =
+          _nodeBorder(rawStart, rawEnd, layout.endpointSize(item.edge.from));
+      final end =
+          _nodeBorder(rawEnd, rawStart, layout.endpointSize(item.edge.to));
+      final control = (start + end) / 2 + curveOffset * 2;
+      final path = Path()
+        ..moveTo(start.dx, start.dy)
+        ..quadraticBezierTo(control.dx, control.dy, end.dx, end.dy);
       final missing = item.status == WorkspaceItemStatus.missing;
       final isNew = item.status == WorkspaceItemStatus.newItem;
       final paint = Paint()
@@ -453,11 +665,11 @@ final class _GraphEdgesPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
       if (missing) paint.strokeWidth = 1.8;
       if (missing) {
-        _drawDashedLine(canvas, start, end, paint);
+        _drawDashedPath(canvas, path, paint);
       } else {
-        canvas.drawLine(start, end, paint);
+        canvas.drawPath(path, paint);
       }
-      _drawArrow(canvas, start, end, paint);
+      _drawArrow(canvas, control, end, paint);
     }
   }
 
@@ -482,16 +694,13 @@ final class _GraphEdgesPainter extends CustomPainter {
     canvas.drawPath(path, arrowPaint);
   }
 
-  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
-    final direction = end - start;
-    final distance = direction.distance;
-    if (distance < 1) return;
-    final unit = direction / distance;
-    const dash = 7.0;
-    const gap = 5.0;
-    for (var offset = 0.0; offset < distance; offset += dash + gap) {
-      final finish = math.min(offset + dash, distance);
-      canvas.drawLine(start + unit * offset, start + unit * finish, paint);
+  void _drawDashedPath(Canvas canvas, Path path, Paint paint) {
+    for (final metric in path.computeMetrics()) {
+      for (var offset = 0.0; offset < metric.length; offset += 12) {
+        canvas.drawPath(
+            metric.extractPath(offset, math.min(offset + 7, metric.length)),
+            paint);
+      }
     }
   }
 
@@ -503,8 +712,18 @@ final class _GraphEdgesPainter extends CustomPainter {
   }
 }
 
-const _edgeTargetWidth = 160.0;
-const _edgeTargetHeight = 48.0;
+const _edgeTargetWidth = 100.0;
+const _edgeTargetHeight = 40.0;
+
+Offset _nodeBorder(Offset center, Offset towards, Size size) {
+  final delta = towards - center;
+  if (delta.distance < 1) return center;
+  final fraction = math.min(
+    delta.dx == 0 ? double.infinity : size.width / 2 / delta.dx.abs(),
+    delta.dy == 0 ? double.infinity : size.height / 2 / delta.dy.abs(),
+  );
+  return center + delta * fraction;
+}
 
 Offset _curveOffset(Offset start, Offset end, double amount) {
   final direction = end - start;
@@ -512,14 +731,4 @@ Offset _curveOffset(Offset start, Offset end, double amount) {
   final unit = direction / direction.distance;
   final perpendicular = Offset(-unit.dy, unit.dx);
   return perpendicular * amount;
-}
-
-String _nodeTitle(GraphNode node) {
-  if (node.name?.trim().isNotEmpty == true) return node.name!.trim();
-  if (node.summary?.trim().isNotEmpty == true) return node.summary!.trim();
-  if (node.content?.trim().isNotEmpty == true) {
-    final first = node.content!.split(RegExp(r'[.!?]')).first.trim();
-    if (first.isNotEmpty) return first;
-  }
-  return node.id;
 }

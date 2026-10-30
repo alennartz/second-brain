@@ -43,6 +43,12 @@ lexical and semantic database search as the agent-facing memory tool. It needs
 embeddings but not an LLM-generated answer. Show unprocessed evidence separately
 from graph nodes; only graph nodes lead into graph exploration.
 
+Explore is graph-first. Search matches appear on the canvas immediately, not in
+a list that requires manual selection before they join the graph. Connections
+load in the background. Selecting nodes and following edges keeps the map open;
+Details is an explicit action. Evidence links enter the map too. All memory and
+connection labels use human names or fallbacks, never database record IDs.
+
 A graph node from search or an answer can start exploration. Following an edge
 loads the next node and its existing connections. One persistent workspace per
 brain grows as the user explores. A clear action starts it over.

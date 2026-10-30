@@ -245,7 +245,7 @@ describe("Storage graph boundary", () => {
     });
   });
 
-  test("returns vector-nearest candidates without returning the source or vectors", async () => {
+  test("returns similar candidates without returning the source or vectors", async () => {
     await withStorage(async ({ storage }) => {
       const source = await storage.createNode(entity("Ada"));
       const nearest = await storage.createNode(entity("Grace"));
@@ -256,6 +256,39 @@ describe("Storage graph boundary", () => {
       expect(result.map((candidate) => candidate.id)).toContain(nearest.id);
       expect(JSON.stringify(result)).not.toMatch(/embedding/);
     });
+  });
+
+  test("uses lexical and vector evidence within the source node kind", async () => {
+    await withStorage(
+      async ({ storage }) => {
+        const source = await storage.createNode({
+          kind: "entity",
+          name: "Astra",
+          type: "model",
+          description: "A model with an older description",
+        });
+        const exactName = await storage.createNode({
+          kind: "entity",
+          name: "Astra",
+          type: "model",
+          description: "A completely different description",
+        });
+        const misleadingNote = await storage.createNode(
+          note("Astra is mentioned in unrelated evidence"),
+        );
+
+        const result = await storage.findSimilarCandidates(source.id, 1);
+        expect(result.map((candidate) => candidate.id)).toEqual([exactName.id]);
+        expect(result.map((candidate) => candidate.id)).not.toContain(
+          misleadingNote.id,
+        );
+      },
+      (text) => {
+        if (text.includes("older description")) return [1, 0, 0];
+        if (text.includes("completely different")) return [0, 1, 0];
+        return [0, 0, 1];
+      },
+    );
   });
 });
 

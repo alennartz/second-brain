@@ -9,9 +9,9 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool(defineTool({
     name: "memory_find_similar",
     label: "Find Similar",
-    description: "Return the nodes most similar to one node by embedding distance, excluding the node itself. limit defaults to 10, maximum 100.",
-    promptSnippet: "Find nodes near one known node by embedding similarity.",
-    promptGuidelines: ["Use memory_search for a text query and memory_find_similar for a known node ID."],
+    description: "Return same-kind notes or entities most similar to one node using lexical and embedding evidence, excluding the source. limit defaults to 10, maximum 100.",
+    promptSnippet: "Find same-kind nodes near one known node by lexical and embedding similarity.",
+    promptGuidelines: ["Use memory_search for a text query and memory_find_similar for a known node ID.", "Read candidate names, types, descriptions, and relationships before judging identity."],
     parameters: findSimilarInput,
     outputSchema: findSimilarOutput,
     annotations: { readOnlyHint: true },

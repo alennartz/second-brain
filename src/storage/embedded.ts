@@ -20,7 +20,11 @@ function embeddingText(value: EmbeddableNode): string {
 }
 function chunk(row: Row): IntakeChunkRecord {  const { embedding, worker_id, paused, ...rest } = row; return { ...rest, state: paused ? "paused" : row.state, next_attempt_at: row.next_attempt_at ?? null, lease_token: row.lease_token ?? null, lease_expires_at: row.lease_expires_at ?? null, last_error: row.last_error ?? null, idempotency_key: row.idempotency_key ?? null, captured_at: row.captured_at ?? row.created_at ?? null } as IntakeChunkRecord; }
 const evidence = (r: Row) => Object.fromEntries(["id","intake_id","chunk_index","total_chunks","content","source","hints","created_at","captured_at"].filter(k => r[k] != null).map(k => [k,r[k]]));
-function cosine(a: number[], b: number[]): number { const dot = a.reduce((sum,v,i) => sum + v * (b[i] ?? 0),0); return dot / (Math.hypot(...a) * Math.hypot(...b) || 1); }
+function rankCandidates(lists: readonly (readonly Row[])[], limit: number): Row[] {
+ const records = new Map<string,Row>(); const scores = new Map<string,number>();
+ for (const list of lists) list.forEach((r,i) => { const { score, ...record } = r; records.set(r.id,record); scores.set(r.id,(scores.get(r.id) ?? 0)+1/(60+i+1)); });
+ return [...records.values()].sort((a,b) => scores.get(b.id)!-scores.get(a.id)!).slice(0,limit);
+}
 export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage {
  const db = new Surreal({ engines: createNodeEngines() });
  const clock = options.clock ?? (() => new Date());
@@ -70,9 +74,7 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
     const semantic = await query(`SELECT *, vector::similarity::cosine(embedding, $vector) AS score FROM ${table(name)} WHERE embedding != NONE ORDER BY score DESC LIMIT $limit`, { vector: [...vector], limit: limit * 3 });
     return [lexical, semantic.filter(r => r.score > 0)];
    }));
-   const records = new Map<string,Row>(); const scores = new Map<string,number>();
-   for (const lists of candidates) for (const list of lists) list.forEach((r,i) => { const { score, ...record } = r; records.set(r.id,record); scores.set(r.id,(scores.get(r.id) ?? 0)+1/(60+i+1)); });
-   return [...records.values()].sort((a,b) => scores.get(b.id)!-scores.get(a.id)!).slice(0,limit);
+   return rankCandidates(candidates.flat(), limit);
   };
   return {
    createNode, updateNodeFields, createIntakeChunks,
@@ -106,7 +108,28 @@ export function createEmbeddedStorage(options: EmbeddedStorageOptions): Storage 
    async findEdges(from: string, type: string, to: string) { rid(from); rid(to); return (await rows(type)).filter(r => r.in === from && r.out === to).map(edge); },
    async searchCandidates(text: string, limit: number) { const vector = await options.embedder.embed(text); return { nodes: (await search(["note", "entity"],text,vector,limit)).map(node), unprocessed: (await search(["intake_chunk"],text,vector,limit)).map(evidence) as any }; },
    async searchIntakeChunks(text: string, limit: number) { return (await search(["intake_chunk"],text,await options.embedder.embed(text),limit)).map(chunk); },
-   async findSimilarCandidates(id: string, limit: number) { const source = await get(id); if (!source?.embedding) return []; return [...await rows("note"),...await rows("entity")].filter(r => r.id !== id && r.embedding).sort((a,b) => cosine(b.embedding,source.embedding)-cosine(a.embedding,source.embedding)).slice(0,limit).map(node); },
+   async findSimilarCandidates(id: string, limit: number) {
+    if (!Number.isInteger(limit) || limit < 0) throw new Error("Invalid search limit");
+    if (limit === 0) return [];
+    const source = await get(id); if (!source?.embedding) return [];
+    const kind = id.split(":")[0];
+    if (kind !== "note" && kind !== "entity") return [];
+    const field = kind === "entity" ? "name" : "content";
+    const lexicalTexts = [kind === "entity" ? source.name : source.content, kind === "entity" ? source.description : undefined]
+      .filter((text): text is string => typeof text === "string" && !!text.trim());
+    const lexical = await Promise.all(lexicalTexts.map(text => query(
+      `SELECT *, search::score(1) AS score FROM ${table(kind)} WHERE ${field} @1@ $text ORDER BY score DESC LIMIT $limit`,
+      { text, limit: limit * 3 },
+    )));
+    const semantic = await query(
+      `SELECT *, vector::similarity::cosine(embedding, $vector) AS score FROM ${table(kind)} WHERE embedding != NONE ORDER BY score DESC LIMIT $limit`,
+      { vector: [...source.embedding], limit: limit * 3 },
+    );
+    return rankCandidates(
+      [...lexical, semantic.filter(row => row.score > 0)].map(list => list.filter(row => row.id !== id)),
+      limit,
+    ).map(node);
+   },
    async findUnlinkedCooccurrenceCandidates(limit: number) { const edges = await allEdges(); const refs = edges.filter(r => r.id.startsWith("references:") && r.in.startsWith("note:") && r.out.startsWith("entity:")); const pairs = new Map<string,any>(); for (const a of refs) for (const b of refs) if (a.in === b.in && a.out < b.out && !edges.some(e => (e.in === a.out && e.out === b.out) || (e.in === b.out && e.out === a.out))) { const key = `${a.out}|${b.out}`; const pair = pairs.get(key) ?? { fromId: a.out, toId: b.out, sharedNoteIds: [] }; if (!pair.sharedNoteIds.includes(a.in)) pair.sharedNoteIds.push(a.in); pairs.set(key,pair); } return [...pairs.values()].slice(0,limit); },
    async getIntakeChunks(ids: readonly string[]) { return (await Promise.all(ids.map(get))).filter(Boolean).map(r => chunk(r!)); },
    async claimIntakeBatch(worker: string, maxChars: number, leaseSeconds: number) { const records = (await rows("intake_chunk")).sort((a,b) => String(a.created_at).localeCompare(String(b.created_at)) || a.chunk_index-b.chunk_index); if (maxChars < 0) return undefined; const current = now(); const eligible = (r: Row) => !r.paused && (r.state === "ready" || (r.state === "retry_wait" && (!r.next_attempt_at || r.next_attempt_at <= current)) || (r.state === "leased" && r.lease_expires_at <= current)); const intakeBlocked = (intakeId: string) => records.some(row => row.intake_id === intakeId && (row.paused === true || (row.state === "leased" && row.lease_expires_at > current))); const head = records.find(r => !intakeBlocked(r.intake_id) && eligible(r) && !records.some(p => p.intake_id === r.intake_id && p.chunk_index < r.chunk_index && !eligible(p))); if (!head) return undefined; const chosen: Row[] = []; let size = 0; for (const r of records.filter(r => r.intake_id === head.intake_id).sort((a,b) => a.chunk_index-b.chunk_index)) { if (!eligible(r) || (chosen.length && size+r.content.length > maxChars)) break; chosen.push(r); size += r.content.length; } const token = randomUUID(); const updated = []; for (const r of chosen) { const row = await merge(r.id, { state: "leased", worker_id: worker, lease_token: token, lease_expires_at: new Date(clock().getTime()+leaseSeconds*1000), updated_at: new Date(now()) }); if (row) updated.push(chunk(row)); } return updated.length ? { lease_token: token, intake_id: head.intake_id, chunks: updated } : undefined; },

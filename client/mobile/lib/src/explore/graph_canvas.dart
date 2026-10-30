@@ -7,12 +7,50 @@ import 'explore_controller.dart';
 import '../persistence/models.dart';
 import '../widgets/memory_labels.dart';
 
+/// Keeps graph positions while a graph screen and its full-screen view share a
+/// workspace.
+///
+/// Automatic layout writes positions without notifying listeners. A user move
+/// pins the node and notifies every canvas that uses this controller.
+final class GraphCanvasController extends ChangeNotifier {
+  final Map<String, Offset> _positions = {};
+  final Set<String> _pinnedNodeIds = {};
+
+  Map<String, Offset> get positions => Map.unmodifiable(_positions);
+
+  Set<String> get pinnedNodeIds => Set.unmodifiable(_pinnedNodeIds);
+
+  void rememberGenerated(Map<String, Offset> positions) {
+    for (final entry in positions.entries) {
+      _positions.putIfAbsent(entry.key, () => entry.value);
+    }
+  }
+
+  void moveNode(String id, Offset position) {
+    final next = Offset(
+      math.max(16.0, position.dx),
+      math.max(16.0, position.dy),
+    );
+    if (_positions[id] == next && _pinnedNodeIds.contains(id)) return;
+    _positions[id] = next;
+    _pinnedNodeIds.add(id);
+    notifyListeners();
+  }
+
+  void reset() {
+    if (_positions.isEmpty && _pinnedNodeIds.isEmpty) return;
+    _positions.clear();
+    _pinnedNodeIds.clear();
+    notifyListeners();
+  }
+}
+
 /// A graph projection rendered with Flutter primitives.
 ///
-/// The canvas deliberately keeps edge identity separate from node identity.
-/// Parallel and unloaded edges remain individually tappable. [InteractiveViewer]
-/// owns pan and zoom while this widget owns deterministic item placement.
-final class GraphCanvas extends StatelessWidget {
+/// The canvas keeps edge identity separate from node identity. Parallel and
+/// unloaded edges remain individually tappable. [InteractiveViewer] owns pan
+/// and zoom while this widget owns placement and node movement.
+final class GraphCanvas extends StatefulWidget {
   const GraphCanvas({
     super.key,
     this.state,
@@ -25,6 +63,8 @@ final class GraphCanvas extends StatelessWidget {
     this.onEdgeSelected,
     this.height = 360,
     this.focusRevision = 0,
+    this.layoutController,
+    this.allowNodeDragging = true,
   });
 
   /// Pass a state projection when the parent owns rebuilds.
@@ -43,6 +83,8 @@ final class GraphCanvas extends StatelessWidget {
   final ValueChanged<String>? onEdgeSelected;
   final double height;
   final int focusRevision;
+  final GraphCanvasController? layoutController;
+  final bool allowNodeDragging;
 
   ExploreWorkspaceState get _state =>
       state ??
@@ -51,20 +93,111 @@ final class GraphCanvas extends StatelessWidget {
           status: WorkspaceItemStatus.loaded, nodes: const [], edges: const []);
 
   @override
+  State<GraphCanvas> createState() => _GraphCanvasState();
+}
+
+final class _GraphCanvasState extends State<GraphCanvas> {
+  _GraphLayout? _layout;
+  String? _layoutKey;
+  String? _draggingNodeId;
+  Offset? _dragStartPosition;
+  Offset? _dragStartLocalPosition;
+  bool _moveMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.layoutController?.addListener(_onLayoutControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant GraphCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.layoutController, widget.layoutController)) {
+      oldWidget.layoutController?.removeListener(_onLayoutControllerChanged);
+      widget.layoutController?.addListener(_onLayoutControllerChanged);
+      _layout = null;
+      _layoutKey = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.layoutController?.removeListener(_onLayoutControllerChanged);
+    super.dispose();
+  }
+
+  void _onLayoutControllerChanged() {
+    if (!mounted) return;
+    final layout = _layout;
+    final positions = widget.layoutController?.positions;
+    if (layout == null || positions == null) {
+      setState(() {
+        _layout = null;
+        _layoutKey = null;
+      });
+      return;
+    }
+    if (positions.isEmpty) {
+      setState(() {
+        _layout = null;
+        _layoutKey = null;
+      });
+      return;
+    }
+    setState(() => _layout = layout.withPositions(positions));
+  }
+
+  ExploreWorkspaceState get _state => widget._state;
+
+  _GraphLayout _ensureLayout(
+      ExploreWorkspaceState state, BuildContext context) {
+    final key = _layoutKeyFor(state);
+    if (_layout == null || key != _layoutKey) {
+      final controller = widget.layoutController;
+      final seedPositions = controller?.positions ?? _layout?.positions;
+      _layout = _GraphLayout.fromState(
+        state,
+        context,
+        seedPositions: seedPositions,
+        pinnedNodeIds: controller?.pinnedNodeIds,
+      );
+      _layoutKey = key;
+      controller?.rememberGenerated(_layout!.positions);
+    } else {
+      _layout = _layout!.updatedFor(state, context);
+    }
+    return _layout!;
+  }
+
+  String _layoutKeyFor(ExploreWorkspaceState state) {
+    final nodes = state.nodes.map((item) => item.node.id).toList()..sort();
+    final edges = state.edges
+        .map((item) => '${item.edge.id}|${item.edge.from}|${item.edge.to}')
+        .toList()
+      ..sort();
+    return '${nodes.join('\u0000')}\u0001${edges.join('\u0000')}';
+  }
+
+  @override
   Widget build(BuildContext context) {
     final projection = _state;
-    final layout = _GraphLayout.fromState(projection, context);
-    final width = math.max(900.0, layout.width);
-    final boardHeight = math.max(560.0, layout.height);
-    final edgeHandler =
-        onSelectEdge ?? onEdgeTap ?? onEdgeSelected ?? _controllerEdgeHandler;
-    final nodeHandler =
-        onSelectNode ?? onNodeTap ?? onNodeSelected ?? _controllerNodeHandler;
+    final layout = _ensureLayout(projection, context);
+    final width = math.max(720.0, layout.width);
+    final boardHeight = math.max(520.0, layout.height);
+    final edgeHandler = widget.onSelectEdge ??
+        widget.onEdgeTap ??
+        widget.onEdgeSelected ??
+        _controllerEdgeHandler;
+    final nodeHandler = widget.onSelectNode ??
+        widget.onNodeTap ??
+        widget.onNodeSelected ??
+        _controllerNodeHandler;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        height: height,
+        height: widget.height,
         decoration: BoxDecoration(
           border:
               Border.all(color: Theme.of(context).colorScheme.outlineVariant),
@@ -73,7 +206,11 @@ final class GraphCanvas extends StatelessWidget {
         child: _GraphViewport(
           layout: layout,
           selectedNodeId: projection.selectedNodeId,
-          focusRevision: focusRevision,
+          focusRevision: widget.focusRevision,
+          nodeMoveMode: _moveMode,
+          onNodeMoveModeChanged: widget.allowNodeDragging
+              ? (enabled) => setState(() => _moveMode = enabled)
+              : null,
           child: SizedBox(
             width: width,
             height: boardHeight,
@@ -93,7 +230,6 @@ final class GraphCanvas extends StatelessWidget {
                       (entry) => _edgeAction(
                         context,
                         entry.value,
-                        entry.key,
                         layout,
                         edgeHandler,
                       ),
@@ -111,13 +247,13 @@ final class GraphCanvas extends StatelessWidget {
   }
 
   void _controllerNodeHandler(String id) {
-    controller?.selectNode(id);
+    widget.controller?.selectNode(id);
   }
 
   void _controllerEdgeHandler(String id) {
     // Canvas interaction is intentionally non-blocking. Screens that want to
     // follow an edge provide [onSelectEdge] and await controller.followEdge.
-    final target = controller;
+    final target = widget.controller;
     if (target == null) return;
     unawaited(
       target
@@ -184,8 +320,9 @@ final class GraphCanvas extends StatelessWidget {
     _GraphLayout layout,
     ValueChanged<String>? handler,
   ) {
-    final offset = layout.nodePosition(item.node.id);
-    final selected = item.node.id == _state.selectedNodeId;
+    final id = item.node.id;
+    final offset = layout.nodePosition(id);
+    final selected = id == _state.selectedNodeId;
     final missing = item.status == WorkspaceItemStatus.missing;
     final isNew = item.status == WorkspaceItemStatus.newItem;
     final title = memoryTitle(item.node);
@@ -195,55 +332,110 @@ final class GraphCanvas extends StatelessWidget {
             ? 'New'
             : null;
     final scheme = Theme.of(context).colorScheme;
+    final dragging = _draggingNodeId == id;
+    final moveEnabled = widget.allowNodeDragging;
+    final directDrag = moveEnabled && _moveMode;
+    final holdDrag = moveEnabled && !_moveMode;
+    final gestureHint = directDrag
+        ? 'Drag to move this memory.'
+        : 'Long press, then drag to move this memory.';
+
     return Positioned(
       left: offset.dx,
       top: offset.dy,
       width: 180,
-      child: Opacity(
-        opacity: missing ? .42 : 1,
-        child: Card(
-          margin: EdgeInsets.zero,
-          color: selected ? scheme.primaryContainer : scheme.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(
-              color: selected
-                  ? scheme.primary
-                  : isNew
-                      ? scheme.tertiary
-                      : scheme.outlineVariant,
-              width: selected ? 2 : 1,
-            ),
-          ),
-          child: InkWell(
-            onTap: handler == null ? null : () => handler(item.node.id),
-            borderRadius: BorderRadius.circular(14),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall,
+      child: Semantics(
+        label: '$title. $gestureHint',
+        button: handler != null,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: directDrag ? (_) => _startNodeDrag(id) : null,
+          onPointerMove:
+              directDrag ? (event) => _moveNodeBy(id, event.delta) : null,
+          onPointerUp: directDrag ? (_) => _endNodeDrag(id) : null,
+          onPointerCancel: directDrag ? (_) => _endNodeDrag(id) : null,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPressStart: holdDrag
+                ? (details) => _startNodeDrag(id, details.localPosition)
+                : null,
+            onLongPressMoveUpdate: holdDrag
+                ? (details) => _moveNodeFromLongPress(id, details.localPosition)
+                : null,
+            onLongPressEnd: holdDrag ? (_) => _endNodeDrag(id) : null,
+            onLongPressCancel: holdDrag ? () => _endNodeDrag(id) : null,
+            child: Opacity(
+              opacity: missing ? .42 : 1,
+              child: Card(
+                margin: EdgeInsets.zero,
+                color: dragging
+                    ? scheme.secondaryContainer
+                    : selected
+                        ? scheme.primaryContainer
+                        : scheme.surface,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(
+                    color: dragging
+                        ? scheme.secondary
+                        : selected
+                            ? scheme.primary
+                            : isNew
+                                ? scheme.tertiary
+                                : scheme.outlineVariant,
+                    width: selected || dragging ? 2 : 1,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    item.expanded ? memoryKind(item.node) : 'Tap to explore',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  if (status != null) ...[
-                    const SizedBox(height: 5),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _StatusChip(label: status),
+                ),
+                child: InkWell(
+                  onTap: handler == null ? null : () => handler(id),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            if (moveEnabled)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 4),
+                                child: Icon(
+                                  Icons.drag_indicator,
+                                  size: 18,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          item.expanded
+                              ? memoryKind(item.node)
+                              : 'Tap to explore',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        if (status != null) ...[
+                          const SizedBox(height: 5),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: _StatusChip(label: status),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
-                ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -252,15 +444,52 @@ final class GraphCanvas extends StatelessWidget {
     );
   }
 
+  void _startNodeDrag(String id, [Offset? localPosition]) {
+    final layout = _layout;
+    if (layout == null || !layout.positions.containsKey(id)) return;
+    _draggingNodeId = id;
+    _dragStartPosition = layout.nodePosition(id);
+    _dragStartLocalPosition = localPosition ?? Offset.zero;
+  }
+
+  void _moveNodeBy(String id, Offset delta) {
+    final layout = _layout;
+    if (layout == null || _draggingNodeId != id) return;
+    _moveNodeTo(id, layout.nodePosition(id) + delta);
+  }
+
+  void _moveNodeFromLongPress(String id, Offset localPosition) {
+    final start = _dragStartPosition;
+    final initial = _dragStartLocalPosition;
+    if (start == null || initial == null || _draggingNodeId != id) return;
+    _moveNodeTo(id, start + localPosition - initial);
+  }
+
+  void _moveNodeTo(String id, Offset position) {
+    final layout = _layout;
+    if (layout == null || _draggingNodeId != id) return;
+    final next = layout.withNodePosition(id, position);
+    setState(() => _layout = next);
+    widget.layoutController?.moveNode(id, next.nodePosition(id));
+  }
+
+  void _endNodeDrag(String id) {
+    if (_draggingNodeId != id) return;
+    setState(() {
+      _draggingNodeId = null;
+      _dragStartPosition = null;
+      _dragStartLocalPosition = null;
+    });
+  }
+
   Widget _edgeAction(
     BuildContext context,
     WorkspaceEdge item,
-    int index,
     _GraphLayout layout,
     ValueChanged<String>? handler,
   ) {
-    final rawStart = layout.endpointPosition(item.edge.from, index);
-    final rawEnd = layout.endpointPosition(item.edge.to, index);
+    final rawStart = layout.endpointPosition(item.edge.from);
+    final rawEnd = layout.endpointPosition(item.edge.to);
     final curveOffset =
         _curveOffset(rawStart, rawEnd, layout.edgeOffset(item.edge.id));
     final start = rawStart + curveOffset;
@@ -328,12 +557,16 @@ final class _GraphViewport extends StatefulWidget {
     required this.layout,
     required this.selectedNodeId,
     required this.focusRevision,
+    required this.nodeMoveMode,
+    required this.onNodeMoveModeChanged,
     required this.child,
   });
 
   final _GraphLayout layout;
   final String? selectedNodeId;
   final int focusRevision;
+  final bool nodeMoveMode;
+  final ValueChanged<bool>? onNodeMoveModeChanged;
   final Widget child;
 
   @override
@@ -343,6 +576,7 @@ final class _GraphViewport extends StatefulWidget {
 final class _GraphViewportState extends State<_GraphViewport> {
   final _transform = TransformationController();
   Size _viewport = Size.zero;
+  bool _viewInitialized = false;
 
   @override
   void didUpdateWidget(covariant _GraphViewport oldWidget) {
@@ -350,7 +584,7 @@ final class _GraphViewportState extends State<_GraphViewport> {
     if (oldWidget.selectedNodeId != widget.selectedNodeId ||
         oldWidget.focusRevision != widget.focusRevision) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _focus();
+        if (mounted) _focusSelected();
       });
     }
   }
@@ -361,14 +595,21 @@ final class _GraphViewportState extends State<_GraphViewport> {
     super.dispose();
   }
 
-  void _focus() {
+  void _focusSelected() {
     final nodes = widget.layout.nodes;
     if (nodes.isEmpty || _viewport.isEmpty) return;
     final selected = widget.selectedNodeId;
-    final id = selected != null && nodes.containsKey(selected)
+    final id = selected != null && widget.layout.positions.containsKey(selected)
         ? selected
-        : nodes.keys.first;
-    _center(widget.layout.endpointPosition(id, 0), 1);
+        : widget.layout.positions.keys.first;
+    _center(widget.layout.endpointPosition(id),
+        _transform.value.getMaxScaleOnAxis().clamp(.6, 1.4).toDouble());
+  }
+
+  void _initializeView() {
+    if (_viewInitialized || _viewport.isEmpty) return;
+    _viewInitialized = true;
+    _fit();
   }
 
   void _center(Offset position, double scale) {
@@ -387,21 +628,14 @@ final class _GraphViewportState extends State<_GraphViewport> {
   }
 
   void _fit() {
-    final positions = [
-      ...widget.layout.positions.values,
-      ...widget.layout.unloadedPositions.values,
-    ];
-    if (positions.isEmpty) return;
-    final left = positions.map((point) => point.dx).reduce(math.min);
-    final top = positions.map((point) => point.dy).reduce(math.min);
-    final right = positions.map((point) => point.dx + 180).reduce(math.max);
-    final bottom = positions.map((point) => point.dy + 95).reduce(math.max);
+    final bounds = widget.layout.bounds;
+    if (bounds.isEmpty || _viewport.isEmpty) return;
     final scale = math
-        .min(_viewport.width / (right - left + 60),
-            _viewport.height / (bottom - top + 60))
+        .min(_viewport.width / (bounds.width + 56),
+            _viewport.height / (bounds.height + 56))
         .clamp(.2, 2.4)
         .toDouble();
-    _center(Offset((left + right) / 2, (top + bottom) / 2), scale);
+    _center(bounds.center, scale);
   }
 
   @override
@@ -411,14 +645,17 @@ final class _GraphViewportState extends State<_GraphViewport> {
           if (size != _viewport) {
             _viewport = size;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _focus();
+              if (mounted) _initializeView();
             });
           }
+          final scheme = Theme.of(context).colorScheme;
           return Stack(
             children: [
               Positioned.fill(
                 child: InteractiveViewer(
                   transformationController: _transform,
+                  panEnabled: !widget.nodeMoveMode,
+                  scaleEnabled: !widget.nodeMoveMode,
                   minScale: .2,
                   maxScale: 2.4,
                   boundaryMargin: const EdgeInsets.all(1000),
@@ -430,12 +667,24 @@ final class _GraphViewportState extends State<_GraphViewport> {
                 right: 12,
                 bottom: 12,
                 child: Material(
-                  color: Theme.of(context).colorScheme.surface,
+                  color: scheme.surface,
                   elevation: 2,
                   borderRadius: BorderRadius.circular(14),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (widget.onNodeMoveModeChanged != null)
+                        IconButton(
+                          tooltip: widget.nodeMoveMode
+                              ? 'Stop moving nodes'
+                              : 'Move nodes',
+                          onPressed: () => widget.onNodeMoveModeChanged!
+                              .call(!widget.nodeMoveMode),
+                          color: widget.nodeMoveMode ? scheme.primary : null,
+                          icon: Icon(widget.nodeMoveMode
+                              ? Icons.pan_tool
+                              : Icons.open_with),
+                        ),
                       IconButton(
                           tooltip: 'Zoom in',
                           onPressed: () => _zoom(1.25),
@@ -477,153 +726,538 @@ final class _StatusChip extends StatelessWidget {
 }
 
 final class _GraphLayout {
-  _GraphLayout(
-      {required this.positions,
-      required this.nodeSizes,
-      required this.unloadedSize,
-      required this.nodes,
-      required this.unloadedPositions,
-      required this.edgeOffsets,
-      this.width = 900,
-      this.height = 560});
+  _GraphLayout({
+    required this.positions,
+    required this.edges,
+    required this.nodeSizes,
+    required this.unloadedSize,
+    required this.nodes,
+    required this.unloadedPositions,
+    required this.edgeOffsets,
+    required this.bounds,
+  });
 
   final Map<String, Offset> positions;
+  final List<WorkspaceEdge> edges;
   final Map<String, Size> nodeSizes;
   final Size unloadedSize;
   final Map<String, WorkspaceNode> nodes;
   final Map<String, Offset> unloadedPositions;
   final Map<String, double> edgeOffsets;
-  final double width;
-  final double height;
+  final Rect bounds;
+
+  double get width => math.max(720.0, bounds.right + 56);
+  double get height => math.max(520.0, bounds.bottom + 56);
 
   factory _GraphLayout.fromState(
-      ExploreWorkspaceState state, BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    double textHeight(
-        String text, TextStyle? style, int maxLines, double width) {
-      final painter = TextPainter(
-        text: TextSpan(text: text, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-        maxLines: maxLines,
-        ellipsis: '…',
-      )..layout(maxWidth: width);
-      final height = painter.height;
-      painter.dispose();
-      return height;
-    }
+    ExploreWorkspaceState state,
+    BuildContext context, {
+    Map<String, Offset>? seedPositions,
+    Set<String>? pinnedNodeIds,
+  }) {
+    final measurements = _measureGraph(state, context);
+    final ids = measurements.ids;
+    final adjacency = _adjacency(state, ids);
+    final initial = _initialPositions(
+      state,
+      ids,
+      measurements.sizes,
+      measurements.unloadedSize,
+      adjacency,
+      seedPositions ?? const {},
+    );
+    final optimized = _optimizePositions(
+      ids,
+      measurements.sizes,
+      measurements.unloadedSize,
+      state.edges,
+      initial,
+      seedPositions ?? const {},
+      pinnedNodeIds ?? const {},
+    );
+    final normalized = _normalizePositions(optimized, ids);
+    return _GraphLayout._fromPositions(state, context, normalized);
+  }
 
-    final nodeSizes = <String, Size>{};
-    for (final item in state.nodes) {
-      final status = item.status == WorkspaceItemStatus.missing
-          ? 'Missing'
-          : item.status == WorkspaceItemStatus.newItem
-              ? 'New'
-              : null;
-      final title =
-          textHeight(memoryTitle(item.node), textTheme.titleSmall, 2, 158);
-      final kind = textHeight(
-          item.expanded ? memoryKind(item.node) : 'Tap to explore',
-          textTheme.bodySmall,
-          1,
-          158);
-      final statusHeight = status == null
-          ? 0.0
-          : 11 + textHeight(status, textTheme.labelSmall, 1, 144);
-      nodeSizes[item.node.id] = Size(180, 20 + title + 3 + kind + statusHeight);
-    }
-    final unloadedSize = Size(
-        180,
-        20 +
-            math.max(
-                18,
-                textHeight(
-                    connectedMemoryTitle(null), textTheme.bodySmall, 2, 133)));
-    final rowSpacing = math.max(
-        185.0,
-        nodeSizes.values.fold<double>(unloadedSize.height,
-                (height, size) => math.max(height, size.height)) +
-            60);
-    final positions = <String, Offset>{};
-    final nodes = <String, WorkspaceNode>{};
-    for (var index = 0; index < state.nodes.length; index++) {
-      final column = index % 3;
-      final row = index ~/ 3;
-      final node = state.nodes[index];
-      nodes[node.node.id] = node;
-      positions[node.node.id] =
-          Offset(56 + column * 285, 56 + row * rowSpacing);
+  factory _GraphLayout._fromPositions(ExploreWorkspaceState state,
+      BuildContext context, Map<String, Offset> positions) {
+    final measurements = _measureGraph(state, context);
+    final current = <String, Offset>{};
+    for (final id in measurements.ids) {
+      current[id] = positions[id] ?? const Offset(56, 56);
     }
     final unloadedPositions = <String, Offset>{};
-    final pairs = <String, List<WorkspaceEdge>>{};
-    for (final item in state.edges) {
-      for (final id in [item.edge.from, item.edge.to]) {
-        if (!positions.containsKey(id)) {
-          unloadedPositions.putIfAbsent(
-            id,
-            () => Offset(940, 56 + unloadedPositions.length * 185),
-          );
-        }
-      }
-      final endpoints = [item.edge.from, item.edge.to]..sort();
-      final key = '${endpoints[0]}\u0000${endpoints[1]}';
-      pairs.putIfAbsent(key, () => []).add(item);
+    for (final id in measurements.unloadedIds) {
+      unloadedPositions[id] = current[id]!;
     }
-    final edgeOffsets = <String, double>{};
-    for (final pair in pairs.values) {
-      final first = pair.first.edge;
-      final start = positions[first.from] ?? unloadedPositions[first.from]!;
-      final end = positions[first.to] ?? unloadedPositions[first.to]!;
-      final normal = _curveOffset(start, end, 1);
-      final spacing = normal == Offset.zero
-          ? _edgeTargetHeight + 8
-          : math.min(
-              normal.dx == 0
-                  ? double.infinity
-                  : (_edgeTargetWidth + 8) / normal.dx.abs(),
-              normal.dy == 0
-                  ? double.infinity
-                  : (_edgeTargetHeight + 8) / normal.dy.abs(),
-            );
-      for (var rank = 0; rank < pair.length; rank++) {
-        final edge = pair[rank].edge;
-        final direction = edge.from.compareTo(edge.to) <= 0 ? 1 : -1;
-        edgeOffsets[edge.id] =
-            (rank - (pair.length - 1) / 2) * spacing * direction;
-      }
-    }
-    final rows = (state.nodes.length + 2) ~/ 3;
+    final edgeOffsets = _calculateEdgeOffsets(
+      state.edges,
+      current,
+      measurements.sizes,
+      measurements.unloadedSize,
+    );
     return _GraphLayout(
-      positions: positions,
-      nodeSizes: nodeSizes,
-      unloadedSize: unloadedSize,
-      nodes: nodes,
-      unloadedPositions: unloadedPositions,
-      edgeOffsets: edgeOffsets,
-      width: unloadedPositions.isEmpty ? 56 + 3 * 285 : 1176,
-      height: math.max(
-          560,
-          56 +
-              math.max(math.max(1, rows), unloadedPositions.length) *
-                  rowSpacing),
+      positions: Map.unmodifiable(current),
+      edges: List.unmodifiable(state.edges),
+      nodeSizes: Map.unmodifiable(measurements.sizes),
+      unloadedSize: measurements.unloadedSize,
+      nodes: Map.unmodifiable({
+        for (final item in state.nodes) item.node.id: item,
+      }),
+      unloadedPositions: Map.unmodifiable(unloadedPositions),
+      edgeOffsets: Map.unmodifiable(edgeOffsets),
+      bounds:
+          _graphBounds(current, measurements.sizes, measurements.unloadedSize),
     );
   }
 
-  bool isLoaded(String id) => positions.containsKey(id);
+  _GraphLayout updatedFor(ExploreWorkspaceState state, BuildContext context) =>
+      _GraphLayout._fromPositions(state, context, positions);
+
+  _GraphLayout withPositions(Map<String, Offset> updates) {
+    final next = <String, Offset>{...positions};
+    for (final entry in updates.entries) {
+      if (next.containsKey(entry.key)) next[entry.key] = entry.value;
+    }
+    return _copyWithPositions(next);
+  }
+
+  _GraphLayout withNodePosition(String id, Offset position) {
+    if (!positions.containsKey(id)) return this;
+    final next = <String, Offset>{...positions};
+    next[id] = Offset(math.max(16.0, position.dx), math.max(16.0, position.dy));
+    return _copyWithPositions(next);
+  }
+
+  _GraphLayout _copyWithPositions(Map<String, Offset> next) {
+    return _GraphLayout(
+      positions: Map.unmodifiable(next),
+      edges: edges,
+      nodeSizes: nodeSizes,
+      unloadedSize: unloadedSize,
+      nodes: nodes,
+      unloadedPositions: Map.unmodifiable({
+        for (final id in unloadedPositions.keys) id: next[id]!,
+      }),
+      edgeOffsets: Map.unmodifiable(_calculateEdgeOffsets(
+        edges,
+        next,
+        nodeSizes,
+        unloadedSize,
+      )),
+      bounds: _graphBounds(next, nodeSizes, unloadedSize),
+    );
+  }
+
+  bool isLoaded(String id) => nodes.containsKey(id);
 
   WorkspaceNode? node(String id) => nodes[id];
 
   Offset nodePosition(String id) => positions[id] ?? unloadedNodePosition(id);
 
   Offset unloadedNodePosition(String id) =>
-      unloadedPositions[id] ?? Offset.zero;
+      unloadedPositions[id] ?? const Offset(56, 56);
 
   Size endpointSize(String id) => nodeSizes[id] ?? unloadedSize;
 
-  Offset endpointPosition(String id, int edgeIndex) =>
-      nodePosition(id) + endpointSize(id).center(Offset.zero);
-
   double edgeOffset(String id) => edgeOffsets[id] ?? 0;
+
+  Offset endpointPosition(String id) =>
+      nodePosition(id) + endpointSize(id).center(Offset.zero);
+}
+
+final class _GraphMeasurements {
+  _GraphMeasurements({
+    required this.ids,
+    required this.unloadedIds,
+    required this.sizes,
+    required this.unloadedSize,
+  });
+
+  final List<String> ids;
+  final List<String> unloadedIds;
+  final Map<String, Size> sizes;
+  final Size unloadedSize;
+}
+
+_GraphMeasurements _measureGraph(
+    ExploreWorkspaceState state, BuildContext context) {
+  final textTheme = Theme.of(context).textTheme;
+  double textHeight(String text, TextStyle? style, int maxLines, double width) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: maxLines,
+      ellipsis: '…',
+    )..layout(maxWidth: width);
+    final height = painter.height;
+    painter.dispose();
+    return height;
+  }
+
+  final sizes = <String, Size>{};
+  final loadedIds = <String>[];
+  for (final item in state.nodes) {
+    final status = item.status == WorkspaceItemStatus.missing
+        ? 'Missing'
+        : item.status == WorkspaceItemStatus.newItem
+            ? 'New'
+            : null;
+    final title =
+        textHeight(memoryTitle(item.node), textTheme.titleSmall, 2, 142);
+    final kind = textHeight(
+        item.expanded ? memoryKind(item.node) : 'Tap to explore',
+        textTheme.bodySmall,
+        1,
+        142);
+    final statusHeight = status == null
+        ? 0.0
+        : 11 + textHeight(status, textTheme.labelSmall, 1, 144);
+    sizes[item.node.id] = Size(180, 20 + title + 3 + kind + statusHeight);
+    loadedIds.add(item.node.id);
+  }
+  final unloadedSize = Size(
+    180,
+    20 +
+        math.max(
+          18.0,
+          textHeight(connectedMemoryTitle(null), textTheme.bodySmall, 2, 133),
+        ),
+  );
+  final unloadedSet = <String>{};
+  for (final item in state.edges) {
+    if (!sizes.containsKey(item.edge.from)) unloadedSet.add(item.edge.from);
+    if (!sizes.containsKey(item.edge.to)) unloadedSet.add(item.edge.to);
+  }
+  final unloadedIds = unloadedSet.toList()..sort();
+  final ids = <String>[...loadedIds];
+  ids.addAll(unloadedIds);
+  return _GraphMeasurements(
+    ids: ids,
+    unloadedIds: unloadedIds,
+    sizes: sizes,
+    unloadedSize: unloadedSize,
+  );
+}
+
+Map<String, Set<String>> _adjacency(
+    ExploreWorkspaceState state, List<String> ids) {
+  final adjacency = <String, Set<String>>{
+    for (final id in ids) id: <String>{},
+  };
+  for (final item in state.edges) {
+    adjacency[item.edge.from]?.add(item.edge.to);
+    adjacency[item.edge.to]?.add(item.edge.from);
+  }
+  return adjacency;
+}
+
+Map<String, Offset> _initialPositions(
+  ExploreWorkspaceState state,
+  List<String> ids,
+  Map<String, Size> sizes,
+  Size unloadedSize,
+  Map<String, Set<String>> adjacency,
+  Map<String, Offset> seeds,
+) {
+  if (ids.isEmpty) return {};
+  final positions = <String, Offset>{};
+  final seededIds = ids.where(seeds.containsKey).toSet();
+  for (final id in seededIds) {
+    positions[id] = seeds[id]!;
+  }
+
+  final selected = state.selectedNodeId;
+  final focusId =
+      selected != null && ids.contains(selected) ? selected : ids.first;
+  final seededCenters = seededIds
+      .map((id) => seeds[id]! + (sizes[id] ?? unloadedSize).center(Offset.zero))
+      .toList();
+  final anchor = seededCenters.isEmpty
+      ? const Offset(360, 260)
+      : seededCenters.reduce((a, b) => a + b) / seededCenters.length.toDouble();
+
+  final distances = <String, int>{focusId: 0};
+  final queue = <String>[focusId];
+  for (var index = 0; index < queue.length; index++) {
+    final current = queue[index];
+    for (final next in adjacency[current] ?? const <String>{}) {
+      if (distances.containsKey(next)) continue;
+      distances[next] = distances[current]! + 1;
+      queue.add(next);
+    }
+  }
+  final unseeded = ids.where((id) => !seededIds.contains(id)).toList();
+  if (unseeded.contains(focusId)) {
+    positions[focusId] =
+        anchor - (sizes[focusId] ?? unloadedSize).center(Offset.zero);
+  }
+  final groups = <int, List<String>>{};
+  for (final id in unseeded) {
+    if (id == focusId) continue;
+    final distance = math.max(1, distances[id] ?? 2);
+    groups.putIfAbsent(distance, () => []).add(id);
+  }
+  for (final group in groups.entries) {
+    group.value.sort();
+    final count = group.value.length;
+    for (var index = 0; index < count; index++) {
+      final id = group.value[index];
+      final phase = (_stableHash(id) % 360) * math.pi / 180;
+      final angle =
+          phase + (index / math.max(1, count).toDouble()) * math.pi * 2;
+      final radius = 120.0 * group.key;
+      final center =
+          anchor + Offset(math.cos(angle) * radius, math.sin(angle) * radius);
+      positions[id] = center - (sizes[id] ?? unloadedSize).center(Offset.zero);
+    }
+  }
+  return positions;
+}
+
+Map<String, Offset> _optimizePositions(
+  List<String> ids,
+  Map<String, Size> sizes,
+  Size unloadedSize,
+  List<WorkspaceEdge> edges,
+  Map<String, Offset> initial,
+  Map<String, Offset> seeds,
+  Set<String> pinned,
+) {
+  if (ids.length < 2) return {...initial};
+  final positions = <String, Offset>{...initial};
+  final endpointSizes = <String, Size>{
+    for (final id in ids) id: sizes[id] ?? unloadedSize,
+  };
+  final edgesByPair = <String, List<String>>{};
+  for (final item in edges) {
+    final endpoints = [item.edge.from, item.edge.to]..sort();
+    edgesByPair.putIfAbsent(
+        '${endpoints[0]}\u0000${endpoints[1]}',
+        () => [
+              item.edge.from,
+              item.edge.to,
+            ]);
+  }
+  final initialCenters = <String, Offset>{
+    for (final entry in initial.entries)
+      entry.key: entry.value + endpointSizes[entry.key]!.center(Offset.zero),
+  };
+  final seedCenters = <String, Offset>{
+    for (final entry in seeds.entries)
+      if (positions.containsKey(entry.key))
+        entry.key: entry.value + endpointSizes[entry.key]!.center(Offset.zero),
+  };
+  for (var iteration = 0; iteration < 90; iteration++) {
+    final forces = <String, Offset>{for (final id in ids) id: Offset.zero};
+    for (var left = 0; left < ids.length; left++) {
+      final first = ids[left];
+      final firstCenter =
+          positions[first]! + endpointSizes[first]!.center(Offset.zero);
+      for (var right = left + 1; right < ids.length; right++) {
+        final second = ids[right];
+        final secondCenter =
+            positions[second]! + endpointSizes[second]!.center(Offset.zero);
+        var delta = firstCenter - secondCenter;
+        var distance = delta.distance;
+        if (distance < .1) {
+          delta = Offset(
+              (_stableHash(first) % 17) - 8, (_stableHash(second) % 17) - 8);
+          distance = math.max(.1, delta.distance);
+        }
+        final unit = delta / distance;
+        final firstSize = endpointSizes[first]!;
+        final secondSize = endpointSizes[second]!;
+        final required = math.max(
+          (firstSize.width + secondSize.width) / 2 + 42,
+          (firstSize.height + secondSize.height) / 2 + 42,
+        );
+        final overlap = math.max(0.0, required - distance);
+        final magnitude = 5200 / math.max(distance, 40.0) + overlap * .25;
+        final push = unit * magnitude;
+        forces[first] = forces[first]! + push;
+        forces[second] = forces[second]! - push;
+      }
+    }
+    for (final pair in edgesByPair.values) {
+      final from = pair[0];
+      final to = pair[1];
+      if (!positions.containsKey(from) || !positions.containsKey(to)) continue;
+      final fromCenter =
+          positions[from]! + endpointSizes[from]!.center(Offset.zero);
+      final toCenter = positions[to]! + endpointSizes[to]!.center(Offset.zero);
+      var delta = toCenter - fromCenter;
+      var distance = delta.distance;
+      if (distance < .1) {
+        delta = const Offset(1, 0);
+        distance = 1;
+      }
+      final spring = delta / distance * ((distance - 270) * .016);
+      forces[from] = forces[from]! + spring;
+      forces[to] = forces[to]! - spring;
+    }
+    final cooling = 1 - iteration / 110;
+    for (final id in ids) {
+      if (pinned.contains(id) && seedCenters.containsKey(id)) {
+        positions[id] =
+            seedCenters[id]! - endpointSizes[id]!.center(Offset.zero);
+        continue;
+      }
+      var force = forces[id]!;
+      final center = positions[id]! + endpointSizes[id]!.center(Offset.zero);
+      final initialCenter = initialCenters[id];
+      if (initialCenter != null) force += (initialCenter - center) * .5;
+      final seed = seedCenters[id];
+      if (seed != null) force += (seed - center) * .055;
+      final distance = force.distance;
+      if (distance > 22) force = force / distance * 22;
+      positions[id] = positions[id]! + force * cooling;
+    }
+    _separateOverlaps(ids, positions, endpointSizes, pinned);
+  }
+  return positions;
+}
+
+void _separateOverlaps(
+  List<String> ids,
+  Map<String, Offset> positions,
+  Map<String, Size> sizes,
+  Set<String> pinned,
+) {
+  for (var left = 0; left < ids.length; left++) {
+    final first = ids[left];
+    for (var right = left + 1; right < ids.length; right++) {
+      final second = ids[right];
+      final a = positions[first]!;
+      final b = positions[second]!;
+      final firstSize = sizes[first]!;
+      final secondSize = sizes[second]!;
+      final overlapX =
+          math.min(a.dx + firstSize.width, b.dx + secondSize.width) -
+              math.max(a.dx, b.dx);
+      final overlapY =
+          math.min(a.dy + firstSize.height, b.dy + secondSize.height) -
+              math.max(a.dy, b.dy);
+      if (overlapX <= 0 || overlapY <= 0) continue;
+      final firstPinned = pinned.contains(first);
+      final secondPinned = pinned.contains(second);
+      if (overlapX < overlapY) {
+        final direction =
+            (a.dx + firstSize.width / 2) <= (b.dx + secondSize.width / 2)
+                ? -1.0
+                : 1.0;
+        final amount = overlapX + 12;
+        if (firstPinned && !secondPinned) {
+          positions[second] = b + Offset(-direction * amount, 0);
+        } else if (secondPinned && !firstPinned) {
+          positions[first] = a + Offset(direction * amount, 0);
+        } else {
+          positions[first] = a + Offset(direction * amount / 2, 0);
+          positions[second] = b + Offset(-direction * amount / 2, 0);
+        }
+      } else {
+        final direction =
+            (a.dy + firstSize.height / 2) <= (b.dy + secondSize.height / 2)
+                ? -1.0
+                : 1.0;
+        final amount = overlapY + 12;
+        if (firstPinned && !secondPinned) {
+          positions[second] = b + Offset(0, -direction * amount);
+        } else if (secondPinned && !firstPinned) {
+          positions[first] = a + Offset(0, direction * amount);
+        } else {
+          positions[first] = a + Offset(0, direction * amount / 2);
+          positions[second] = b + Offset(0, -direction * amount / 2);
+        }
+      }
+    }
+  }
+}
+
+Map<String, Offset> _normalizePositions(
+    Map<String, Offset> positions, List<String> ids) {
+  if (ids.isEmpty) return {};
+  var left = double.infinity;
+  var top = double.infinity;
+  for (final id in ids) {
+    left = math.min(left, positions[id]!.dx);
+    top = math.min(top, positions[id]!.dy);
+  }
+  final shift = Offset(56 - left, 56 - top);
+  return {
+    for (final id in ids) id: positions[id]! + shift,
+  };
+}
+
+Rect _graphBounds(
+    Map<String, Offset> positions, Map<String, Size> sizes, Size unloadedSize) {
+  if (positions.isEmpty) return Rect.zero;
+  var left = double.infinity;
+  var top = double.infinity;
+  var right = -double.infinity;
+  var bottom = -double.infinity;
+  for (final entry in positions.entries) {
+    final size = sizes[entry.key] ?? unloadedSize;
+    left = math.min(left, entry.value.dx);
+    top = math.min(top, entry.value.dy);
+    right = math.max(right, entry.value.dx + size.width);
+    bottom = math.max(bottom, entry.value.dy + size.height);
+  }
+  return Rect.fromLTRB(left, top, right, bottom);
+}
+
+Map<String, double> _calculateEdgeOffsets(
+  List<WorkspaceEdge> edges,
+  Map<String, Offset> positions,
+  Map<String, Size> sizes,
+  Size unloadedSize,
+) {
+  final pairs = <String, List<WorkspaceEdge>>{};
+  for (final item in edges) {
+    final endpoints = [item.edge.from, item.edge.to]..sort();
+    pairs
+        .putIfAbsent('${endpoints[0]}\u0000${endpoints[1]}', () => [])
+        .add(item);
+  }
+  final offsets = <String, double>{};
+  for (final pair in pairs.values) {
+    final first = pair.first.edge;
+    final start = positions[first.from] ?? const Offset(56, 56);
+    final end = positions[first.to] ?? const Offset(56, 56);
+    final startSize = sizes[first.from] ?? unloadedSize;
+    final endSize = sizes[first.to] ?? unloadedSize;
+    final normal = _curveOffset(
+      start + startSize.center(Offset.zero),
+      end + endSize.center(Offset.zero),
+      1,
+    );
+    final spacing = normal == Offset.zero
+        ? _edgeTargetHeight + 8
+        : math.min(
+            normal.dx == 0
+                ? double.infinity
+                : (_edgeTargetWidth + 8) / normal.dx.abs(),
+            normal.dy == 0
+                ? double.infinity
+                : (_edgeTargetHeight + 8) / normal.dy.abs(),
+          );
+    for (var index = 0; index < pair.length; index++) {
+      final edge = pair[index].edge;
+      final direction = edge.from.compareTo(edge.to) <= 0 ? 1 : -1;
+      offsets[edge.id] = (index - (pair.length - 1) / 2) * spacing * direction;
+    }
+  }
+  return offsets;
+}
+
+int _stableHash(String value) {
+  var hash = 0x811c9dc5;
+  for (final codeUnit in value.codeUnits) {
+    hash ^= codeUnit;
+    hash = (hash * 0x01000193) & 0x7fffffff;
+  }
+  return hash;
 }
 
 final class _GraphEdgesPainter extends CustomPainter {
@@ -639,10 +1273,9 @@ final class _GraphEdgesPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (var index = 0; index < edges.length; index++) {
-      final item = edges[index];
-      final rawStart = layout.endpointPosition(item.edge.from, index);
-      final rawEnd = layout.endpointPosition(item.edge.to, index);
+    for (final item in edges) {
+      final rawStart = layout.endpointPosition(item.edge.from);
+      final rawEnd = layout.endpointPosition(item.edge.to);
       final curveOffset =
           _curveOffset(rawStart, rawEnd, layout.edgeOffset(item.edge.id));
       final start =

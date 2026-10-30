@@ -182,6 +182,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('graph opens as a full-screen route with move controls',
+      (tester) async {
+    await launch(
+      tester,
+      _Gateway(),
+      initialWorkspace: const Workspace(
+        nodes: [WorkspaceNode(node: garden, expanded: true)],
+        edges: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Full-screen graph'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Exit full-screen graph'), findsOneWidget);
+    expect(find.byTooltip('Move nodes'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.tap(find.byTooltip('Exit full-screen graph'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Full-screen graph'), findsOneWidget);
+  });
+
   testWidgets('connections expose an accessibility tap action', (tester) async {
     final semantics = tester.ensureSemantics();
     try {
@@ -189,7 +210,12 @@ void main() {
       await search(tester);
       await tester.pumpAndSettle();
       final connection = find.bySemanticsLabel(RegExp(r'^References → Soil'));
-      expect(tester.getSemantics(connection).getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      expect(
+          tester
+              .getSemantics(connection)
+              .getSemanticsData()
+              .hasAction(SemanticsAction.tap),
+          isTrue);
     } finally {
       semantics.dispose();
     }

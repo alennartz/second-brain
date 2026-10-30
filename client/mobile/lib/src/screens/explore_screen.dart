@@ -69,6 +69,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   String? _notice;
   late final TextEditingController _searchController;
   late final FocusNode _searchFocus;
+  final GraphCanvasController _graphLayoutController = GraphCanvasController();
 
   @override
   void initState() {
@@ -92,10 +93,12 @@ final class _ExploreScreenState extends State<ExploreScreen> {
       _refreshing = false;
       _query = '';
       _searchController.clear();
+      _graphLayoutController.reset();
     }
     if (widget.controller != null) {
       if (!identical(widget.controller, _controller)) {
         _controllerFuture = null;
+        _graphLayoutController.reset();
         setState(() {
           _controller = widget.controller;
           _controllerFailure = null;
@@ -135,6 +138,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
   void dispose() {
     _searchController.dispose();
     _searchFocus.dispose();
+    _graphLayoutController.dispose();
     super.dispose();
   }
 
@@ -212,6 +216,13 @@ final class _ExploreScreenState extends State<ExploreScreen> {
                       : () => unawaited(_refresh(controller)),
                   icon: const Icon(Icons.refresh),
                 ),
+                IconButton(
+                  tooltip: 'Full-screen graph',
+                  onPressed: state.nodes.isEmpty && state.edges.isEmpty
+                      ? null
+                      : () => unawaited(_openFullscreen(controller)),
+                  icon: const Icon(Icons.fullscreen),
+                ),
                 PopupMenuButton<String>(
                   tooltip: 'Workspace options',
                   onSelected: (action) {
@@ -247,6 +258,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
                       height: constraints.maxHeight,
                       state: state,
                       focusRevision: _searchGeneration,
+                      layoutController: _graphLayoutController,
                       onSelectNode: (id) =>
                           unawaited(_expandNode(controller, id)),
                       onSelectEdge: (id) =>
@@ -453,6 +465,24 @@ final class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
+  Future<void> _openFullscreen(ExploreWorkspaceController controller) async {
+    final callback =
+        widget.onOpenDetail ?? widget.onOpenNode ?? widget.onNodeSelected;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => GraphFullscreenScreen(
+          title: widget.brainName == null
+              ? 'Graph'
+              : 'Graph · ${widget.brainName}',
+          controller: controller,
+          layoutController: _graphLayoutController,
+          onOpenDetail: callback,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _showDetails(
     ExploreWorkspaceController controller,
     String id,
@@ -548,6 +578,7 @@ final class _ExploreScreenState extends State<ExploreScreen> {
       _searchFailure = null;
     });
     await controller.clearWorkspace();
+    _graphLayoutController.reset();
     if (!mounted) return;
     setState(() => _notice = 'Workspace cleared.');
   }
@@ -612,6 +643,158 @@ final class _ExploreScreenState extends State<ExploreScreen> {
 
   bool _isMissingEdge(WorkspaceEdge edge) =>
       edge.status == WorkspaceItemStatus.missing;
+}
+
+final class GraphFullscreenScreen extends StatefulWidget {
+  const GraphFullscreenScreen({
+    super.key,
+    required this.title,
+    required this.controller,
+    this.layoutController,
+    this.onOpenDetail,
+  });
+
+  final String title;
+  final ExploreWorkspaceController controller;
+  final GraphCanvasController? layoutController;
+  final ValueChanged<String>? onOpenDetail;
+
+  @override
+  State<GraphFullscreenScreen> createState() => _GraphFullscreenScreenState();
+}
+
+final class _GraphFullscreenScreenState extends State<GraphFullscreenScreen> {
+  Object? _failure;
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.controller.state;
+    final selected = state.nodes.cast<WorkspaceNode?>().firstWhere(
+          (item) => item?.node.id == state.selectedNodeId,
+          orElse: () => null,
+        );
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Exit full-screen graph',
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.close),
+        ),
+        title: Text(widget.title),
+        actions: [
+          if (selected != null)
+            IconButton(
+              tooltip: 'Node details',
+              onPressed: () => unawaited(_showDetails(selected.node.id)),
+              icon: const Icon(Icons.subject),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            if (_loading) const LinearProgressIndicator(),
+            if (_failure != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(
+                  'Could not load that connection. Cached graph kept.',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (_, constraints) => GraphCanvas(
+                  height: constraints.maxHeight,
+                  state: state,
+                  layoutController: widget.layoutController,
+                  onSelectNode: (id) => unawaited(_openNode(id)),
+                  onSelectEdge: (id) => unawaited(_followEdge(id)),
+                ),
+              ),
+            ),
+            if (selected != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        memoryTitle(selected.node),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () =>
+                          unawaited(_showDetails(selected.node.id)),
+                      icon: const Icon(Icons.subject),
+                      label: const Text('Details'),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openNode(String id) async {
+    widget.controller.selectNode(id);
+    if (mounted) setState(() => _failure = null);
+    try {
+      if (mounted) setState(() => _loading = true);
+      await widget.controller.openNode(id);
+      if (mounted) setState(() => _loading = false);
+    } on Object catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _failure = Object();
+        });
+      }
+    }
+  }
+
+  Future<void> _followEdge(String id) async {
+    if (mounted) setState(() => _failure = null);
+    try {
+      if (mounted) setState(() => _loading = true);
+      await widget.controller.followEdge(id);
+      if (mounted) setState(() => _loading = false);
+    } on Object catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _failure = Object();
+        });
+      }
+    }
+  }
+
+  Future<void> _showDetails(String id) async {
+    final callback = widget.onOpenDetail;
+    if (callback != null) {
+      callback(id);
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => GraphNodeDetailScreen(
+          controller: widget.controller,
+          nodeId: id,
+          onNodeSelected: (_) {
+            if (mounted) setState(() {});
+          },
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
 }
 
 final class _ExploreAppBar extends StatelessWidget

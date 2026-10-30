@@ -64,6 +64,44 @@ void main() {
     });
   }
 
+  testWidgets('Move mode lets users drag a node', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final nodes = List.generate(
+      2,
+      (index) => WorkspaceNode(
+        node: GraphNode(id: 'entity:$index', table: 'entity', name: 'N$index'),
+      ),
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: GraphCanvas(
+          height: 560,
+          state: ExploreWorkspaceState(
+            status: WorkspaceItemStatus.loaded,
+            nodes: nodes,
+            edges: const [],
+          ),
+          onSelectNode: (_) {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Move nodes'));
+    await tester.pump();
+    final node = find.descendant(
+      of: find.byType(GraphCanvas),
+      matching: find.text('N0'),
+    );
+    final before = tester.getCenter(node);
+    final gesture = await tester.startGesture(before);
+    await tester.pump(const Duration(milliseconds: 100));
+    await gesture.moveBy(const Offset(80, 0));
+    await tester.pump();
+    await gesture.up();
+    expect(tester.getCenter(node).dx, greaterThan(before.dx + 20));
+  });
+
   testWidgets('Empty submission does not strand an active search',
       (tester) async {
     final gateway = _SearchGateway();

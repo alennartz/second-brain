@@ -101,6 +101,9 @@ args=(
     --mount "type=volume,source=$MOBILE_HOME_VOLUME,target=/tmp/mobile-home"
     --workdir /workspace/client/mobile
     --env HOME=/tmp/mobile-home
+    # Android Gradle resolves the debug keystore from Java's user.home, not
+    # HOME. Keep both paths aligned with the persistent container volume.
+    --env JAVA_TOOL_OPTIONS=-Duser.home=/tmp/mobile-home
     --env PUB_CACHE=/cache/pub
     --env GRADLE_USER_HOME=/cache/gradle
     --env FLUTTER_SUPPRESS_ANALYTICS=true

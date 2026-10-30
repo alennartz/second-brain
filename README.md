@@ -83,8 +83,9 @@ All commands accept `--server URL` and default to `http://localhost:8000`.
 ## Android mobile client
 
 The Android-first Flutter app provides Capture and one-shot Ask. It stores the
-server URL and one failed Capture draft. Use the project-owned containerized
-workflow on Linux hosts with Docker and host ADB:
+server URL, optional Cloudflare Access service-token credentials, and one failed
+Capture draft. The service-token secret uses Android secure storage. Use the
+project-owned containerized workflow on Linux hosts with Docker and host ADB:
 
 ```bash
 cp .env.mobile.example .env.mobile.local

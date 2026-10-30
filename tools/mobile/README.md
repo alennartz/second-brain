@@ -28,9 +28,9 @@ The repository mounts at `/workspace`. The app remains at
 Generated APKs stay in the host-visible
 `client/mobile/build/app/outputs/flutter-apk/` directory. Containers run with
 the caller's numeric UID and GID, so generated files remain editable. The
-container never mounts host ADB keys. The persistent mobile home volume keeps
-successive debug APKs signed by the same container-owned key, so `adb install
--r` can update the app without uninstalling it.
+container never mounts host ADB keys. Java's `user.home` points into the
+persistent mobile home volume, so successive debug APKs use the same signing
+key and `adb install -r` can update the app without uninstalling it.
 
 ## Local configuration
 

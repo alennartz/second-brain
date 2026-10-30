@@ -98,7 +98,8 @@ function isNonRetryableIngestError(error: string): boolean {
 function nonRetryableOutcome(errors: readonly string[]): Pick<IngestOutcome, "retryable"> {
   return errors.some(isNonRetryableIngestError) ? { retryable: false } : {};
 }
-export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
+export function createIngestWorkflow(d: WorkflowDependencies, guidance: string): IngestWorkflow {
+  const systemPrompt = `${ingestPrompt}\n\n${guidance}`;
   return { async run(batch, signal) {
     const diagnostics: IngestMutationDiagnostic[] = [];
     const pendingArguments = new Map<string, unknown>();
@@ -120,7 +121,7 @@ export function createIngestWorkflow(d: WorkflowDependencies): IngestWorkflow {
     try {
       if (signal?.aborted) return { clean: false, aborted: true, errors: [] };
       const freshnessAt = maxTimestamp(batch.chunks.map(chunk => chunk.capturedAt));
-      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt: ingestPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal, onEvent }));
+      const result = await withKnowledgeContext(freshnessAt ? { freshnessAt } : {}, () => d.runtime.run({ model: d.model, systemPrompt, prompt: JSON.stringify({ ...batch, chunks: [...batch.chunks].sort((a,b) => a.chunkIndex-b.chunkIndex) }), toolNames: [...ingestNames], signal, onEvent }));
       const errors = [...resultErrors(result, true), ...diagnostics.map(diagnostic => `Ingest mutation failed: ${JSON.stringify(diagnostic)}`)];
       const aborted = result.aborted || !!signal?.aborted;
       return { clean: !aborted && !errors.length, aborted, errors, ...nonRetryableOutcome(errors) };
@@ -146,7 +147,8 @@ const answerSchema = Type.Object({
   edgeIds: Type.Optional(Type.Array(Type.String(), { description: "Cited edge IDs returned by this session's read-tool results." })),
   unprocessedIds: Type.Optional(Type.Array(Type.String(), { description: "Cited raw evidence chunk IDs returned by this session's read-tool results." })),
 });
-export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
+export function createRecallWorkflow(d: WorkflowDependencies, guidance: string): RecallWorkflow {
+  const systemPrompt = `${recallPrompt}\n\n${guidance}`;
   return { async run(question, signal, hints = []) {
     signal?.throwIfAborted();
     const state: { answer?: RecallAnswer } = {};
@@ -190,7 +192,7 @@ export function createRecallWorkflow(d: WorkflowDependencies): RecallWorkflow {
     const followUpState = { requested: false };
     const result = await d.runtime.run({
       model: d.model,
-      systemPrompt: recallPrompt,
+      systemPrompt,
       prompt: JSON.stringify({ question, hints }),
       toolNames: [...readNames],
       customTools: tools,

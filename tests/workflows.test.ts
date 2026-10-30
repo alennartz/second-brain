@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  createDreamWorkflow, createIngestWorkflow, createRecallWorkflow,
+  createDreamWorkflow, createIngestWorkflow as createIngestWithGuidance, createRecallWorkflow as createRecallWithGuidance,
   type WorkflowDependencies, type WorkflowRuntime,
 } from "../src/workflows/workflows";
 
 const model = { provider: "test", model: "model", thinkingLevel: "off" as const };
+const ingestGuidance = readFileSync(new URL("../packages/pi-second-brain/skills/memory/ingest.md", import.meta.url), "utf8");
+const recallGuidance = readFileSync(new URL("../packages/pi-second-brain/skills/memory/recall.md", import.meta.url), "utf8");
+const createIngestWorkflow = (dependencies: WorkflowDependencies) => createIngestWithGuidance(dependencies, ingestGuidance);
+const createRecallWorkflow = (dependencies: WorkflowDependencies) => createRecallWithGuidance(dependencies, recallGuidance);
 const dreamGuidance = {
   deduplicate: readFileSync(new URL("../packages/pi-second-brain/skills/memory/deduplicate.md", import.meta.url), "utf8"),
   connect: readFileSync(new URL("../packages/pi-second-brain/skills/memory/connect.md", import.meta.url), "utf8"),
@@ -32,10 +36,10 @@ describe("ingest workflow", () => {
     expect(sorted(requests[0]!.toolNames)).toEqual(["memory_explore", "memory_get_node", "memory_search", "memory_store_edge", "memory_store_node", "memory_update_node"]);
     expect(requests[0]!.customTools ?? []).toEqual([]);
     expect(requests[0]!.model).toEqual(model);
-    expect(requests[0]!.systemPrompt).toContain("note payloads contain only kind, content, source, and summary");
-    expect(requests[0]!.systemPrompt).toContain("notes accept content, source, and summary");
-    expect(requests[0]!.systemPrompt).toContain("Search before writing");
-    expect(requests[0]!.systemPrompt).toContain("explicitly corrects");
+    expect(requests[0]!.systemPrompt).toContain(ingestGuidance);
+    expect(requests[0]!.systemPrompt).not.toContain(recallGuidance);
+    expect(requests[0]!.systemPrompt).not.toContain(dreamGuidance.deduplicate);
+    expect(requests[0]!.systemPrompt).not.toContain(dreamGuidance.connect);
     expect(requests[0]!.prompt).toContain("topic");
     expect(requests[0]!.prompt).toContain("capturedAt");
     expect(requests[0]!.prompt).toContain("2026-01-01T00:00:00Z");
@@ -101,7 +105,10 @@ describe("recall workflow", () => {
   test("passes caller hints into the recall operation", async () => {
     const workflow = createRecallWorkflow(dependencies(async request => {
       expect(request.prompt).toContain("project-alpha");
-      expect(request.systemPrompt).toContain("Never invent citations");
+      expect(request.systemPrompt).toContain(recallGuidance);
+      expect(request.systemPrompt).not.toContain(ingestGuidance);
+      expect(request.systemPrompt).not.toContain(dreamGuidance.deduplicate);
+      expect(request.systemPrompt).not.toContain(dreamGuidance.connect);
       const answerTool = request.customTools!.find(tool => tool.name === "answerRecall")!;
       expect(answerTool.description).toContain("validates each citation");
       expect(answerTool.promptGuidelines).toEqual(expect.arrayContaining([

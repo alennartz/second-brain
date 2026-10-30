@@ -5,43 +5,28 @@ description: Use when capturing, recalling, or organizing knowledge in the Secon
 
 # Second Brain Memory
 
-The brain is a graph. Notes hold captured text. Entities hold people, projects,
-and concepts. Typed edges relate them. A `references` edge from a note to an
-entity records that the note is evidence for the entity.
+The brain is a graph. Notes hold captured facts and source attribution. Entities
+hold people, projects, and concepts. Typed edges relate them.
 
 ## Recall
 
-Answer questions from stored knowledge.
-
-1. `memory_search` with the question text. It returns notes, entities, and
-   unprocessed evidence.
-2. `memory_get_node` or `memory_explore` on the returned IDs to verify and to
-   follow relationships.
-3. Answer using only IDs returned in this session. When nothing matches, say
-   so. Never invent citations.
-4. For related nodes without a known query, `memory_find_similar` takes a node
-   ID.
+Use the user's question and conversation context to scope the research. Read
+[recall.md](recall.md) before researching. Answer directly in the conversation
+with supporting citations. For related nodes without a known text query,
+`memory_find_similar` accepts a node ID.
 
 ## Capture
 
-Store new knowledge.
+Identify what the user wants remembered. Use only evidence they provided or
+identified. Read [ingest.md](ingest.md) before organizing it. Summarize what was
+stored or reconciled and report unresolved issues.
 
-1. One `memory_store_node` per independent fact. `kind: "note"` for source
-   text, `kind: "entity"` for people, projects, and concepts.
-2. `memory_store_edge` with type `references` from each note to the entities
-   it evidences. Endpoints must already exist.
-3. `memory_suggest_edges` lists entity pairs that share notes without an edge.
-   Candidates, not proof. Verify the shared notes before storing.
-4. `memory_update_node` applies one exact text edit. `oldText` must match the
-   current value exactly once.
-
-Long documents: store one note per paragraph or section, then link. Do not
-merge captures into existing notes. Each call creates a new node.
+For additional relationship discovery, `memory_suggest_edges` lists pairs
+that share notes. Read those notes before judging a candidate relationship.
 
 ## Maintenance
 
-Merging and edge cleanup use deferred tools that are not declared until
-activated. Read `dream.md` in this directory before doing maintenance work.
+Read [dream.md](dream.md) before doing graph maintenance.
 
 ## Tool map
 

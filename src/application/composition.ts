@@ -34,17 +34,19 @@ function edgeWire(edge: EdgeRecord): Record<string, unknown> {
   const { edgeType, freshnessAt, ...fields } = edge;
   return { ...fields, ...(freshnessAt === undefined ? {} : { freshness_at: freshnessAt }), table: edge.id.split(":")[0] };
 }
-function readDreamGuidance(cwd: string, packagePath: string, phase: "deduplicate" | "connect"): string {
-  const path = resolve(cwd, packagePath, `skills/memory/${phase}.md`);
+function readWorkflowGuidance(cwd: string, packagePath: string, workflow: "ingest" | "recall" | "deduplicate" | "connect"): string {
+  const path = resolve(cwd, packagePath, `skills/memory/${workflow}.md`);
   const content = readFileSync(path, "utf8").trim();
-  if (!content) throw new Error(`Empty dream guidance: ${path}`);
+  if (!content) throw new Error(`Empty workflow guidance: ${path}`);
   return content;
 }
 export function createProductionFactories(settings: Settings, modelRuntime: ModelRuntime, embedder: Embedder, cwd: string, agentDir: string): CompositionFactories<Embedder, Storage, IntakePipeline, DreamScheduler, ModelRuntime> {
   const runtime = createSdkAgentRuntime({ modelRuntime, cwd, agentDir, extensionPaths: [resolve(cwd, settings.piToolsPackage)] });
+  const ingestGuidance = readWorkflowGuidance(cwd, settings.piToolsPackage, "ingest");
+  const recallGuidance = readWorkflowGuidance(cwd, settings.piToolsPackage, "recall");
   const dreamGuidance = {
-    deduplicate: readDreamGuidance(cwd, settings.piToolsPackage, "deduplicate"),
-    connect: readDreamGuidance(cwd, settings.piToolsPackage, "connect"),
+    deduplicate: readWorkflowGuidance(cwd, settings.piToolsPackage, "deduplicate"),
+    connect: readWorkflowGuidance(cwd, settings.piToolsPackage, "connect"),
   };
   const workflowDependencies = (model: Settings["ingestModel"]) => ({ runtime, model });
   return {
@@ -53,7 +55,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
     createStorage: () => createEmbeddedStorage({ dbPath: settings.dbPath, embeddingDimensions: settings.embeddingDimensions, embedder }),
     createPipeline({ storage }) {
       return createIntakePipeline({
-        workflow: createIngestWorkflow(workflowDependencies(settings.ingestModel)), clock: systemClock,
+        workflow: createIngestWorkflow(workflowDependencies(settings.ingestModel), ingestGuidance), clock: systemClock,
         settings: { chunkMaxChars: settings.intake.chunkChars, workers: settings.intake.workerConcurrency, pollMs: settings.intake.pollIntervalSeconds * 1000, leaseRenewMs: settings.intake.leaseSeconds * 1000 / 3, retryBaseMs: settings.intake.retryBaseDelaySeconds * 1000, retryCapMs: settings.intake.retryMaxDelaySeconds * 1000, shutdownGraceMs: settings.intake.shutdownGraceSeconds * 1000 },
         queue: {
           async stageIntake(request, chunks) { return { chunksStored: await storage.createIntakeChunks(crypto.randomUUID(), chunks.map(c => ({ content: c.content, chunk_index: c.chunkIndex, total_chunks: c.totalChunks, hints: c.hints, source: c.source, captured_at: c.capturedAt })), request.idempotencyKey) }; },
@@ -77,7 +79,7 @@ export function createProductionFactories(settings: Settings, modelRuntime: Mode
       injectSecondBrainStorage(storage);
       const pendingDreamJobs = new Set<Promise<void>>();
       let shuttingDown = false;
-      const recall = createRecallService(createRecallWorkflow(workflowDependencies(settings.recallModel)), {
+      const recall = createRecallService(createRecallWorkflow(workflowDependencies(settings.recallModel), recallGuidance), {
         getNode: async id => { const node = await storage.getNode(id); return node ? nodeWire(node) : undefined; },
         getEdge: async id => { const edge = await storage.getEdge(id); return edge ? edgeWire(edge) : undefined; },
         getUnprocessed: async id => { const record = (await storage.getIntakeChunks([id]))[0]; if (!record) return undefined; return { ...Object.fromEntries(["id", "intake_id", "chunk_index", "total_chunks", "content", "source", "hints", "created_at", "captured_at"].map(key => [key, record[key as keyof typeof record]])), unprocessed: true }; },

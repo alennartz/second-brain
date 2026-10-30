@@ -76,12 +76,19 @@ each inside its corresponding system prompt. Server prompts retain target-ID
 context and scheduler ownership. The server does not load the direct Pi
 maintenance entry point.
 
-### Role files as the single source
+### Shared ingest and recall guidance
 
-Ingest and recall role files remain a possible next step. Dream already shares
-its procedures through the bundled phase documents above. Its server-specific
-prompt templates remain in code. Shared documents must not depend on host prompt
-sections or scheduler invocation details.
+The memory skill progressively loads `skills/memory/ingest.md` for capture and
+`skills/memory/recall.md` for research. The server renders those same documents
+inside separate workflow prompts. Batch, retry, and capture metadata belong to
+the server ingest prompt. Question/hints input and the `answerRecall` contract
+belong to the server recall prompt. Direct Pi entry points retain conversational
+scoping, direct answers, and optional tools unavailable to the server.
+
+Capture consolidates repeated or extended facts into existing notes while
+preserving source attribution. It reconciles explicit naming corrections and
+chooses evidence edge types and directions from the evidence. Shared guidance
+must not depend on host invocation details or server-only tools.
 
 ### Package contract versus my-pi veneer
 
@@ -140,7 +147,6 @@ session, which ephemeral CLI use does not provide.
 
 - Bridge lifecycle under multi-session sharing: refcount sessions or close
   only at process exit.
-- Recall skill body versus recall role file: embed or point.
 - Ingest routing threshold and whether the librarian persona ships in the
   package as an inert extra or installs into the agent dir.
 - Model authority rule if any pin ever moves into role files: persona default,

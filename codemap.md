@@ -104,7 +104,7 @@ Provides validated embedding calls and an OpenAI provider adapter, independent o
 
 Ships the knowledge tools as a pi package: one idiomatic extension file per tool, a typed graph library, and a storage bridge.
 
-**Responsibilities:** TypeBox input and output schemas, graph business rules as free functions over storage, cancellation scoping, storage resolution (injected instance, injected configuration, or Pi settings with env-var and command secrets), session lifecycle cleanup, direct Pi maintenance entry point and shared phase guidance in `skills/memory/deduplicate.md` and `skills/memory/connect.md`
+**Responsibilities:** TypeBox input and output schemas, graph business rules as free functions over storage, cancellation scoping, storage resolution (injected instance, injected configuration, or Pi settings with env-var and command secrets), session lifecycle cleanup, direct Pi memory entry points and shared workflow guidance in `skills/memory/ingest.md`, `recall.md`, `deduplicate.md`, and `connect.md`
 
 **Dependencies:** Core for domain types, Storage for persistence, Embeddings for self-initialized storage
 
@@ -144,7 +144,7 @@ Defines typed HTTP contracts and adapts Elysia routes to the application boundar
 
 Composes production dependencies and owns application startup, shutdown, and HTTP-facing services.
 
-**Responsibilities:** shared runtime composition, storage injection into the Pi package bridge, loading bundled phase guidance for separate dream prompts, startup ordering, partial-start cleanup, worker shutdown, storage closure, intake and recall services, graph wire projections, hybrid search and ordered batch graph refresh, in-memory dream-job lifecycle, Bun entry point
+**Responsibilities:** shared runtime composition, storage injection into the Pi package bridge, loading bundled guidance for separate ingest, recall, and dream prompts, startup ordering, partial-start cleanup, worker shutdown, storage closure, intake and recall services, graph wire projections, hybrid search and ordered batch graph refresh, in-memory dream-job lifecycle, Bun entry point
 
 **Dependencies:** Core, Embeddings, Storage, Pi package bridge, Agent runtime, Workflows, HTTP contracts
 

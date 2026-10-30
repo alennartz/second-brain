@@ -42,8 +42,6 @@ merge captures into existing notes. Each call creates a new node.
 
 Merging and edge cleanup use deferred tools that are not declared until
 activated. Read `dream.md` in this directory before doing maintenance work.
-The maintenance procedure accepts target IDs from its host. It does not assume
-that it must select a batch itself.
 
 ## Tool map
 

@@ -22,10 +22,11 @@ still open.
 - Direct Pi use registers the package through `.pi/settings.json`. Relative
   package sources resolve from the settings file directory, so the entry is
   `../packages/pi-second-brain`.
-- Two separate databases exist today: the server owns `BRAIN_DB_PATH`, Pi
-  sessions use `data/pi-local.surreal`. The parallel uses share a repo, not a
-  brain. Every server-ingested note is invisible to terminal sessions and
-  back.
+- Two databases by design. The server owns `BRAIN_DB_PATH`; Pi sessions use
+  `data/pi-local.surreal`. Direct tool use is intentionally separate from the
+  server: a local brain, not a view of the server's. Consolidation happens
+  later by pointing Pi sessions at the server as clients instead of using
+  local shared tools.
 
 ## Established constraints
 
@@ -48,10 +49,10 @@ files are inert. A server parsing my-pi's file format would be a hard
 dependency and stays forbidden.
 
 **SurrealKV is single-process.** It is an embedded engine: in-process,
-file-owning, exclusive. The multi-node claims on the website describe
-SurrealDB in server mode clustering on distributed backends (TiKV,
-FoundationDB). No backend allows two processes to open one embedded file. A
-shared brain across concurrent sessions requires a database server process.
+file-owning, exclusive across processes. It supports concurrent access within
+one process. The multi-node claims on the website describe SurrealDB in
+server mode clustering on distributed backends (TiKV, FoundationDB). No
+backend allows two processes to open one embedded file.
 
 **Idle scheduling needs one long-lived process.** Ephemeral CLI sessions never
 accumulate quiet time and would race each other. Dream cadence belongs to a
@@ -100,21 +101,22 @@ Absent: nothing breaks.
 
 ### Storage and concurrency
 
-Embedded SurrealKV fit the original design but cannot serve concurrent
-sessions, which is a required use case. The direction that preserves one brain:
+Embedded SurrealKV stays the engine. Concurrency resolves by process shape,
+not by a database daemon:
 
-- Run SurrealDB as a server process (systemd service). Every client, Bun
-  server and Pi session alike, connects by URL (`ws://host:port/rpc`).
-- The storage adapter takes a connection URL instead of a file path. The
-  schema-init and transaction code flows through the same SDK calls.
-- Bridge config grows `url` alongside `dbPath`, same ladder, same secret
-  rules.
-- Scaling path: one node now; a cluster on a distributed backend later, with
-  no client change, because clients hold URLs, not paths.
-
-Rejected alternative: Pi sessions calling the Bun server over HTTP. The HTTP
-surface carries none of the tool semantics, and the package would need an
-HTTP client bridge that is strictly worse than native SDK connections.
+- A single process hosting many sessions (pimote) shares one embedded storage
+  instance naturally: the bridge caches its self-created storage on
+  `globalThis`, every session in the process reuses it, and SurrealKV supports
+  concurrent access within one process.
+- Known gap for that shape: `extensions/bridge-lifecycle.ts` closes
+  self-created storage on `session_shutdown`, so the first session ending
+  would close the shared instance under the others. Sharing needs a refcount
+  or a leave-open-on-exit rule.
+- The later consolidation step, when Pi sessions become clients of the
+  server, replaces the local bridge entirely for those sessions.
+- If a database server ever becomes necessary anyway, the adapter change is a
+  connection URL in place of a file path; the SDK calls stay the same, and
+  clients scale from one embedded file to a cluster without client changes.
 
 ### Dream trigger options
 
@@ -129,8 +131,8 @@ session, which ephemeral CLI use does not provide.
 
 ## Open decisions
 
-- Storage: accept the daemon, or keep embedded and accept split brains per
-  context. Current leaning: daemon, because concurrent sessions are required.
+- Bridge lifecycle under multi-session sharing: refcount sessions or close
+  only at process exit.
 - Recall skill body versus recall role file: embed or point.
 - Ingest routing threshold and whether the librarian persona ships in the
   package as an inert extra or installs into the agent dir.
@@ -141,7 +143,7 @@ session, which ephemeral CLI use does not provide.
 
 ## Candidate next steps
 
-1. Storage adapter accepts a connection URL; config grows the matching field.
+1. Fix bridge lifecycle for multi-session sharing (refcount or exit-close).
 2. Move the four workflow prompts into `roles/`; server reads them; behavior
    identical.
 3. Add the two dream tools, registered inactive.
